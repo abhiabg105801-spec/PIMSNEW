@@ -6,7 +6,7 @@ import ReportViewer from "./pages/ReportViewer";
 import PlantShutdownPage from "./pages/PlantShutdownPage";
 import KpiChartsPage from "./pages/KpiChartsPage";
 import KpiRangeViewer from "./pages/KpiRangeViewer";
-import logo from "./JSL-Black.jpg"; 
+
 
 export default function App() {
   const [authHeader, setAuthHeader] = useState(null);
@@ -50,7 +50,7 @@ function Layout({ authHeader, setAuthHeader }) {
           <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-3">
             {/* ✅ 2. Logo size adjusted to w-24 h-14 (will fit in h-16 bar) */}
             <img
-              src={logo}
+             
               alt="JSL Logo"
               className="w-30 h-10 object-contain" 
             />

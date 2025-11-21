@@ -1,3 +1,4 @@
+# backend/main.py
 from fastapi import FastAPI, HTTPException, Depends, Body, Form, UploadFile, File,Query, Request
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -57,11 +58,11 @@ def read_root():
 
 # --- Event Handlers (Optional: Create tables on startup) ---
 # Uncomment to create tables when the server starts
-#@app.on_event("startup")
-#async def on_startup():
-    #print("Creating database tables...")
-    #await create_tables()
-    #print("Database tables created.")
+@app.on_event("startup")
+async def on_startup():
+    print("Creating database tables...")
+    await create_tables()
+    print("Database tables created.")
 
 
 
