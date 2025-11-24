@@ -28,7 +28,7 @@ pip install -r requirements.txt
 
 REM ========= START BACKEND (FASTAPI) ============
 echo Starting Backend Server at http://127.0.0.1:8002
-start cmd /k "cd backend && venv\Scripts\activate && uvicorn main:app --host 0.0.0.0 --port 8002"
+start cmd /k "cd backend && venv\Scripts\activate && uvicorn main:app --host 0.0.0.0 --port 8080"
 
 cd ..
 

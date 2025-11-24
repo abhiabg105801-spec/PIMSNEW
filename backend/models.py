@@ -15,6 +15,7 @@ class UnitReportDB(Base):
     report_date = Column(DateTime, index=True, nullable=False)
 
     # Performance
+    totalizer_mu = Column(Float, nullable=True)
     generation_mu = Column(Float, nullable=True)
     plf_percent = Column(Float, nullable=True)
     running_hour = Column(Float, nullable=True)
@@ -175,6 +176,7 @@ class UnitReport(BaseModel):
     unit: str
     report_date: datetime # Keep as date for API input
     edit_password: Optional[str] = None
+    totalizer_mu: Optional[float] = None
     generation_mu: Optional[float] = None
     plf_percent: Optional[float] = None
     running_hour: Optional[float] = None

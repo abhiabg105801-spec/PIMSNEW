@@ -57,11 +57,11 @@ def read_root():
 
 # --- Event Handlers (Optional: Create tables on startup) ---
 # Uncomment to create tables when the server starts
-#@app.on_event("startup")
-#async def on_startup():
-    #print("Creating database tables...")
-    #await create_tables()
-    #print("Database tables created.")
+@app.on_event("startup")
+async def on_startup():
+    print("Creating database tables...")
+    await create_tables()
+    print("Database tables created.")
 
 
 
@@ -92,17 +92,23 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 # -------------------- UNIT REPORT ROUTES --------------------
-
 @app.post("/api/reports/", dependencies=[Depends(verify_user)], status_code=201)
 async def add_or_update_report(
-    report: models.UnitReport, # Pydantic model handles validation directly
+    report: models.UnitReport,  # Pydantic model
     db: AsyncSession = Depends(get_db)
 ):
-    # Pydantic validator ensures 'report.report_date' is a valid Python date object
+    """
+    Handles CREATE or UPDATE of Unit Daily Reports.
+    Update rules:
+      - If modifying originally filled fields → password required
+      - If only filling previously NULL fields → NO password required
+    """
+
+    # Convert date
     report_datetime = datetime.combine(report.report_date, datetime.min.time())
     edit_password = report.edit_password
 
-    # Check if report exists
+    # Query existing record
     stmt = select(models.UnitReportDB).where(
         models.UnitReportDB.unit == report.unit,
         models.UnitReportDB.report_date == report_datetime
@@ -110,54 +116,100 @@ async def add_or_update_report(
     result = await db.execute(stmt)
     existing_report = result.scalar_one_or_none()
 
-    # Prepare data dict excluding password for DB operations
-    report_dict_for_db = report.dict(exclude_unset=True, exclude_none=True, exclude={'edit_password'})
-    # Ensure the correct datetime object is used for the DB key
-    report_dict_for_db['report_date'] = report_datetime
+    # Prepare fields for DB (remove password & unset values)
+    report_dict = report.dict(
+        exclude_unset=True,
+        exclude_none=True,
+        exclude={"edit_password"}
+    )
+    report_dict["report_date"] = report_datetime  # enforce correct date
 
-    if existing_report:
-        if edit_password != "EDIT@123":
-            raise HTTPException(status_code=403, detail="Edit password required or incorrect.")
+    # -------------------------------------------------------------
+    # CASE 1: NEW REPORT (no record exists)
+    # -------------------------------------------------------------
+    if existing_report is None:
+        new_report = models.UnitReportDB(**report_dict)
+        db.add(new_report)
 
-        update_values = report_dict_for_db
-        update_values.pop('unit', None)
-        update_fields_to_set = {k: v for k, v in update_values.items() if k != 'report_date'}
-
-        if not update_fields_to_set:
-             pydantic_report_for_agg = models.UnitReport.from_orm(existing_report)
-             await update_aggregates(pydantic_report_for_agg, db)
-             return {"message": "No values provided to update, aggregates potentially refreshed."}
-
-        stmt = update(models.UnitReportDB).where(
-            models.UnitReportDB.id == existing_report.id
-        ).values(**update_fields_to_set)
-
-        await db.execute(stmt)
-        await db.commit()
-
-        updated_db_report = await db.get(models.UnitReportDB, existing_report.id)
-        if updated_db_report:
-             pydantic_report_for_agg = models.UnitReport.from_orm(updated_db_report)
-             await update_aggregates(pydantic_report_for_agg, db)
-        return {"message": "Report updated successfully"}
-    else:
-        # Create new
-        db_report = models.UnitReportDB(**report_dict_for_db)
-        db.add(db_report)
         try:
             await db.commit()
-            await db.refresh(db_report)
-            pydantic_report_for_agg = models.UnitReport.from_orm(db_report)
-            await update_aggregates(pydantic_report_for_agg, db)
-            return {"message": "Report added successfully"}
-        except IntegrityError:
-             await db.rollback()
-             raise HTTPException(status_code=400, detail="Report for this unit and date might already exist.")
-        except Exception as e:
-             await db.rollback()
-             print(f"Error creating report: {e}")
-             raise HTTPException(status_code=500, detail="Could not save report to database.")
+            await db.refresh(new_report)
 
+            # Update aggregates (your existing logic)
+            pydantic_report = models.UnitReport.from_orm(new_report)
+            await update_aggregates(pydantic_report, db)
+
+            return {"message": "Report added successfully"}
+
+        except IntegrityError:
+            await db.rollback()
+            raise HTTPException(status_code=400, detail="Report for this unit/date already exists.")
+        except Exception as e:
+            await db.rollback()
+            print("Error creating report:", e)
+            raise HTTPException(status_code=500, detail="Could not save report.")
+
+    # -------------------------------------------------------------
+    # CASE 2: UPDATE EXISTING REPORT
+    # -------------------------------------------------------------
+
+    changed_fields = []
+    only_new_fields_added = True  # becomes False if modifying originally-filled values
+
+    # Compare new values with DB values
+    for field, new_value in report_dict.items():
+        if field in ["unit", "report_date"]:
+            continue
+
+        old_value = getattr(existing_report, field, None)
+
+        if new_value != old_value:
+            changed_fields.append(field)
+
+            # If DB had old_value (not NULL/empty) → password required
+            if old_value not in [None, "", 0]:
+                only_new_fields_added = False
+
+    # --- Password Rules ---
+    # NO password needed when:
+    #   ✓ record exists
+    #   ✓ but all changes are NEW fields that were previously NULL
+    #
+    # Password IS required when:
+    #   ✓ any originally-filled DB fields were modified
+    if not only_new_fields_added:
+        if edit_password != "EDIT@123":
+            raise HTTPException(
+                status_code=403,
+                detail="Edit password required or incorrect."
+            )
+
+    # If no field changed
+    if len(changed_fields) == 0:
+        pydantic_report = models.UnitReport.from_orm(existing_report)
+        await update_aggregates(pydantic_report, db)
+        return {"message": "No values changed. Aggregates refreshed."}
+
+    # Build update dict (exclude unit & report_date)
+    update_payload = {
+        k: v for k, v in report_dict.items()
+        if k not in ["unit", "report_date"]
+    }
+
+    stmt = update(models.UnitReportDB).where(
+        models.UnitReportDB.id == existing_report.id
+    ).values(**update_payload)
+
+    await db.execute(stmt)
+    await db.commit()
+
+    updated = await db.get(models.UnitReportDB, existing_report.id)
+
+    if updated:
+        pydantic_report = models.UnitReport.from_orm(updated)
+        await update_aggregates(pydantic_report, db)
+
+    return {"message": "Report updated successfully"}
 
 @app.get("/api/reports/single/{unit}/{report_date}", response_model=models.UnitReport, dependencies=[Depends(verify_user)])
 async def get_single_report(unit: str, report_date: date, db: AsyncSession = Depends(get_db)):
