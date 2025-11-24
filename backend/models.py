@@ -2,7 +2,11 @@ from pydantic import BaseModel, field_validator
 from datetime import date, datetime, time
 from typing import Optional
 
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Time, UniqueConstraint, Index
+from sqlalchemy import (
+    Column, Integer, String, Float, Date, DateTime, Time,
+    UniqueConstraint, Index, ForeignKey, Boolean
+)
+from sqlalchemy.orm import relationship
 from database import Base # Import Base from our new database.py
 
 # --- SQLAlchemy Models (Database Tables) ---
@@ -283,6 +287,87 @@ class StationAggregateResponse(BaseModel):
     ro_plant_running_hrs: Optional[float] = None
     ro_plant_il: Optional[float] = None
     ro_plant_ol: Optional[float] = None
+
+    class Config:
+        from_attributes = True
+
+# ============================================================
+# ADDING USER / ROLE / PERMISSION MODELS
+# ============================================================
+
+# --- SQLAlchemy Models ---
+
+class RoleDB(Base):
+    __tablename__ = "roles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, unique=True, nullable=False)
+    description = Column(String, nullable=True)
+
+    users = relationship("UserDB", back_populates="role")
+    permissions = relationship("PermissionDB", back_populates="role")
+
+
+class UserDB(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    full_name = Column(String, nullable=True)
+    role_id = Column(Integer, ForeignKey("roles.id"))
+    is_active = Column(Boolean, default=True)
+
+    role = relationship("RoleDB", back_populates="users")
+
+
+class PermissionDB(Base):
+    __tablename__ = "permissions"
+
+    id = Column(Integer, primary_key=True)
+    role_id = Column(Integer, ForeignKey("roles.id"))
+    field_name = Column(String)     # e.g. "coal_consumption_t"
+    can_edit = Column(Boolean, default=False)
+    can_view = Column(Boolean, default=True)
+
+    role = relationship("RoleDB", back_populates="permissions")
+
+
+# ============================================================
+# PYDANTIC MODELS FOR AUTH SYSTEM
+# ============================================================
+
+class UserCreate(BaseModel):
+    username: str
+    password: str
+    full_name: str
+    role_id: int
+
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+
+class UserOut(BaseModel):
+    id: int
+    username: str
+    full_name: Optional[str]
+    role_id: int
+
+    class Config:
+        from_attributes = True
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class PermissionOut(BaseModel):
+    field_name: str
+    can_edit: bool
+    can_view: bool
 
     class Config:
         from_attributes = True

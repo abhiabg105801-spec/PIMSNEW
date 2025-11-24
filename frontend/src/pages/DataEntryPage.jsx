@@ -96,6 +96,26 @@ export default function DataEntryPage({ auth }) {
 
   const API_URL = "http://localhost:8080/api";
 
+
+  const api = axios.create({
+    baseURL: API_URL,
+    headers: {
+      Authorization: auth,  // "Bearer <jwt>"
+    },
+  });
+
+  // Auto-logout if JWT expired → backend returns 401
+  api.interceptors.response.use(
+    (res) => res,
+    (err) => {
+      if (err.response?.status === 401) {
+        localStorage.removeItem("authToken");
+        window.location.reload(); // force logout
+      }
+      return Promise.reject(err);
+    }
+  );
+
   // --- EFFECTS ---
 
   useEffect(() => {
@@ -267,9 +287,7 @@ export default function DataEntryPage({ auth }) {
     setUnitFetching(true);
     setUnitMessage("");
     try {
-      const res = await axios.get(`${API_URL}/reports/single/${unitForm.unit}/${reportDate}`, {
-        headers: { Authorization: auth }
-      });
+      const res = await api.get(`/reports/single/${unitForm.unit}/${reportDate}`);
 
       if (res.data) {
         const loadedData = { ...initialUnitFormState, unit: unitForm.unit };
@@ -311,9 +329,7 @@ export default function DataEntryPage({ auth }) {
       d.setDate(d.getDate() - 1);
       const prevDateStr = d.toISOString().slice(0, 10);
 
-      const prevRes = await axios.get(`${API_URL}/reports/single/${unitForm.unit}/${prevDateStr}`, {
-        headers: { Authorization: auth }
-      });
+      const prevRes = await api.get(`/reports/single/${unitForm.unit}/${prevDateStr}`);
 
       const prevTotal = prevRes.data?.totalizer_mu ?? "";
       setUnitForm((prev) => ({ ...prev, prev_totalizer: prevTotal }));
@@ -331,7 +347,7 @@ export default function DataEntryPage({ auth }) {
     setStationFetching(true);
     setStationMessage("");
     try {
-      const res = await axios.get(`${API_URL}/reports/station/${reportDate}`, { headers: { Authorization: auth } });
+      const res = await api.get(`/reports/station/${reportDate}`);
       if (res.data) {
         const loadedData = {};
         Object.keys(initialStationFormState).forEach((key) => {
@@ -449,7 +465,7 @@ export default function DataEntryPage({ auth }) {
     if (isEditing && editPassword) dataToSend.edit_password = editPassword;
 
     try {
-      await axios.post(`${API_URL}/reports/`, dataToSend, { headers: { Authorization: auth } });
+      await api.post(`/reports/`, dataToSend);
       setUnitMessage(isEditing ? "✅ Report updated successfully" : "✅ Report added successfully");
       setIsEditing(true);
       // after successful save, update original snapshot to current values
@@ -492,7 +508,7 @@ export default function DataEntryPage({ auth }) {
     }
 
     try {
-      await axios.post(`${API_URL}/reports/station/`, dataToSend, { headers: { Authorization: auth } });
+      await api.post(`/reports/station/`, dataToSend);
       setStationMessage("✅ Station data saved successfully.");
     } catch (err) {
       let errorDetail = err.response?.data?.detail || "Error saving station data";

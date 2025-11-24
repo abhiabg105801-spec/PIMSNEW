@@ -28,7 +28,22 @@ export default function ReportViewer({ auth }) {
   const [stationError, setStationError] = useState(""); 
   
   const API_URL = "http://localhost:8080/api";
-  const headers = { Authorization: auth };
+
+  const api = axios.create({
+    baseURL: API_URL,
+    headers: { Authorization: auth },
+  });
+
+  api.interceptors.response.use(
+    (res) => res,
+    (err) => {
+      if (err.response?.status === 401) {
+        localStorage.removeItem("authToken");
+        window.location.reload();
+      }
+      return Promise.reject(err);
+    }
+  );
 
   useEffect(() => {
     fetchUnitDaily();
@@ -43,7 +58,7 @@ export default function ReportViewer({ auth }) {
   // --- Fetching Functions ---
   const fetchUnitDaily = async () => {
     try {
-      const res = await axios.get(`${API_URL}/reports/${date}`, { headers });
+      const res = await api.get(`/reports/${date}`);
       setDaily(res.data);
       setError("");
     } catch {
@@ -55,9 +70,8 @@ export default function ReportViewer({ auth }) {
   const fetchUnitMonthly = async () => {
     const [y, m] = date.split("-");
     try {
-      const res = await axios.get(
-        `${API_URL}/aggregate/month/${y}/${parseInt(m)}/${date}`,
-        { headers }
+      const res = await api.get(`/aggregate/month/${y}/${parseInt(m)}/${date}`
+        
       );
       setMonthly(res.data);
     } catch {
@@ -68,9 +82,7 @@ export default function ReportViewer({ auth }) {
   const fetchUnitYearly = async () => {
     const [y] = date.split("-");
     try {
-      const res = await axios.get(`${API_URL}/aggregate/year/${y}/${date}`, {
-        headers,
-      });
+      const res = await api.get(`/aggregate/year/${y}/${date}`);
       setYearly(res.data);
     } catch {
       setYearly([]);
@@ -79,7 +91,7 @@ export default function ReportViewer({ auth }) {
 
   const fetchStationDaily = async () => {
     try {
-      const res = await axios.get(`${API_URL}/reports/station/${date}`, { headers });
+      const res = await api.get(`/reports/station/${date}`);
       setStationDaily(res.data);
       setStationError(""); // Clear station error
     } catch {
@@ -93,9 +105,9 @@ export default function ReportViewer({ auth }) {
   const fetchStationMonthly = async () => {
     const [y, m] = date.split("-");
     try {
-      const res = await axios.get(
-        `${API_URL}/aggregate/station/month/${y}/${parseInt(m)}/${date}`,
-        { headers }
+      const res = await api.get(
+        `/aggregate/station/month/${y}/${parseInt(m)}/${date}`
+       
       );
       setStationMonthly(res.data);
     } catch {
@@ -107,9 +119,9 @@ export default function ReportViewer({ auth }) {
   const fetchStationYearly = async () => {
     const [y] = date.split("-");
     try {
-      const res = await axios.get(
-        `${API_URL}/aggregate/station/year/${y}/${date}`,
-        { headers }
+      const res = await api.get(
+        `/aggregate/station/year/${y}/${date}`
+        
       );
       setStationYearly(res.data);
     } catch {
@@ -213,10 +225,9 @@ export default function ReportViewer({ auth }) {
           ? `${API_URL}/export/excel/${date}`
           : `${API_URL}/export/pdf/${date}`;
 
-      const response = await axios.get(url, {
-        headers,
-        responseType: "blob",
-      });
+      const response = await api.get(url, {
+  responseType: "blob",
+});
 
       const blob = new Blob([response.data]);
       const link = document.createElement("a");
