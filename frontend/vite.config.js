@@ -7,11 +7,7 @@ export default defineConfig({
     react(),
   ],
 
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),   // ✅ IMPORTANT: Fix shadcn imports
-    },
-  },
+  
 
   build: {
     sourcemap: false, // 🚫 hide source maps

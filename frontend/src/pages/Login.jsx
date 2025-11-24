@@ -5,24 +5,44 @@ export default function Login({ onLogin }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     setError("");
-    if (username === "admin" && password === "pims@123") {
-      const credentialsB64 = btoa(`${username}:${password}`);
-      onLogin(`Basic ${credentialsB64}`);
-    } else {
-      setError("Invalid username or password.");
+
+    try {
+      const response = await fetch("http://localhost:8080/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ username, password }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        setError(errData.detail || "Login failed.");
+        return;
+      }
+
+      const data = await response.json();
+
+      // Send token up
+      onLogin(`Bearer ${data.access_token}`);
+
+    } catch (err) {
+      console.error("Login error:", err);
+      setError("Unable to connect to server.");
     }
   };
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-gray-900 via-gray-800 to-gray-700 text-white relative overflow-hidden">
-      {/* --- Animated background orbs --- */}
+
+      {/* Background orbs */}
       <div className="absolute top-0 left-0 w-72 h-72 bg-orange-500 rounded-full blur-3xl opacity-20 animate-pulse" />
       <div className="absolute bottom-0 right-0 w-96 h-96 bg-amber-400 rounded-full blur-3xl opacity-10 animate-pulse delay-300" />
 
-      {/* --- Header --- */}
+      {/* Header */}
       <div className="mb-10 text-center animate-fade-in">
         <h1 className="text-5xl font-extrabold bg-gradient-to-r from-orange-400 via-amber-300 to-yellow-400 bg-clip-text text-transparent drop-shadow-md tracking-tight">
           JSL CPP PIMS
@@ -32,7 +52,7 @@ export default function Login({ onLogin }) {
         </p>
       </div>
 
-      {/* --- Login Card --- */}
+      {/* Login Card */}
       <div className="relative w-full max-w-md bg-white/10 backdrop-blur-lg p-8 rounded-2xl shadow-2xl border border-white/20 animate-slide-up">
         <h2 className="text-2xl font-semibold text-center text-orange-300 mb-6">
           Login to Continue
@@ -45,6 +65,7 @@ export default function Login({ onLogin }) {
         )}
 
         <form onSubmit={handleLogin} className="space-y-5">
+          {/* USERNAME */}
           <div>
             <label
               htmlFor="username"
@@ -62,6 +83,7 @@ export default function Login({ onLogin }) {
             />
           </div>
 
+          {/* PASSWORD */}
           <div>
             <label
               htmlFor="password"
@@ -80,6 +102,7 @@ export default function Login({ onLogin }) {
             />
           </div>
 
+          {/* LOGIN BUTTON */}
           <button
             type="submit"
             className="w-full bg-gradient-to-r from-orange-500 to-amber-400 hover:from-orange-600 hover:to-amber-500 text-gray-900 font-semibold py-3 px-4 rounded-md shadow-lg hover:shadow-orange-500/30 transition-all duration-300 ease-in-out transform hover:-translate-y-0.5"
@@ -89,7 +112,7 @@ export default function Login({ onLogin }) {
         </form>
       </div>
 
-      {/* --- Footer --- */}
+      {/* Footer */}
       <p className="mt-8 text-center text-xs text-gray-400 animate-fade-in">
         © {new Date().getFullYear()} JSL CPP. All rights reserved.
       </p>
