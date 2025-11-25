@@ -5,7 +5,7 @@ import {
   Route,
   Navigate,
   NavLink,
-  useLocation
+  useLocation,
 } from "react-router-dom";
 
 import Login from "./pages/Login";
@@ -16,16 +16,11 @@ import KpiChartsPage from "./pages/KpiChartsPage";
 import KpiRangeViewer from "./pages/KpiRangeViewer";
 import AdminPanel from "./pages/AdminPanel";
 
-
-// ----------------------------
-// Decode JWT payload
-// ----------------------------
 function decodeJWT(token) {
   try {
     const base64 = token.split(".")[1];
-    const decoded = JSON.parse(atob(base64));
-    return decoded;
-  } catch (e) {
+    return JSON.parse(atob(base64));
+  } catch {
     return null;
   }
 }
@@ -33,18 +28,15 @@ function decodeJWT(token) {
 export default function App() {
   const [authHeader, setAuthHeader] = useState(null);
 
-  // Restore token if available
   useEffect(() => {
-    const savedToken = localStorage.getItem("authToken");
-    if (savedToken) {
-      setAuthHeader(`Bearer ${savedToken}`);
-    }
+    const saved = localStorage.getItem("authToken");
+    if (saved) setAuthHeader(`Bearer ${saved}`);
   }, []);
 
   const handleLogin = (token) => {
     const jwt = token.replace("Bearer ", "");
-    localStorage.setItem("authToken", jwt);     // save JWT only
-    setAuthHeader(token);                       // store full header
+    localStorage.setItem("authToken", jwt);
+    setAuthHeader(token);
   };
 
   const handleLogout = () => {
@@ -62,104 +54,92 @@ export default function App() {
 }
 
 function Layout({ authHeader, onLogout }) {
-  // Extract username from JWT
-  const token = authHeader.replace("Bearer ", "");
-  const decoded = decodeJWT(token);
+  const decoded = decodeJWT(authHeader.replace("Bearer ", ""));
   const username = decoded?.sub || "User";
 
-  const [isReportDropdownOpen, setIsReportDropdownOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
-
-  const isReportActive =
+  const highlightReports =
     location.pathname === "/report" || location.pathname === "/kpi-data";
 
-  const commonNavLinkClass =
-    "flex items-center h-full px-4 text-sm font-medium text-gray-700 hover:text-orange-600 transition duration-150 ease-in-out border-b-2 border-transparent";
-  const activeNavLinkClass =
-    "text-orange-600 font-semibold border-b-2 border-orange-600";
+  const navLinkStyle = (isActive) =>
+    `px-4 h-full flex items-center text-sm font-medium transition-all duration-200
+     ${isActive ? "text-orange-600 border-b-2 border-orange-600" : "text-gray-700 hover:text-orange-500 hover:scale-[1.03]"}
+    `;
 
-  const dropdownLinkClass =
-    "block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-orange-50 hover:text-orange-600";
-  const activeDropdownLinkClass =
-    "bg-orange-50 text-orange-600 font-semibold";
+  const dropdownItem = (isActive) =>
+    `block px-4 py-2 text-sm rounded transition-all duration-200
+     ${isActive ? "bg-orange-50 text-orange-600 font-semibold" : "text-gray-700 hover:bg-orange-50 hover:text-orange-600"}
+    `;
 
   return (
-    <div className="flex flex-col min-h-screen">
-      {/* Header */}
-      <div className="fixed top-0 left-0 right-0 z-20 bg-gray-800 shadow-lg border-b border-gray-700">
-        <header className="relative flex items-center justify-center px-10 h-16 bg-grey-900">
-          <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-3">
-            <img  alt="JSL Logo" className="w-30 h-10 object-contain" />
-            <div className="flex flex-col items-start">
-              <h1 className="text-2xl font-extrabold tracking-wide">
-                <span className="text-orange-500">2×125 MW CPP – </span>
-                <span className="text-white">PIMS</span>
-              </h1>
-              <div className="h-0.5 w-full bg-orange-500 rounded-full mt-1"></div>
-            </div>
-          </div>
+    <div className="min-h-screen flex flex-col">
 
-          <div className="ml-auto flex items-center gap-4">
-            <span className="text-sm font-medium text-gray-300">
+      {/* TOP ORANGE LINE */}
+      
+
+      {/* HEADER (GLASSMORPHISM) */}
+      <div className="fixed top-1.5 left-0 right-0 z-30 bg-white/80 backdrop-blur-md shadow-md border-b border-gray-300">
+        <header className="flex items-center justify-between px-10 h-16">
+
+          {/* Logo + title */}
+          <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-3">
+  <img src="/jsl-logo.png" className="h-10 w-auto" alt="logo" />
+  
+  <div className="flex flex-col leading-tight text-center">
+    <span className="text-xl font-extrabold tracking-wide text-gray-800">
+      <span className="text-orange-600">2×125 MW CPP – </span>PIMS
+    </span>
+    <div className="h-0.5 w-full bg-orange-500 mt-1"></div>
+  </div>
+</div>
+          
+          {/* Right side user info */}
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-gray-700">
               Welcome,&nbsp;
-              <span className="font-semibold text-orange-500">{username}</span>
+              <span className="font-semibold text-orange-600">{username}</span>
             </span>
-
             <button
               onClick={onLogout}
-              className="bg-orange-600 hover:bg-orange-700 text-white px-3 py-1.5 rounded-md text-xs font-semibold border border-orange-700 transition"
+              className="px-4 py-1.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded shadow transition-all"
             >
               Logout
             </button>
           </div>
         </header>
 
-        {/* Navigation */}
-        <nav className="h-12 bg-white border-t border-gray-700">
-          <div className="max-w-7xl mx-auto h-full flex justify-center items-center gap-8 px-6">
-            <NavLink
-              to="/entry"
-              className={({ isActive }) =>
-                `${commonNavLinkClass} ${isActive ? activeNavLinkClass : ""}`
-              }
-            >
+        {/* NAVIGATION */}
+        <nav className="h-12 bg-gray-100 border-t border-gray-300 shadow-inner">
+          <div className="max-w-7xl mx-auto flex items-center h-full gap-8 px-8">
+
+            <NavLink to="/entry" className={({ isActive }) => navLinkStyle(isActive)}>
               Data Entry
             </NavLink>
 
-            {/* Report dropdown */}
+            {/* Reports Dropdown */}
             <div
               className="relative h-full"
-              onMouseEnter={() => setIsReportDropdownOpen(true)}
-              onMouseLeave={() => setIsReportDropdownOpen(false)}
+              onMouseEnter={() => setIsOpen(true)}
+              onMouseLeave={() => setIsOpen(false)}
             >
               <div
-                className={`${commonNavLinkClass} ${
-                  isReportActive ? activeNavLinkClass : ""
-                } cursor-pointer`}
+                className={`${navLinkStyle(highlightReports)} cursor-pointer flex items-center gap-1`}
               >
                 Reports ▾
               </div>
 
-              {isReportDropdownOpen && (
-                <div className="absolute top-full left-1/2 -translate-x-1/2 mt-0 w-48 bg-white shadow-lg rounded-b-md border border-t-0 border-orange-200 z-30">
+              {isOpen && (
+                <div className="absolute top-full mt-0 left-0 bg-white shadow-xl border border-gray-200 rounded-b w-48 z-50 animate-dropdown">
                   <NavLink
                     to="/report"
-                    className={({ isActive }) =>
-                      `${dropdownLinkClass} ${
-                        isActive ? activeDropdownLinkClass : ""
-                      }`
-                    }
+                    className={({ isActive }) => dropdownItem(isActive)}
                   >
                     Daily Report
                   </NavLink>
-
                   <NavLink
                     to="/kpi-data"
-                    className={({ isActive }) =>
-                      `${dropdownLinkClass} ${
-                        isActive ? activeDropdownLinkClass : ""
-                      }`
-                    }
+                    className={({ isActive }) => dropdownItem(isActive)}
                   >
                     KPI Data Viewer
                   </NavLink>
@@ -167,52 +147,47 @@ function Layout({ authHeader, onLogout }) {
               )}
             </div>
 
-            <NavLink
-              to="/shutdowns"
-              className={({ isActive }) =>
-                `${commonNavLinkClass} ${isActive ? activeNavLinkClass : ""}`
-              }
-            >
+            {/* Other Menus */}
+            <NavLink to="/shutdowns" className={({ isActive }) => navLinkStyle(isActive)}>
               Shutdown Log
             </NavLink>
 
-            <NavLink
-              to="/charts"
-              className={({ isActive }) =>
-                `${commonNavLinkClass} ${isActive ? activeNavLinkClass : ""}`
-              }
-            >
+            <NavLink to="/charts" className={({ isActive }) => navLinkStyle(isActive)}>
               KPI Charts
             </NavLink>
 
             {username === "admin" && (
-  <NavLink
-    to="/admin"
-    className={({ isActive }) => 
-      `${commonNavLinkClass} ${isActive ? activeNavLinkClass : ""}`
-    }
-  >
-    Admin Panel
-  </NavLink>
-)}
+              <NavLink to="/admin" className={({ isActive }) => navLinkStyle(isActive)}>
+                Admin Panel
+              </NavLink>
+            )}
           </div>
         </nav>
       </div>
 
-      {/* Main Content */}
-      <main className="flex-1 overflow-y-auto bg-gray-100 pt-28">
-        <div className="p-6">
-          <Routes>
-            <Route path="/" element={<Navigate to="/entry" />} />
-            <Route path="/entry" element={<DataEntryPage auth={authHeader} />} />
-            <Route path="/report" element={<ReportViewer auth={authHeader} />} />
-            <Route path="/shutdowns" element={<PlantShutdownPage auth={authHeader} />} />
-            <Route path="/charts" element={<KpiChartsPage auth={authHeader} />} />
-            <Route path="/kpi-data" element={<KpiRangeViewer auth={authHeader} />} />
-            <Route path="/admin" element={<AdminPanel auth={authHeader} />} />
-          </Routes>
-        </div>
+      {/* PAGE CONTENT */}
+      <main className="flex-1 bg-gray-100 pt-32 px-6 pb-6">
+        <Routes>
+          <Route path="/" element={<Navigate to="/entry" />} />
+          <Route path="/entry" element={<DataEntryPage auth={authHeader} />} />
+          <Route path="/report" element={<ReportViewer auth={authHeader} />} />
+          <Route path="/shutdowns" element={<PlantShutdownPage auth={authHeader} />} />
+          <Route path="/charts" element={<KpiChartsPage auth={authHeader} />} />
+          <Route path="/kpi-data" element={<KpiRangeViewer auth={authHeader} />} />
+          <Route path="/admin" element={<AdminPanel auth={authHeader} />} />
+        </Routes>
       </main>
+
+      {/* CSS Animations */}
+      <style>{`
+        @keyframes dropdown {
+          from { opacity: 0; transform: translateY(-6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-dropdown {
+          animation: dropdown 0.18s ease-out;
+        }
+      `}</style>
     </div>
   );
 }

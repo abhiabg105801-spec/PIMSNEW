@@ -1,62 +1,33 @@
-import React, { useState, useEffect } from "react";
+// DataEntryPage.js
+// Single-file React component — no 'clsx' dependency
+import React, { useEffect, useState, useMemo } from "react";
 import axios from "axios";
 
-// Compact numeric input component
-const InputField = ({ label, name, value, onChange, readOnly = false, className = "" }) => (
-  <div className={className}>
-    <label className="block text-xs font-medium text-gray-600">{label}</label>
-    <input
-      type="number"
-      name={name}
-      value={value ?? ""}
-      onChange={onChange}
-      readOnly={readOnly}
-      className={`mt-1 block w-full border rounded-md p-1.5 text-sm border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 transition duration-150 ease-in-out ${
-        readOnly ? "bg-gray-100 cursor-not-allowed" : ""
-      }`}
-      step="any"
-    />
-  </div>
+const API_URL = "http://localhost:8080/api";
+
+
+
+
+// Helpers
+const normalizeAuthHeader = (auth) => {
+  if (!auth) return localStorage.getItem("authToken") || "";
+  return auth.startsWith("Bearer ") ? auth : `Bearer ${auth}`;
+};
+const getTokenPayload = (authHeader) => {
+  try {
+    const token = authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : authHeader;
+    const payload = token.split(".")[1];
+    const json = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+    return json;
+  } catch {
+    return null;
+  }
+};
+const Spinner = ({ size = 16 }) => (
+  <div style={{ width: size, height: size }} className="inline-block animate-spin border-2 border-t-transparent rounded-full border-current" />
 );
 
-// --- FORM STATES ---
-const initialUnitFormState = {
-  unit: "",
-  totalizer_mu: "",
-  prev_totalizer: "",
-  generation_mu: "",
-  plf_percent: "",
-  running_hour: "",
-  plant_availability_percent: "",
-  planned_outage_hour: "",
-  planned_outage_percent: "",
-  forced_outage_hour: "",
-  forced_outage_percent: "",
-  strategic_outage_hour: "",
-  coal_consumption_t: "",
-  sp_coal_consumption_kg_kwh: "",
-  avg_gcv_coal_kcal_kg: "",
-  heat_rate: "",
-  ldo_hsd_consumption_kl: "",
-  sp_oil_consumption_ml_kwh: "",
-  aux_power_consumption_mu: "",
-  aux_power_percent: "",
-  dm_water_consumption_cu_m: "",
-  sp_dm_water_consumption_percent: "",
-  steam_gen_t: "",
-  sp_steam_consumption_kg_kwh: "",
-  stack_emission_spm_mg_nm3: ""
-};
-const initialStationFormState = {
-  avg_raw_water_used_cu_m_hr: "",
-  total_raw_water_used_cu_m: "",
-  sp_raw_water_used_ltr_kwh: "",
-  ro_plant_running_hrs: "",
-  ro_plant_il: "",
-  ro_plant_ol: ""
-};
-
-// Fields that are auto-calculated (exclude from confirmation popup)
+// Constants
 const AUTO_CALCULATED_FIELDS = [
   "generation_mu",
   "plf_percent",
@@ -67,717 +38,690 @@ const AUTO_CALCULATED_FIELDS = [
   "sp_oil_consumption_ml_kwh",
   "aux_power_percent",
   "sp_dm_water_consumption_percent",
-  "sp_steam_consumption_kg_kwh"
+  "sp_steam_consumption_kg_kwh",
 ];
 
+const initialUnitFormState = {
+  unit: "", totalizer_mu: "", prev_totalizer: "", generation_mu: "", plf_percent: "",
+  running_hour: "", plant_availability_percent: "", planned_outage_hour: "", planned_outage_percent: "",
+  forced_outage_hour: "", forced_outage_percent: "", strategic_outage_hour: "",
+  coal_consumption_t: "", sp_coal_consumption_kg_kwh: "", avg_gcv_coal_kcal_kg: "", heat_rate: "",
+  ldo_hsd_consumption_kl: "", sp_oil_consumption_ml_kwh: "", aux_power_consumption_mu: "", aux_power_percent: "",
+  dm_water_consumption_cu_m: "", sp_dm_water_consumption_percent: "", steam_gen_t: "", sp_steam_consumption_kg_kwh: "",
+  stack_emission_spm_mg_nm3: ""
+};
+
+const initialStationFormState = {
+  avg_raw_water_used_cu_m_hr: "", total_raw_water_used_cu_m: "", sp_raw_water_used_ltr_kwh: "",
+  ro_plant_running_hrs: "", ro_plant_il: "", ro_plant_ol: ""
+};
+
+// Main component
 export default function DataEntryPage({ auth }) {
-  const [reportDate, setReportDate] = useState(new Date().toISOString().slice(0, 10));
-
-  // Unit form state
-  const [unitForm, setUnitForm] = useState(initialUnitFormState);
-  const [originalUnitForm, setOriginalUnitForm] = useState(initialUnitFormState); // snapshot of last saved values
-  const [isEditing, setIsEditing] = useState(false);
-  const [editPassword, setEditPassword] = useState("");
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [unitMessage, setUnitMessage] = useState("");
-  const [unitSubmitting, setUnitSubmitting] = useState(false);
-  const [unitFetching, setUnitFetching] = useState(false);
-
-  // Confirmation popup
-  const [showConfirmPopup, setShowConfirmPopup] = useState(false);
-  // keys of originally-filled fields that were changed (used to decide password requirement)
-  const [changedFilledFields, setChangedFilledFields] = useState([]);
-
-  // Station form state
-  const [stationForm, setStationForm] = useState(initialStationFormState);
-  const [stationMessage, setStationMessage] = useState("");
-  const [stationSubmitting, setStationSubmitting] = useState(false);
-  const [stationFetching, setStationFetching] = useState(false);
-
-  const API_URL = "http://localhost:8080/api";
-
-
-  const api = axios.create({
+  const authHeader = useMemo(() => normalizeAuthHeader(auth), [auth]);
+  const api = useMemo(() => axios.create({
     baseURL: API_URL,
-    headers: {
-      Authorization: auth,  // "Bearer <jwt>"
-    },
+    headers: { Authorization: authHeader, "Content-Type": "application/json" }
+  }), [authHeader]);
+
+  // user + role
+  const [roleId, setRoleId] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
+  const isAdmin = roleId === 8;
+  const [roleLoading, setRoleLoading] = useState(true);
+
+  // permissions
+  const [permissionMap, setPermissionMap] = useState({});
+  const [permLoading, setPermLoading] = useState(false);
+
+  // page state
+  const [activeTab, setActiveTab] = useState("Unit-1");
+  const [reportDate, setReportDate] = useState(new Date().toISOString().slice(0, 10));
+  const [message, setMessage] = useState("");
+  const [loadingRow, setLoadingRow] = useState(false);
+
+  // forms
+  const [unitForms, setUnitForms] = useState({
+    "Unit-1": { ...initialUnitFormState, unit: "Unit-1" },
+    "Unit-2": { ...initialUnitFormState, unit: "Unit-2" }
   });
+  const [originalUnitForms, setOriginalUnitForms] = useState({
+    "Unit-1": { ...initialUnitFormState, unit: "Unit-1" },
+    "Unit-2": { ...initialUnitFormState, unit: "Unit-2" }
+  });
+  const [isEditingForUnit, setIsEditingForUnit] = useState({ "Unit-1": false, "Unit-2": false });
+  const [stationForm, setStationForm] = useState(initialStationFormState);
 
-  // Auto-logout if JWT expired → backend returns 401
-  api.interceptors.response.use(
-    (res) => res,
-    (err) => {
-      if (err.response?.status === 401) {
-        localStorage.removeItem("authToken");
-        window.location.reload(); // force logout
+  // UI/submit
+  const [submitting, setSubmitting] = useState({ "Unit-1": false, "Unit-2": false, station: false });
+ 
+  const [showConfirmPopup, setShowConfirmPopup] = useState(false);
+  const [originalStationForm, setOriginalStationForm] = useState(initialStationFormState);
+
+
+  // Role detection
+  useEffect(() => {
+    setRoleLoading(true);
+    let cancelled = false;
+    const payload = getTokenPayload(authHeader);
+    if (payload) {
+      if (!cancelled) {
+        setRoleId(payload.role_id || payload.role || null);
+        setCurrentUser(payload);
+        setRoleLoading(false);
+        const isAdmin = (payload.role_id === 8 || payload.role === 8);
+
       }
-      return Promise.reject(err);
+      return () => { cancelled = true; };
     }
-  );
+    api.get("/auth/me").then(r => {
+      if (r.data && r.data.role_id) setRoleId(Number(r.data.role_id));
+      setCurrentUser(r.data);
+    }).catch(()=>{}).finally(()=>setRoleLoading(false));
+  }, [api, authHeader]);
 
-  // --- EFFECTS ---
-
+  // Permissions fetch: try admin endpoint for role, fallback to /permissions/me
   useEffect(() => {
-    if (unitForm.unit && reportDate) {
-      checkExistingUnitData();
-    } else {
-      setUnitForm((prev) => ({ ...initialUnitFormState, unit: prev.unit }));
-      setOriginalUnitForm(initialUnitFormState);
-      setIsEditing(false);
-      setUnitMessage("");
-      setChangedFilledFields([]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unitForm.unit, reportDate]);
-
-  useEffect(() => {
-    if (reportDate) {
-      checkExistingStationData();
-      if (unitForm.unit) {
-        checkExistingUnitData();
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reportDate]);
-
-  // Auto-calculations (unchanged logic)
-  useEffect(() => {
-    const generation = parseFloat(unitForm.generation_mu);
-    if (!isNaN(generation) && generation >= 0) {
-      const plf = (generation / 3) * 100;
-      const formatCalc = (num, decimals = 2) => (isNaN(num) ? "" : parseFloat(num.toFixed(decimals)));
-      const formattedPlf = formatCalc(plf, 2);
-      if (unitForm.plf_percent !== formattedPlf) {
-        setUnitForm((prev) => ({ ...prev, plf_percent: formattedPlf }));
-      }
-    } else {
-      if (unitForm.plf_percent !== "") setUnitForm((prev) => ({ ...prev, plf_percent: "" }));
-    }
-  }, [unitForm.generation_mu]);
-
-  useEffect(() => {
-    const runningHour = parseFloat(unitForm.running_hour);
-    if (!isNaN(runningHour) && runningHour >= 0 && runningHour <= 24) {
-      const availability = (runningHour / 24) * 100;
-      const formatCalc = (num, decimals = 2) => (isNaN(num) ? "" : parseFloat(num.toFixed(decimals)));
-      const formattedAvailability = formatCalc(availability, 2);
-      if (unitForm.plant_availability_percent !== formattedAvailability) {
-        setUnitForm((prev) => ({ ...prev, plant_availability_percent: formattedAvailability }));
-      }
-    } else {
-      if (unitForm.plant_availability_percent !== "") setUnitForm((prev) => ({ ...prev, plant_availability_percent: "" }));
-    }
-  }, [unitForm.running_hour]);
-
-  useEffect(() => {
-    const plannedHour = parseFloat(unitForm.planned_outage_hour);
-    if (!isNaN(plannedHour) && plannedHour >= 0) {
-      const percentage = (plannedHour / 24) * 100;
-      const formatCalc = (num, decimals = 2) => (isNaN(num) ? "" : parseFloat(num.toFixed(decimals)));
-      const formattedPercentage = formatCalc(percentage, 2);
-      if (unitForm.planned_outage_percent !== formattedPercentage) {
-        setUnitForm((prev) => ({ ...prev, planned_outage_percent: formattedPercentage }));
-      }
-    } else {
-      if (unitForm.planned_outage_percent !== "") setUnitForm((prev) => ({ ...prev, planned_outage_percent: "" }));
-    }
-  }, [unitForm.planned_outage_hour]);
-
-  useEffect(() => {
-    const forcedHour = parseFloat(unitForm.forced_outage_hour);
-    if (!isNaN(forcedHour) && forcedHour >= 0) {
-      const percentage = (forcedHour / 24) * 100;
-      const formatCalc = (num, decimals = 2) => (isNaN(num) ? "" : parseFloat(num.toFixed(decimals)));
-      const formattedPercentage = formatCalc(percentage, 2);
-      if (unitForm.forced_outage_percent !== formattedPercentage) {
-        setUnitForm((prev) => ({ ...prev, forced_outage_percent: formattedPercentage }));
-      }
-    } else {
-      if (unitForm.forced_outage_percent !== "") setUnitForm((prev) => ({ ...prev, forced_outage_percent: "" }));
-    }
-  }, [unitForm.forced_outage_hour]);
-
-  useEffect(() => {
-    const coal = parseFloat(unitForm.coal_consumption_t);
-    const generation = parseFloat(unitForm.generation_mu);
-    const formatCalc = (num, decimals = 2) => (isNaN(num) ? "" : parseFloat(num.toFixed(decimals)));
-    let formattedSpCoal = "";
-    if (!isNaN(coal) && coal >= 0 && !isNaN(generation) && generation > 0) {
-      const spCoal = coal / generation;
-      formattedSpCoal = formatCalc(spCoal, 3);
-    }
-    if (unitForm.sp_coal_consumption_kg_kwh !== formattedSpCoal) {
-      setUnitForm((prev) => ({ ...prev, sp_coal_consumption_kg_kwh: formattedSpCoal }));
-    }
-  }, [unitForm.coal_consumption_t, unitForm.generation_mu]);
-
-  useEffect(() => {
-    const oil = parseFloat(unitForm.ldo_hsd_consumption_kl);
-    const generation = parseFloat(unitForm.generation_mu);
-    const formatCalc = (num, decimals = 2) => (isNaN(num) ? "" : parseFloat(num.toFixed(decimals)));
-    let formattedSpOil = "";
-    if (!isNaN(oil) && oil >= 0 && !isNaN(generation) && generation > 0) {
-      const spOil = oil / generation;
-      formattedSpOil = formatCalc(spOil, 2);
-    }
-    if (unitForm.sp_oil_consumption_ml_kwh !== formattedSpOil) {
-      setUnitForm((prev) => ({ ...prev, sp_oil_consumption_ml_kwh: formattedSpOil }));
-    }
-  }, [unitForm.ldo_hsd_consumption_kl, unitForm.generation_mu]);
-
-  useEffect(() => {
-    const auxPower = parseFloat(unitForm.aux_power_consumption_mu);
-    const generation = parseFloat(unitForm.generation_mu);
-    const formatCalc = (num, places = 2) => {
-      if (isNaN(num) || !isFinite(num)) return "";
-      const factor = Math.pow(10, places);
-      return (Math.round(num * factor) / factor).toFixed(places);
-    };
-    let formattedAuxPerc = "";
-    if (!isNaN(auxPower) && auxPower >= 0 && !isNaN(generation) && generation > 0) {
-      const auxPerc = (auxPower / generation) * 100;
-      formattedAuxPerc = formatCalc(auxPerc, 2);
-    }
-    if (unitForm.aux_power_percent !== formattedAuxPerc) {
-      setUnitForm((prev) => ({ ...prev, aux_power_percent: formattedAuxPerc }));
-    }
-  }, [unitForm.aux_power_consumption_mu, unitForm.generation_mu]);
-
-  useEffect(() => {
-    const steam = parseFloat(unitForm.steam_gen_t);
-    const generation = parseFloat(unitForm.generation_mu);
-    const formatCalc = (num, places = 2) => {
-      if (isNaN(num) || !isFinite(num)) return "";
-      const factor = Math.pow(10, places);
-      return (Math.round(num * factor) / factor).toFixed(places);
-    };
-    let formattedSpSteam = "";
-    if (!isNaN(steam) && steam >= 0 && !isNaN(generation) && generation > 0) {
-      const spSteam = steam / generation;
-      formattedSpSteam = formatCalc(spSteam, 2);
-    }
-    if (unitForm.sp_steam_consumption_kg_kwh !== formattedSpSteam) {
-      setUnitForm((prev) => ({ ...prev, sp_steam_consumption_kg_kwh: formattedSpSteam }));
-    }
-  }, [unitForm.steam_gen_t, unitForm.generation_mu]);
-
-  // Auto-calc generation based on today's totalizer (totalizer_mu) and prev_totalizer
-  useEffect(() => {
-    const prev = parseFloat(unitForm.prev_totalizer);
-    const today = parseFloat(unitForm.totalizer_mu);
-    if (!isNaN(prev) && !isNaN(today)) {
-      const gen = today - prev;
-      if (!isNaN(gen) && isFinite(gen) && gen >= 0) {
-        const formatted = parseFloat(gen.toFixed(3));
-        if (unitForm.generation_mu !== String(formatted)) {
-          setUnitForm((prevState) => ({ ...prevState, generation_mu: String(formatted) }));
+    let cancelled = false;
+    async function fetchPerms() {
+      if (!authHeader) { setPermissionMap({}); return; }
+      setPermLoading(true);
+      try {
+        if (roleId) {
+          const r = await api.get(`/admin/permissions/${roleId}`);
+          if (cancelled) return;
+          const map = {};
+          (r.data || []).forEach(p => { map[p.field_name] = { can_edit: !!p.can_edit, can_view: !!p.can_view }; });
+          setPermissionMap(map);
+          setPermLoading(false);
+          return;
         }
-      } else {
-        if (unitForm.generation_mu !== "") setUnitForm((prevState) => ({ ...prevState, generation_mu: "" }));
-      }
-    } else {
-      if (unitForm.generation_mu !== "") setUnitForm((prevState) => ({ ...prevState, generation_mu: "" }));
+        const r2 = await api.get("/permissions/me");
+        if (cancelled) return;
+        const map2 = {};
+        (r2.data || []).forEach(p => { map2[p.field_name] = { can_edit: !!p.can_edit, can_view: !!p.can_view }; });
+        setPermissionMap(map2);
+      } catch (e) {
+        if (e.response && (e.response.status === 403 || e.response.status === 401)) {
+          try {
+            const r2 = await api.get("/permissions/me");
+            if (cancelled) return;
+            const map2 = {};
+            (r2.data || []).forEach(p => { map2[p.field_name] = { can_edit: !!p.can_edit, can_view: !!p.can_view }; });
+            setPermissionMap(map2);
+          } catch { setPermissionMap({}); }
+        } else { setPermissionMap({}); }
+      } finally { if (!cancelled) setPermLoading(false); }
     }
-  }, [unitForm.totalizer_mu, unitForm.prev_totalizer]);
+    fetchPerms();
+    return () => { cancelled = true; };
+  }, [api, roleId, authHeader]);
 
-  // --- Data Fetching Functions ---
-  const checkExistingUnitData = async () => {
-    if (!unitForm.unit || !reportDate) return;
-    setUnitFetching(true);
-    setUnitMessage("");
+  // Fetch data
+  const fetchUnitData = async (unitKey) => {
+    if (!unitKey) return;
+    setLoadingRow(true);
+    setMessage("");
     try {
-      const res = await api.get(`/reports/single/${unitForm.unit}/${reportDate}`);
-
+      const res = await api.get(`/reports/single/${unitKey}/${reportDate}`);
       if (res.data) {
-        const loadedData = { ...initialUnitFormState, unit: unitForm.unit };
-
-        Object.keys(initialUnitFormState).forEach((key) => {
-          if (key === "totalizer_mu") {
-            loadedData.totalizer_mu = res.data.totalizer_mu ?? "";
-          } else {
-            loadedData[key] = res.data[key] ?? "";
-          }
-        });
-
-        setUnitForm(loadedData);
-        // store original snapshot for change detection
-        setOriginalUnitForm(loadedData);
-        setIsEditing(true);
-        setUnitMessage(`✅ Existing data loaded for ${unitForm.unit}`);
-        setChangedFilledFields([]);
+        const loaded = { ...initialUnitFormState, unit: unitKey };
+        Object.keys(initialUnitFormState).forEach(k => { loaded[k] = res.data[k] ?? ""; });
+        // prev totalizer from previous day
+        try {
+          const d = new Date(reportDate); d.setDate(d.getDate() - 1);
+          const prevDateStr = d.toISOString().slice(0,10);
+          const prevRes = await api.get(`/reports/single/${unitKey}/${prevDateStr}`);
+          loaded.prev_totalizer = prevRes.data?.totalizer_mu ?? "";
+        } catch { loaded.prev_totalizer = ""; }
+        setUnitForms(s => ({ ...s, [unitKey]: loaded }));
+        setOriginalUnitForms(s => ({ ...s, [unitKey]: { ...loaded } }));
+        setIsEditingForUnit(s => ({ ...s, [unitKey]: true }));
+        setMessage(`✅ Existing data loaded for ${unitKey}`);
       } else {
-        setIsEditing(false);
-        setUnitForm((prev) => ({ ...initialUnitFormState, unit: prev.unit }));
-        setOriginalUnitForm(initialUnitFormState);
-        setUnitMessage("No existing data found for this unit/date.");
+        setUnitForms(s => ({ ...s, [unitKey]: { ...initialUnitFormState, unit: unitKey } }));
+        setOriginalUnitForms(s => ({ ...s, [unitKey]: { ...initialUnitFormState, unit: unitKey } }));
+        setIsEditingForUnit(s => ({ ...s, [unitKey]: false }));
+        setMessage("");
       }
-    } catch (err) {
-      setIsEditing(false);
-      setUnitForm((prev) => ({ ...initialUnitFormState, unit: prev.unit }));
-      setOriginalUnitForm(initialUnitFormState);
-      if (err.response?.status !== 404) {
-        setUnitMessage("⚠️ Could not load unit data.");
-      } else {
-        setUnitMessage("");
-      }
-    }
-
-    // previous day's totalizer
-    try {
-      const d = new Date(reportDate);
-      d.setDate(d.getDate() - 1);
-      const prevDateStr = d.toISOString().slice(0, 10);
-
-      const prevRes = await api.get(`/reports/single/${unitForm.unit}/${prevDateStr}`);
-
-      const prevTotal = prevRes.data?.totalizer_mu ?? "";
-      setUnitForm((prev) => ({ ...prev, prev_totalizer: prevTotal }));
-      setOriginalUnitForm((prev) => ({ ...prev, prev_totalizer: prevTotal }));
-    } catch (err) {
-      setUnitForm((prev) => ({ ...prev, prev_totalizer: "" }));
-      setOriginalUnitForm((prev) => ({ ...prev, prev_totalizer: "" }));
-    } finally {
-      setUnitFetching(false);
-    }
+    } catch (e) {
+      if (e.response?.status === 404) {
+        setUnitForms(s => ({ ...s, [unitKey]: { ...initialUnitFormState, unit: unitKey } }));
+        setOriginalUnitForms(s => ({ ...s, [unitKey]: { ...initialUnitFormState, unit: unitKey } }));
+        setIsEditingForUnit(s => ({ ...s, [unitKey]: false }));
+        setMessage("");
+      } else setMessage("⚠️ Could not load unit data");
+    } finally { setLoadingRow(false); }
   };
 
-  const checkExistingStationData = async () => {
-    if (!reportDate) return;
-    setStationFetching(true);
-    setStationMessage("");
+  const fetchStation = async () => {
+    setLoadingRow(true);
     try {
       const res = await api.get(`/reports/station/${reportDate}`);
       if (res.data) {
-        const loadedData = {};
-        Object.keys(initialStationFormState).forEach((key) => {
-          loadedData[key] = res.data[key] ?? "";
-        });
-        setStationForm(loadedData);
-      } else {
-        setStationForm(initialStationFormState);
+        const ld = {}; Object.keys(initialStationFormState).forEach(k => ld[k] = res.data[k] ?? "");
+        setStationForm(ld);
+      } else setStationForm(initialStationFormState);
+    } catch (e) {
+      if (e.response?.status === 404) setStationForm(initialStationFormState);
+      else setMessage("⚠️ Could not load station data");
+    } finally { setLoadingRow(false); }
+  };
+
+  useEffect(() => {
+    if (activeTab === "Station") fetchStation();
+    else fetchUnitData(activeTab);
+    // eslint-disable-next-line
+  }, [activeTab, reportDate]);
+
+  // Auto-calculation helpers
+  const setUnitField = (unitKey, name, value) => {
+    setUnitForms(prev => ({ ...prev, [unitKey]: { ...prev[unitKey], [name]: value } }));
+  };
+
+  // PLF
+  useEffect(() => {
+    ["Unit-1","Unit-2"].forEach(u => {
+      const gen = parseFloat(unitForms[u].generation_mu);
+      if (!isNaN(gen) && gen >= 0) {
+        const plf = (gen / 3) * 100;
+        const formatted = isFinite(plf) ? parseFloat(plf.toFixed(2)) : "";
+        if (String(unitForms[u].plf_percent) !== String(formatted)) setUnitField(u, "plf_percent", formatted);
       }
-    } catch (err) {
-      setStationForm(initialStationFormState);
-      if (err.response?.status !== 404) setStationMessage("⚠️ Could not load station data.");
-      else setStationMessage("");
-    } finally {
-      setStationFetching(false);
-    }
+    });
+    // eslint-disable-next-line
+  }, [unitForms["Unit-1"].generation_mu, unitForms["Unit-2"].generation_mu]);
+
+  // Availability
+  useEffect(() => {
+    ["Unit-1","Unit-2"].forEach(u => {
+      const rh = parseFloat(unitForms[u].running_hour);
+      if (!isNaN(rh) && rh >= 0 && rh <= 24) {
+        const av = (rh / 24) * 100;
+        const f = parseFloat(av.toFixed(2));
+        if (String(unitForms[u].plant_availability_percent) !== String(f)) setUnitField(u, "plant_availability_percent", f);
+      }
+    });
+    // eslint-disable-next-line
+  }, [unitForms["Unit-1"].running_hour, unitForms["Unit-2"].running_hour]);
+
+  // Planned outage %
+  useEffect(() => {
+    ["Unit-1","Unit-2"].forEach(u => {
+      const ph = parseFloat(unitForms[u].planned_outage_hour);
+      if (!isNaN(ph) && ph >= 0) {
+        const p = parseFloat(((ph/24)*100).toFixed(2));
+        if (String(unitForms[u].planned_outage_percent) !== String(p)) setUnitField(u, "planned_outage_percent", p);
+      }
+    });
+    // eslint-disable-next-line
+  }, [unitForms["Unit-1"].planned_outage_hour, unitForms["Unit-2"].planned_outage_hour]);
+
+  // Forced outage %
+  useEffect(() => {
+    ["Unit-1","Unit-2"].forEach(u => {
+      const fh = parseFloat(unitForms[u].forced_outage_hour);
+      if (!isNaN(fh) && fh >= 0) {
+        const p = parseFloat(((fh/24)*100).toFixed(2));
+        if (String(unitForms[u].forced_outage_percent) !== String(p)) setUnitField(u, "forced_outage_percent", p);
+      }
+    });
+    // eslint-disable-next-line
+  }, [unitForms["Unit-1"].forced_outage_hour, unitForms["Unit-2"].forced_outage_hour]);
+
+  // sp_coal
+  useEffect(() => {
+    ["Unit-1","Unit-2"].forEach(u => {
+      const coal = parseFloat(unitForms[u].coal_consumption_t);
+      const gen = parseFloat(unitForms[u].generation_mu);
+      let sp = "";
+      if (!isNaN(coal) && !isNaN(gen) && gen > 0) sp = parseFloat((coal/gen).toFixed(3));
+      if (String(unitForms[u].sp_coal_consumption_kg_kwh) !== String(sp)) setUnitField(u, "sp_coal_consumption_kg_kwh", sp);
+    });
+    // eslint-disable-next-line
+  }, [unitForms["Unit-1"].coal_consumption_t, unitForms["Unit-1"].generation_mu, unitForms["Unit-2"].coal_consumption_t, unitForms["Unit-2"].generation_mu]);
+
+  // sp_oil
+  useEffect(() => {
+    ["Unit-1","Unit-2"].forEach(u => {
+      const oil = parseFloat(unitForms[u].ldo_hsd_consumption_kl);
+      const gen = parseFloat(unitForms[u].generation_mu);
+      let sp = "";
+      if (!isNaN(oil) && !isNaN(gen) && gen > 0) sp = parseFloat((oil/gen).toFixed(2));
+      if (String(unitForms[u].sp_oil_consumption_ml_kwh) !== String(sp)) setUnitField(u, "sp_oil_consumption_ml_kwh", sp);
+    });
+    // eslint-disable-next-line
+  }, [unitForms["Unit-1"].ldo_hsd_consumption_kl, unitForms["Unit-1"].generation_mu, unitForms["Unit-2"].ldo_hsd_consumption_kl, unitForms["Unit-2"].generation_mu]);
+
+  // aux %
+  useEffect(() => {
+    ["Unit-1","Unit-2"].forEach(u => {
+      const aux = parseFloat(unitForms[u].aux_power_consumption_mu);
+      const gen = parseFloat(unitForms[u].generation_mu);
+      let p = "";
+      if (!isNaN(aux) && !isNaN(gen) && gen > 0) p = parseFloat(((aux/gen)*100).toFixed(2));
+      if (String(unitForms[u].aux_power_percent) !== String(p)) setUnitField(u, "aux_power_percent", p);
+    });
+    // eslint-disable-next-line
+  }, [unitForms["Unit-1"].aux_power_consumption_mu, unitForms["Unit-1"].generation_mu, unitForms["Unit-2"].aux_power_consumption_mu, unitForms["Unit-2"].generation_mu]);
+
+  // sp_steam
+  useEffect(() => {
+    ["Unit-1","Unit-2"].forEach(u => {
+      const steam = parseFloat(unitForms[u].steam_gen_t);
+      const gen = parseFloat(unitForms[u].generation_mu);
+      let sp = "";
+      if (!isNaN(steam) && !isNaN(gen) && gen > 0) sp = parseFloat((steam/gen).toFixed(2));
+      if (String(unitForms[u].sp_steam_consumption_kg_kwh) !== String(sp)) setUnitField(u, "sp_steam_consumption_kg_kwh", sp);
+    });
+    // eslint-disable-next-line
+  }, [unitForms["Unit-1"].steam_gen_t, unitForms["Unit-1"].generation_mu, unitForms["Unit-2"].steam_gen_t, unitForms["Unit-2"].generation_mu]);
+
+  // generation from totalizer
+  useEffect(() => {
+    ["Unit-1","Unit-2"].forEach(u => {
+      const prev = parseFloat(unitForms[u].prev_totalizer);
+      const today = parseFloat(unitForms[u].totalizer_mu);
+      if (!isNaN(prev) && !isNaN(today)) {
+        const gen = today - prev;
+        const formatted = isFinite(gen) && gen >= 0 ? parseFloat(gen.toFixed(3)) : "";
+        if (String(unitForms[u].generation_mu) !== String(formatted)) setUnitField(u, "generation_mu", formatted);
+      }
+    });
+    // eslint-disable-next-line
+  }, [unitForms["Unit-1"].totalizer_mu, unitForms["Unit-1"].prev_totalizer, unitForms["Unit-2"].totalizer_mu, unitForms["Unit-2"].prev_totalizer]);
+
+  // change detection
+  const detectChangedFilledFieldsForUnit = (unitKey, candidate) => {
+    const changed = [];
+    Object.keys(initialUnitFormState).forEach(k => {
+      if (k === "unit" || k === "prev_totalizer") return;
+      if (AUTO_CALCULATED_FIELDS.includes(k)) return;
+      const orig = originalUnitForms[unitKey]?.[k] ?? "";
+      const curr = candidate?.[k] ?? unitForms[unitKey]?.[k] ?? "";
+      if (String(orig) !== "" && String(orig) !== String(curr)) changed.push(k);
+    });
+    return changed;
   };
 
-  // --- Input Handlers ---
-  const handleUnitChange = (e) => {
+  // input handlers
+  const handleUnitInputChange = (unitKey, e) => {
     const { name, value } = e.target;
-    if (name === "unit") {
-      setUnitForm({ ...initialUnitFormState, unit: value });
-      setOriginalUnitForm(initialUnitFormState);
-      setIsEditing(false);
-      setUnitMessage("");
-      setChangedFilledFields([]);
-    } else {
-      setUnitForm((prev) => {
-        const next = { ...prev, [name]: value };
-        detectChangedFilledFields(next);
-        return next;
-      });
-    }
+    setUnitForms(prev => ({ ...prev, [unitKey]: { ...prev[unitKey], [name]: value } }));
   };
-
   const handleStationChange = (e) => {
     const { name, value } = e.target;
-    setStationForm((prevState) => ({ ...prevState, [name]: value }));
+    setStationForm(s => ({ ...s, [name]: value }));
   };
 
-  // detect which originally-filled fields (originalUnitForm) have been changed
-  // Only considers fields that originally had a value (orig !== ""), and that are NOT auto-calculated
-  const detectChangedFilledFields = (newUnitForm) => {
-    const changed = [];
-    Object.keys(initialUnitFormState).forEach((key) => {
-      if (key === "unit" || key === "prev_totalizer") return;
-      if (AUTO_CALCULATED_FIELDS.includes(key)) return; // ignore auto-calculated fields
-      const orig = originalUnitForm[key] ?? "";
-      const curr = newUnitForm[key] ?? "";
-      if (String(orig) !== "" && String(orig) !== String(curr)) {
-        changed.push(key);
-      }
-    });
-    setChangedFilledFields(changed);
-  };
-
-  // --- Submit Handlers ---
-  const handleUnitSubmit = async (e) => {
-    e.preventDefault();
-    if (!unitForm.unit) {
-      setUnitMessage("❌ Please select a unit first.");
-      return;
-    }
-
-    // detect any change overall (including new fills) ignoring prev_totalizer
-    const anyChange = Object.keys(initialUnitFormState).some((key) => {
-      if (key === "unit" || key === "prev_totalizer") return false;
-      // ignore auto-calculated fields for determining if user did any change? NO — we should consider manual inputs
-      if (AUTO_CALCULATED_FIELDS.includes(key)) return false;
-      const orig = originalUnitForm[key] ?? "";
-      const curr = unitForm[key] ?? "";
+  // submit handlers
+  const handleUnitSubmit = async (unitKey) => {
+    if (!unitKey) return;
+    const anyChange = Object.keys(initialUnitFormState).some(k => {
+      if (k === "unit" || k === "prev_totalizer") return false;
+      if (AUTO_CALCULATED_FIELDS.includes(k)) return false;
+      const orig = originalUnitForms[unitKey]?.[k] ?? "";
+      const curr = unitForms[unitKey]?.[k] ?? "";
       return String(orig) !== String(curr);
     });
-
-    if (isEditing && !anyChange) {
-      setUnitMessage("❌ No changes made to submit.");
-      return;
-    }
-
-    // If editing and user modified any originally-filled field -> require password first
-    if (isEditing && changedFilledFields.length > 0) {
-      setShowPasswordModal(true);
-      return;
-    }
-
-    // Otherwise show confirmation popup (it will list all manual changed fields - both new fills and changed ones - excluding auto-calculated fields)
+    if (isEditingForUnit[unitKey] && !anyChange) { setMessage("❌ No changes made to submit."); return; }
+    const changed = detectChangedFilledFieldsForUnit(unitKey, unitForms[unitKey]);
+    if (!isAdmin && isEditingForUnit[unitKey]) {
+    setMessage("❌ Only admin can edit existing data.");
+    return;
+}
     setShowConfirmPopup(true);
   };
 
-  // Called after confirmation popup's Confirm button
-  const handleConfirmUnitSubmit = async () => {
-    setUnitSubmitting(true);
-    setUnitMessage("");
+  const handleConfirmUnitSubmit = async (unitKey) => {
+    const u = unitKey || activeTab;
+    setSubmitting(s => ({ ...s, [u]: true }));
     setShowConfirmPopup(false);
+    setMessage("");
+   try {
+    const payload = { ...unitForms[u], report_date: reportDate };
+    delete payload.prev_totalizer;
 
-    const dataToSend = {
-      ...unitForm,
-      report_date: reportDate
-    };
-
-    // Remove prev_totalizer before sending
-    if ("prev_totalizer" in dataToSend) delete dataToSend.prev_totalizer;
-
-    // Normalize payload: convert "" to null and numeric strings to floats
-    for (const key in dataToSend) {
-      if (key === "report_date" || key === "unit" || key === "edit_password") continue;
-      if (dataToSend[key] === "") dataToSend[key] = null;
-      else if (typeof dataToSend[key] === "string" && !isNaN(parseFloat(dataToSend[key])) && isFinite(dataToSend[key])) {
-        dataToSend[key] = parseFloat(dataToSend[key]);
+    // convert empty -> null, numeric strings -> number
+    Object.keys(payload).forEach(k => {
+      if (k === "unit" || k === "report_date") return;
+      if (payload[k] === "") payload[k] = null;
+      else if (!isNaN(parseFloat(payload[k])) && isFinite(payload[k])) {
+        payload[k] = parseFloat(payload[k]);
       }
+    });
+
+    // 🚨 Block update if NOT admin and existing data is being edited
+    if (!isAdmin && isEditingForUnit[u]) {
+      setMessage("❌ Only admin can edit existing data.");
+      return;
     }
 
-    // Attach edit_password only if we have it (i.e., password modal was used)
-    if (isEditing && editPassword) dataToSend.edit_password = editPassword;
+    await api.post("/reports/", payload);
 
-    try {
-      await api.post(`/reports/`, dataToSend);
-      setUnitMessage(isEditing ? "✅ Report updated successfully" : "✅ Report added successfully");
-      setIsEditing(true);
-      // after successful save, update original snapshot to current values
-      setOriginalUnitForm({ ...unitForm });
-      setChangedFilledFields([]);
-      setEditPassword("");
-    } catch (err) {
-      let errorDetail = err.response?.data?.detail || "Error saving data";
-      if (Array.isArray(errorDetail)) {
-        errorDetail = errorDetail.map((d) => `${d.loc.slice(-1)[0]} - ${d.msg}`).join("; ");
-      }
-      setUnitMessage(`❌ ${errorDetail}`);
-      // if edit attempt failed and we were editing, reopen password modal so user can retry
-      if (isEditing && changedFilledFields.length > 0) setShowPasswordModal(true);
-    } finally {
-      setUnitSubmitting(false);
-    }
+    setMessage(isEditingForUnit[u]
+      ? "✅ Report updated successfully"
+      : "✅ Report added successfully"
+    );
+
+    // update local original values
+    setOriginalUnitForms(s => ({ ...s, [u]: { ...unitForms[u] } }));
+    setIsEditingForUnit(s => ({ ...s, [u]: true }));
+    
+} catch (e) {
+    const det = e.response?.data?.detail || "Error saving data";
+    setMessage(`❌ ${det}`);
+} finally {
+    setSubmitting(s => ({ ...s, [u]: false }));
+}
   };
 
-  // Called when password modal confirm clicked
-  const handlePasswordConfirm = () => {
-    // If user confirmed password, close password modal and show confirmation popup
-    setShowPasswordModal(false);
-    // we keep editPassword in state (user typed it); it will be attached on final submit
-    setShowConfirmPopup(true);
-  };
+  const handleStationSubmit = async () => {
+  setSubmitting(s => ({ ...s, station: true }));
+  setMessage("");
 
-  const handleStationSubmit = async (e) => {
-    e.preventDefault();
-    setStationSubmitting(true);
-    setStationMessage("");
+  try {
+    // 🚨 Block non-admin from editing existing station data
+    const stationHasExistingData = Object.values(originalStationForm || {}).some(
+      v => v !== "" && v !== null
+    );
 
-    const dataToSend = { ...stationForm, report_date: reportDate };
-    for (const key in dataToSend) {
-      if (key === "report_date") continue;
-      if (dataToSend[key] === "") dataToSend[key] = null;
-      else if (typeof dataToSend[key] === "string" && !isNaN(parseFloat(dataToSend[key])) && isFinite(dataToSend[key])) {
-        dataToSend[key] = parseFloat(dataToSend[key]);
-      }
+    if (!isAdmin && stationHasExistingData) {
+      setMessage("❌ Only admin can edit existing station data.");
+      return;
     }
 
-    try {
-      await api.post(`/reports/station/`, dataToSend);
-      setStationMessage("✅ Station data saved successfully.");
-    } catch (err) {
-      let errorDetail = err.response?.data?.detail || "Error saving station data";
-      if (Array.isArray(errorDetail)) {
-        errorDetail = errorDetail.map((d) => `${d.loc.slice(-1)[0]} - ${d.msg}`).join("; ");
+    // Build payload
+    const payload = { ...stationForm, report_date: reportDate };
+
+    Object.keys(payload).forEach(k => {
+      if (k === "report_date") return;
+
+      if (payload[k] === "" || payload[k] === null) {
+        payload[k] = null;
+      } else if (!isNaN(parseFloat(payload[k])) && isFinite(payload[k])) {
+        payload[k] = parseFloat(payload[k]);
       }
-      setStationMessage(`❌ ${errorDetail}`);
-    } finally {
-      setStationSubmitting(false);
-    }
+    });
+
+    // Save
+    await api.post("/reports/station/", payload);
+
+    setMessage(
+      stationHasExistingData
+        ? "✅ Station data updated successfully."
+        : "✅ Station data added successfully."
+    );
+
+    // Update original values so UI knows it is now an existing entry
+    setOriginalStationForm({ ...stationForm });
+
+  } catch (e) {
+    const det = e.response?.data?.detail || "Error saving station data";
+    setMessage(`❌ ${det}`);
+  } finally {
+    setSubmitting(s => ({ ...s, station: false }));
+  }
+};
+
+
+  // permission helpers
+  const canView = (fieldName) => {
+    if (!permissionMap || Object.keys(permissionMap).length === 0) return true;
+    const p = permissionMap[fieldName]; if (!p) return true; return !!p.can_view;
+  };
+  const canEdit = (fieldName) => {
+    if (!permissionMap || Object.keys(permissionMap).length === 0) return true;
+    const p = permissionMap[fieldName]; if (!p) return false; return !!p.can_edit;
   };
 
-  // Utility: prepare list of changed manual fields for confirmation popup (only show new value)
-  const getChangedManualFieldsForDisplay = () => {
+  // UI helpers
+  const disabledClassForD3 = "bg-orange-50 text-orange-800 border-orange-200 cursor-not-allowed";
+
+
+
+  const renderInput = (unitKey, name, label, type = "number", autoReadOnly = false) => {
+  const hidden = !canView(name);
+  if (hidden) return null;
+
+  const value = unitForms[unitKey]?.[name] ?? "";
+  const editableByPermission = canEdit(name);
+  const isAutoCalc = AUTO_CALCULATED_FIELDS.includes(name);
+
+  // FINAL RULE:
+  // If field already has value → only admin can edit
+  // If field is empty → anyone with permission can edit
+  const fieldHasValue = value !== "" && value !== null;
+
+  const readOnly =
+    autoReadOnly ||
+    isAutoCalc ||
+    !editableByPermission ||
+    (fieldHasValue && !isAdmin); // This is the important rule
+
+  const baseClass = "w-full p-2 rounded text-sm border transition";
+  const finalClass = readOnly
+    ? `${baseClass} bg-orange-50 text-orange-800 border-orange-200 cursor-not-allowed`
+    : `${baseClass} bg-white border-gray-300 focus:border-orange-500`;
+
+  return (
+    <div key={name}>
+      <label className="block text-xs text-gray-500 mb-1">{label}</label>
+      <input
+        name={name}
+        type={type}
+        value={value ?? ""}
+        readOnly={readOnly}
+        onChange={(e) => !readOnly && handleUnitInputChange(unitKey, e)}
+        className={finalClass}
+      />
+    </div>
+  );
+};
+
+
+ const renderStationInput = (name, label) => {
+  const hidden = !canView(name);
+  if (hidden) return null;
+
+  const value = stationForm[name] ?? "";
+  const editableByPermission = canEdit(name);
+
+  const fieldHasValue = value !== "" && value !== null;
+
+  const readOnly =
+    !editableByPermission ||
+    (fieldHasValue && !isAdmin);  
+
+  const baseClass = "w-full p-2 rounded text-sm border transition";
+  const finalClass = readOnly
+    ? `${baseClass} bg-orange-50 text-orange-800 border-orange-200 cursor-not-allowed`
+    : `${baseClass} bg-white border-gray-300 focus:border-orange-500`;
+
+  return (
+    <div key={name}>
+      <label className="block text-xs text-gray-500 mb-1">{label}</label>
+      <input
+        name={name}
+        type="number"
+        value={value ?? ""}
+        readOnly={readOnly}
+        onChange={(e) => !readOnly && handleStationChange(e)}
+        className={finalClass}
+      />
+    </div>
+  );
+};
+
+  // confirmation list
+  const getChangedManualFieldsForDisplay = (unitKey) => {
     const skip = ["prev_totalizer", "unit"];
     const result = [];
-    Object.keys(initialUnitFormState).forEach((key) => {
-      if (skip.includes(key)) return;
-      if (AUTO_CALCULATED_FIELDS.includes(key)) return; // exclude auto-calculated fields
-      const orig = originalUnitForm[key] ?? "";
-      const curr = unitForm[key] ?? "";
-      if (String(orig) !== String(curr) && String(curr) !== "") {
-        result.push({ key, label: prettifyKey(key), value: String(curr) });
-      } else if (String(orig) !== String(curr) && String(curr) === "") {
-        // changed to empty string: show as empty? per request we show only new value — skip empty new
-        // so do not include blank new values
-      }
+    Object.keys(initialUnitFormState).forEach(k => {
+      if (skip.includes(k)) return;
+      if (AUTO_CALCULATED_FIELDS.includes(k)) return;
+      const orig = originalUnitForms[unitKey]?.[k] ?? "";
+      const curr = unitForms[unitKey]?.[k] ?? "";
+      if (String(orig) !== String(curr) && String(curr) !== "") result.push({ key: k, label: prettify(k), value: String(curr) });
     });
     return result;
   };
+  const prettify = (k) => k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 
-  const prettifyKey = (k) =>
-    k
-      .replace(/_/g, " ")
-      .replace(/\b\w/g, (c) => c.toUpperCase());
-
-  // --- Compact UI Layout ---
+  // Render
   return (
-    <div className="max-w-5xl mx-auto my-4">
-      {/* Fixed Top Bar: Date + Unit selector (separated from table) */}
-      <div className="sticky top-4 z-20 bg-white p-3 rounded-md shadow-sm border border-gray-200 mb-3 flex items-center gap-3">
-        <div className="flex-1">
-          <label className="block text-xs font-medium text-gray-600">Date</label>
-          <input
-            type="date"
-            value={reportDate}
-            onChange={(e) => setReportDate(e.target.value)}
-            className="w-44 border rounded p-1 text-sm"
-          />
+    <div className="flex gap-6 p-6 max-w-7xl mx-auto">
+      {/* Sidebar */}
+      <aside className="w-64 bg-white rounded-lg shadow py-4 px-3 flex flex-col gap-4">
+        <div>
+          <label className="block text-xs text-gray-500">Date</label>
+          <input type="date" className="w-full p-2 rounded border border-gray-300" value={reportDate} onChange={(e) => setReportDate(e.target.value)} />
         </div>
 
-        <div className="w-44">
-          <label className="block text-xs font-medium text-gray-600">Unit</label>
-          <select name="unit" value={unitForm.unit} onChange={handleUnitChange} className="w-full border rounded p-1 text-sm">
-            <option value="">Select Unit</option>
-            <option value="Unit-1">Unit-1</option>
-            <option value="Unit-2">Unit-2</option>
-          </select>
-        </div>
-
-        <div className="ml-auto text-right">
-          <div className="text-xs text-gray-500">Status</div>
-          <div className={`text-sm ${unitMessage.startsWith("❌") || unitMessage.startsWith("⚠️") ? "text-red-600" : "text-orange-700"}`}>
-            {unitMessage || (unitFetching ? "Loading..." : "")}
-          </div>
-        </div>
-      </div>
-
-      {/* Main compact card (unit form) */}
-      <div className="p-3 bg-orange-50 rounded-lg shadow-md mb-4 border border-orange-200">
-        <h2 className="text-sm font-semibold text-orange-800 mb-2 text-center">Per-Unit Daily Report</h2>
-
-        <form onSubmit={handleUnitSubmit} className="space-y-3">
-          {/* Performance & Availability (compact grid) */}
-          <h3 className="text-xs font-semibold text-orange-700">Performance & Availability</h3>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-            <InputField
-              label="Prev Totalizer (MU)"
-              name="prev_totalizer"
-              value={unitForm.prev_totalizer}
-              onChange={handleUnitChange}
-              readOnly
-            />
-
-            <InputField
-              label="Totalizer (MU) — today"
-              name="totalizer_mu"
-              value={unitForm.totalizer_mu}
-              onChange={handleUnitChange}
-            />
-
-            <InputField
-              label="Generation (MU)"
-              name="generation_mu"
-              value={unitForm.generation_mu}
-              onChange={handleUnitChange}
-              readOnly
-            />
-
-            <InputField
-              label="PLF (%)"
-              name="plf_percent"
-              value={unitForm.plf_percent}
-              onChange={handleUnitChange}
-              readOnly
-            />
-          </div>
-
-          {/* Running / Availability */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-            <InputField label="Running Hour" name="running_hour" value={unitForm.running_hour} onChange={handleUnitChange} />
-            <InputField label="Plant Availability (%)" name="plant_availability_percent" value={unitForm.plant_availability_percent} onChange={handleUnitChange} readOnly />
-            <InputField label="Planned Outage (Hr)" name="planned_outage_hour" value={unitForm.planned_outage_hour} onChange={handleUnitChange} />
-            <InputField label="Planned Outage (%)" name="planned_outage_percent" value={unitForm.planned_outage_percent} onChange={handleUnitChange} readOnly />
-          </div>
-
-          {/* Outages row 2 */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-            <InputField label="Forced Outage (Hr)" name="forced_outage_hour" value={unitForm.forced_outage_hour} onChange={handleUnitChange} />
-            <InputField label="Forced Outage (%)" name="forced_outage_percent" value={unitForm.forced_outage_percent} onChange={handleUnitChange} readOnly />
-            <InputField label="Strategic Outage (Hr)" name="strategic_outage_hour" value={unitForm.strategic_outage_hour} onChange={handleUnitChange} />
-            <div />
-          </div>
-
-          {/* Fuel & Efficiency */}
-          <h3 className="text-xs font-semibold text-orange-700">Fuel & Efficiency</h3>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-            <InputField label="Coal (T)" name="coal_consumption_t" value={unitForm.coal_consumption_t} onChange={handleUnitChange} />
-            <InputField label="Sp. Coal (kg/kwh)" name="sp_coal_consumption_kg_kwh" value={unitForm.sp_coal_consumption_kg_kwh} onChange={handleUnitChange} readOnly />
-            <InputField label="Avg GCV (kcal/kg)" name="avg_gcv_coal_kcal_kg" value={unitForm.avg_gcv_coal_kcal_kg} onChange={handleUnitChange} />
-            <InputField label="Heat Rate" name="heat_rate" value={unitForm.heat_rate} onChange={handleUnitChange} />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-            <InputField label="LDO/HSD (KL)" name="ldo_hsd_consumption_kl" value={unitForm.ldo_hsd_consumption_kl} onChange={handleUnitChange} />
-            <InputField label="Sp. Oil (ml/kwh)" name="sp_oil_consumption_ml_kwh" value={unitForm.sp_oil_consumption_ml_kwh} onChange={handleUnitChange} readOnly />
-            <div />
-            <div />
-          </div>
-
-          {/* Auxiliary / Water / Steam */}
-          <h3 className="text-xs font-semibold text-orange-700">Auxiliary, Water, Steam & Emissions</h3>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-            <InputField label="Aux. Power (MU)" name="aux_power_consumption_mu" value={unitForm.aux_power_consumption_mu} onChange={handleUnitChange} />
-            <InputField label="Aux. Power (%)" name="aux_power_percent" value={unitForm.aux_power_percent} onChange={handleUnitChange} readOnly />
-            <InputField label="DM Water (Cu.m)" name="dm_water_consumption_cu_m" value={unitForm.dm_water_consumption_cu_m} onChange={handleUnitChange} />
-            <InputField label="Sp. DM Water (%)" name="sp_dm_water_consumption_percent" value={unitForm.sp_dm_water_consumption_percent} onChange={handleUnitChange} />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-            <InputField label="Steam Gen (T)" name="steam_gen_t" value={unitForm.steam_gen_t} onChange={handleUnitChange} />
-            <InputField label="Sp. Steam (kg/kwh)" name="sp_steam_consumption_kg_kwh" value={unitForm.sp_steam_consumption_kg_kwh} onChange={handleUnitChange} readOnly />
-            <InputField label="Stack Emission (mg/Nm3)" name="stack_emission_spm_mg_nm3" value={unitForm.stack_emission_spm_mg_nm3} onChange={handleUnitChange} />
-            <div />
-          </div>
-
-          {/* Submit */}
-          <button
-            type="submit"
-            className={`w-full py-1.5 rounded text-white font-semibold ${
-              isEditing ? "bg-yellow-500 hover:bg-yellow-600" : "bg-gradient-to-r from-orange-500 to-amber-400 hover:from-orange-600 hover:to-amber-500 text-gray-900"
-            }`}
-            disabled={unitSubmitting || unitFetching}
-          >
-            {unitSubmitting ? "Processing..." : isEditing ? "Update Unit Data" : "Submit Unit Report"}
-          </button>
-        </form>
-      </div>
-
-      {/* Station card (compact) */}
-      <div className="p-3 bg-orange-50 rounded-lg shadow-md border border-orange-200">
-        <h2 className="text-sm font-semibold text-orange-800 mb-2 text-center">Station-Level Report</h2>
-
-        <form onSubmit={handleStationSubmit} className="space-y-3">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-            <InputField label="Avg. Raw Water (Cu.m/hr)" name="avg_raw_water_used_cu_m_hr" value={stationForm.avg_raw_water_used_cu_m_hr} onChange={handleStationChange} />
-            <InputField label="Total Raw Water (Cu.m)" name="total_raw_water_used_cu_m" value={stationForm.total_raw_water_used_cu_m} onChange={handleStationChange} />
-            <InputField label="Sp. Raw Water (Ltr/kWh)" name="sp_raw_water_used_ltr_kwh" value={stationForm.sp_raw_water_used_ltr_kwh} onChange={handleStationChange} />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-            <InputField label="RO Plant Running (Hrs)" name="ro_plant_running_hrs" value={stationForm.ro_plant_running_hrs} onChange={handleStationChange} />
-            <InputField label="RO Plant I/L" name="ro_plant_il" value={stationForm.ro_plant_il} onChange={handleStationChange} />
-            <InputField label="RO Plant O/L" name="ro_plant_ol" value={stationForm.ro_plant_ol} onChange={handleStationChange} />
-          </div>
-
-          <button type="submit" className="w-full py-1.5 text-white rounded bg-gradient-to-r from-orange-500 to-amber-400 hover:from-orange-600 hover:to-amber-500" disabled={stationSubmitting || stationFetching}>
-            {stationSubmitting ? "Processing..." : "Save Station Data"}
-          </button>
-        </form>
-      </div>
-
-      {/* Password Modal */}
-      {showPasswordModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-          <div className="bg-white p-5 rounded-xl shadow-lg w-96">
-            <h3 className="text-lg font-semibold mb-3 text-center text-orange-800">Enter Edit Password</h3>
-            <input
-              type="password"
-              placeholder="Edit Password (e.g., EDIT@123)"
-              className="border p-2 w-full rounded mb-4 focus:border-orange-500 focus:ring-orange-500"
-              value={editPassword}
-              onChange={(e) => setEditPassword(e.target.value)}
-            />
-            <div className="flex justify-end gap-3">
-              <button
-                className="bg-gray-400 px-3 py-1 rounded text-white"
-                onClick={() => {
-                  setShowPasswordModal(false);
-                  setEditPassword("");
-                }}
-              >
-                Cancel
+        <div>
+          <div className="text-xs text-gray-500 mb-2">Tabs</div>
+          <div className="flex flex-col gap-2">
+            {["Unit-1","Unit-2","Station"].map(t => (
+              <button key={t} onClick={() => setActiveTab(t)} className={`text-left p-2 rounded-md transition ${activeTab===t ? "bg-orange-500 text-white shadow" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}>
+                {t} {activeTab===t && <span className="ml-2 text-xs opacity-70">{loadingRow ? <Spinner size={12} /> : ""}</span>}
               </button>
-              <button
-                className="bg-orange-600 px-3 py-1 rounded text-white"
-                onClick={() => {
-                  handlePasswordConfirm();
-                }}
-              >
-                Confirm Password
-              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-auto text-xs text-gray-500">
+          <div><strong>User Role:</strong> {roleLoading ? <Spinner size={12} /> : currentUser?.role_id || roleId || "Unknown"}</div>
+          <div className="mt-1 text-sm text-orange-700">{message}</div>
+        </div>
+      </aside>
+
+      {/* Main */}
+      <main className="flex-1">
+        <div className="bg-white rounded-lg shadow p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-800">{activeTab} Report</h2>
+            <div className="text-sm text-gray-600">
+              {permLoading ? <span className="inline-flex items-center gap-2"><Spinner size={14} /> Loading permissions</span> : <span className="text-green-600">Permissions loaded</span>}
             </div>
           </div>
-        </div>
-      )}
 
-      {/* Confirmation Popup (shows ONLY new values for manual fields that changed vs original; excludes auto-calculated fields) */}
-      {showConfirmPopup && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white p-5 rounded-xl shadow-lg w-full max-w-2xl max-h-[80vh] overflow-auto">
-            <h3 className="text-lg font-semibold mb-3 text-center text-orange-800">Confirm changed values</h3>
+          {/* Unit forms */}
+          {activeTab === "Unit-1" || activeTab === "Unit-2" ? (
+            <>
+              <form onSubmit={(e)=>{e.preventDefault(); handleUnitSubmit(activeTab);}}>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Prev Totalizer (MU)</label>
+                    <input value={unitForms[activeTab].prev_totalizer ?? ""} readOnly className="w-full p-2 rounded border border-gray-200 bg-gray-100 text-sm" />
+                  </div>
 
-            <div className="space-y-2 mb-4">
-              {getChangedManualFieldsForDisplay().length === 0 ? (
-                <div className="text-sm text-gray-600">No manual changes to confirm.</div>
-              ) : (
-                <ul className="list-disc ml-5 text-sm">
-                  {getChangedManualFieldsForDisplay().map((f) => (
-                    <li key={f.key} className="py-1">
-                      <span className="font-medium">{f.label}:</span> <span className="font-mono">{f.value}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
+                  <div>{renderInput(activeTab,"totalizer_mu","Totalizer (MU) — today")}</div>
+                  <div>{renderInput(activeTab,"generation_mu","Generation (MU)","number", true)}</div>
+                  <div>{renderInput(activeTab,"plf_percent","PLF (%)","number", true)}</div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
+                  <div>{renderInput(activeTab,"running_hour","Running Hour")}</div>
+                  <div>{renderInput(activeTab,"plant_availability_percent","Plant Availability (%)","number", true)}</div>
+                  <div>{renderInput(activeTab,"planned_outage_hour","Planned Outage (Hr)")}</div>
+                  <div>{renderInput(activeTab,"planned_outage_percent","Planned Outage (%)","number", true)}</div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
+                  <div>{renderInput(activeTab,"forced_outage_hour","Forced Outage (Hr)")}</div>
+                  <div>{renderInput(activeTab,"forced_outage_percent","Forced Outage (%)","number", true)}</div>
+                  <div>{renderInput(activeTab,"strategic_outage_hour","Strategic Outage (Hr)")}</div>
+                  <div />
+                </div>
+
+                <div className="mt-6">
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Fuel & Efficiency</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div>{renderInput(activeTab,"coal_consumption_t","Coal (T)")}</div>
+                    <div>{renderInput(activeTab,"sp_coal_consumption_kg_kwh","Sp. Coal (kg/kwh)","number", true)}</div>
+                    <div>{renderInput(activeTab,"avg_gcv_coal_kcal_kg","Avg GCV (kcal/kg)")}</div>
+                    <div>{renderInput(activeTab,"heat_rate","Heat Rate")}</div>
+                  </div>
+                </div>
+
+                <div className="mt-6">
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">Auxiliary, Water, Steam & Emissions</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div>{renderInput(activeTab,"aux_power_consumption_mu","Aux. Power (MU)")}</div>
+                    <div>{renderInput(activeTab,"aux_power_percent","Aux. Power (%)","number", true)}</div>
+                    <div>{renderInput(activeTab,"dm_water_consumption_cu_m","DM Water (Cu.m)")}</div>
+                    <div>{renderInput(activeTab,"sp_dm_water_consumption_percent","Sp. DM Water (%)","number", true)}</div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
+                    <div>{renderInput(activeTab,"steam_gen_t","Steam Gen (T)")}</div>
+                    <div>{renderInput(activeTab,"sp_steam_consumption_kg_kwh","Sp. Steam (kg/kwh)","number", true)}</div>
+                    <div>{renderInput(activeTab,"stack_emission_spm_mg_nm3","Stack Emission (mg/Nm3)")}</div>
+                    <div />
+                  </div>
+                </div>
+
+                <div className="mt-6">
+                  <button type="submit" disabled={submitting[activeTab] || loadingRow || (!isAdmin && isEditingForUnit[activeTab])}className={`px-4 py-2 rounded font-medium shadow ${submitting[activeTab] ? "bg-gray-300 text-gray-600" : isEditingForUnit[activeTab] ? "bg-yellow-500 text-white hover:bg-yellow-600" : "bg-gradient-to-r from-orange-500 to-amber-400 text-white hover:from-orange-600 hover:to-amber-500"}`} onClick={() => handleUnitSubmit(activeTab)}>
+                    {submitting[activeTab] ? "Processing..." : isEditingForUnit[activeTab] ? "Update Unit Data" : "Submit Unit Report"}
+                  </button>
+                </div>
+              </form>
+            </>
+          ) : (
+            <form onSubmit={(e)=>{e.preventDefault(); handleStationSubmit();}}>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {renderStationInput("avg_raw_water_used_cu_m_hr","Avg. Raw Water (Cu.m/hr)")}
+                {renderStationInput("total_raw_water_used_cu_m","Total Raw Water (Cu.m)")}
+                {renderStationInput("sp_raw_water_used_ltr_kwh","Sp. Raw Water (Ltr/kWh)")}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                {renderStationInput("ro_plant_running_hrs","RO Plant Running (Hrs)")}
+                {renderStationInput("ro_plant_il","RO Plant I/L")}
+                {renderStationInput("ro_plant_ol","RO Plant O/L")}
+              </div>
+
+              <div className="mt-6">
+                <button disabled={submitting.station || (!isAdmin && Object.values(stationForm).some(v => v !== ""))} className="px-4 py-2 rounded bg-gradient-to-r from-orange-500 to-amber-400 text-white hover:from-orange-600 hover:to-amber-500">
+                  {submitting.station ? "Processing..." : "Save Station Data"}
+                </button>
+              </div>
+            </form>
+          )}
+
+         
+
+          {/* Confirm popup */}
+          {showConfirmPopup && (
+            <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
+              <div className="bg-white p-5 rounded-xl shadow-lg w-full max-w-2xl max-h-[80vh] overflow-auto">
+                <h3 className="text-lg font-semibold mb-3 text-center text-orange-800">Confirm changed values</h3>
+                <div className="space-y-2 mb-4">
+                  {activeTab !== "Station" ? (
+                    <>
+                      {getChangedManualFieldsForDisplay(activeTab).length === 0 ? (
+                        <div className="text-sm text-gray-600">No manual changes to confirm.</div>
+                      ) : (
+                        <ul className="list-disc ml-5 text-sm">
+                          {getChangedManualFieldsForDisplay(activeTab).map(f => <li key={f.key} className="py-1"><span className="font-medium">{f.label}:</span> <span className="font-mono">{f.value}</span></li>)}
+                        </ul>
+                      )}
+                    </>
+                  ) : (
+                    <div className="text-sm text-gray-600">Confirm saving station data?</div>
+                  )}
+                </div>
+                <div className="flex justify-end gap-3">
+                  <button className="bg-gray-400 px-3 py-1 rounded text-white" onClick={()=>setShowConfirmPopup(false)}>Cancel</button>
+                  <button className="bg-orange-600 px-3 py-1 rounded text-white" onClick={() => { if (activeTab==="Station") handleStationSubmit(); else handleConfirmUnitSubmit(activeTab); }}>Confirm & Submit</button>
+                </div>
+              </div>
             </div>
+          )}
 
-            <div className="flex justify-end gap-3">
-              <button
-                className="bg-gray-400 px-3 py-1 rounded text-white"
-                onClick={() => {
-                  setShowConfirmPopup(false);
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                className="bg-orange-600 px-3 py-1 rounded text-white"
-                onClick={() => {
-                  handleConfirmUnitSubmit();
-                }}
-                disabled={unitSubmitting}
-              >
-                {unitSubmitting ? "Processing..." : "Confirm & Submit"}
-              </button>
-            </div>
-          </div>
         </div>
-      )}
+      </main>
     </div>
   );
 }

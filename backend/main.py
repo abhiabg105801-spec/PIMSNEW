@@ -16,8 +16,6 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.units import inch
 
-
-
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, func
 from sqlalchemy.dialects.sqlite import insert
@@ -59,7 +57,6 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOGO_PATH = os.path.join(BASE_DIR, "jsl-logo-guide.png")
 
 app = FastAPI(title="PIMS System Backend - JWT + RBAC")
-
 
 origins = [
     "http://localhost:4940",
@@ -222,6 +219,44 @@ async def get_permissions_for_role(role_id: int, db: AsyncSession = Depends(get_
     items = res.scalars().all()
     return [{"field_name": i.field_name, "can_edit": i.can_edit, "can_view": i.can_view} for i in items]
 
+@app.get("/api/permissions/me", dependencies=[Depends(get_current_user)])
+async def get_my_permissions(db: AsyncSession = Depends(get_db), current_user: models.UserDB = Depends(get_current_user)):
+    role_id = current_user.role_id
+    stmt = select(models.PermissionDB).where(models.PermissionDB.role_id == role_id)
+    res = await db.execute(stmt)
+    items = res.scalars().all()
+    return [{"field_name": i.field_name, "can_edit": i.can_edit, "can_view": i.can_view} for i in items]
+@app.put("/api/admin/users/{user_id}/reset-password", dependencies=[Depends(admin_required)])
+async def reset_password_api(
+    user_id: int,
+    new_password: str = Form(...),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(UserDB).where(UserDB.id == user_id)
+    res = await db.execute(stmt)
+    user = res.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.password_hash = hash_password(new_password)
+
+    await db.commit()
+    return {"message": "Password reset successfully"}
+@app.delete("/api/admin/users/{user_id}", dependencies=[Depends(admin_required)])
+async def delete_user_api(user_id: int, db: AsyncSession = Depends(get_db)):
+    stmt = select(UserDB).where(UserDB.id == user_id)
+    res = await db.execute(stmt)
+    user = res.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    await db.delete(user)
+    await db.commit()
+    return {"message": "User deleted successfully"}
+
+
 # ---------------------------
 # Helper: permission check
 # ---------------------------
@@ -330,9 +365,10 @@ async def add_or_update_report(
         # Password enforcement for modifying originally-filled fields
         if not only_new_fields_added:
             # HOD bypass
-            if current_user.role_id != 7:
-                if edit_password != "EDIT@123":
-                    raise HTTPException(status_code=403, detail="Edit password required or incorrect.")
+            if current_user.role_id in (7, 8):
+             pass  # OK
+            else:
+             raise HTTPException(status_code=403, detail="Only admin can edit existing data.")
 
         # If nothing changed -> refresh aggregates
         if len(changed_fields) == 0:
@@ -437,12 +473,28 @@ async def get_station_report(report_date: date, db: AsyncSession = Depends(get_d
 
 @app.post("/api/reports/station/", status_code=201, dependencies=[Depends(get_current_user)])
 async def add_or_update_station_report(report: models.StationReport, db: AsyncSession = Depends(get_db), current_user: models.UserDB = Depends(get_current_user)):
-    if current_user.role_id == 6:
-        raise HTTPException(status_code=403, detail="Viewer cannot modify station data.")
-
+    
     report_datetime = datetime.combine(report.report_date, datetime.min.time())
     report_dict_for_db = report.dict(exclude_unset=True, exclude_none=True, exclude={'report_date'})
     report_dict_for_db['report_date'] = report_datetime
+    
+    # -------------------------------------------------------
+# ADMIN/HOD-ONLY edit check for existing station data
+# -------------------------------------------------------
+
+# Check if a record already exists for this date
+    stmt = select(models.StationReportDB).where(models.StationReportDB.report_date == report_datetime)
+    res = await db.execute(stmt)
+    existing_station = res.scalar_one_or_none()
+
+    if existing_station:
+    # Editing existing data
+      if current_user.role_id not in (7, 8):  # HOD OR ADMIN
+        raise HTTPException(
+            status_code=403,
+            detail="Only admin can edit existing station data."
+        )
+# If no existing data → any role can add new data
 
     insert_stmt = insert(models.StationReportDB).values(**report_dict_for_db)
     update_dict = {col.name: getattr(insert_stmt.excluded, col.name) for col in models.StationReportDB.__table__.columns if not col.primary_key and not col.unique}
@@ -780,128 +832,75 @@ async def update_station_aggregates(report: models.StationReport, db: AsyncSessi
     except Exception as e:
         await db.rollback()
         print(f"Error updating station aggregates: {e}")
-# --- Unit monthly/yearly aggregate endpoints ---
-@app.get("/api/aggregate/month/{year}/{month}/{upto_date}", response_model=List[models.AggregateResponse], dependencies=[Depends(get_current_user)])
-async def get_monthly_summary_upto(year: int, month: int, upto_date: date, db: AsyncSession = Depends(get_db)):
-    month_start_dt = datetime(year, month, 1)
-    upto_dt = datetime.combine(upto_date, datetime.max.time())
-    aggregation_cols = [
-        models.UnitReportDB.unit.label("unit"),
-        func.sum(models.UnitReportDB.generation_mu).label("generation_mu"),
-        func.avg(models.UnitReportDB.plf_percent).label("plf_percent"),
-        func.sum(models.UnitReportDB.running_hour).label("running_hour"),
-        func.avg(models.UnitReportDB.plant_availability_percent).label("plant_availability_percent"),
-        func.sum(models.UnitReportDB.planned_outage_hour).label("planned_outage_hour"),
-        func.avg(models.UnitReportDB.planned_outage_percent).label("planned_outage_percent"),
-        func.sum(models.UnitReportDB.forced_outage_hour).label("forced_outage_hour"),
-        func.avg(models.UnitReportDB.forced_outage_percent).label("forced_outage_percent"),
-        func.sum(models.UnitReportDB.strategic_outage_hour).label("strategic_outage_hour"),
-        func.sum(models.UnitReportDB.coal_consumption_t).label("coal_consumption_t"),
-        func.avg(models.UnitReportDB.sp_coal_consumption_kg_kwh).label("sp_coal_consumption_kg_kwh"),
-        func.avg(models.UnitReportDB.avg_gcv_coal_kcal_kg).label("avg_gcv_coal_kcal_kg"),
-        func.avg(models.UnitReportDB.heat_rate).label("heat_rate"),
-        func.sum(models.UnitReportDB.ldo_hsd_consumption_kl).label("ldo_hsd_consumption_kl"),
-        func.avg(models.UnitReportDB.sp_oil_consumption_ml_kwh).label("sp_oil_consumption_ml_kwh"),
-        func.sum(models.UnitReportDB.aux_power_consumption_mu).label("aux_power_consumption_mu"),
-        func.avg(models.UnitReportDB.aux_power_percent).label("aux_power_percent"),
-        func.sum(models.UnitReportDB.dm_water_consumption_cu_m).label("dm_water_consumption_cu_m"),
-        func.avg(models.UnitReportDB.sp_dm_water_consumption_percent).label("sp_dm_water_consumption_percent"),
-        func.sum(models.UnitReportDB.steam_gen_t).label("steam_gen_t"),
-        func.avg(models.UnitReportDB.sp_steam_consumption_kg_kwh).label("sp_steam_consumption_kg_kwh"),
-        func.avg(models.UnitReportDB.stack_emission_spm_mg_nm3).label("stack_emission_spm_mg_nm3"),
-    ]
+
+
+# ============================================
+# UNIT MONTHLY AGGREGATE API
+# ============================================
+@app.get("/api/aggregate/month/{year}/{month}/{upto_date}", dependencies=[Depends(get_current_user)])
+async def get_unit_monthly_aggregate(year: int, month: int, upto_date: date, db: AsyncSession = Depends(get_db)):
+
+    month_start = datetime(year, month, 1)
+    upto_date_end = datetime.combine(upto_date, datetime.max.time())
+
     stmt = (
-        select(*aggregation_cols)
-        .select_from(models.UnitReportDB)
-        .where(models.UnitReportDB.report_date >= month_start_dt, models.UnitReportDB.report_date <= upto_dt)
-        .group_by(models.UnitReportDB.unit)
-        .order_by(models.UnitReportDB.unit)
+        select(models.MonthlyAggregateDB)
+        .where(
+            models.MonthlyAggregateDB.year == year,
+            models.MonthlyAggregateDB.month == month
+        )
     )
-    result = await db.execute(stmt)
-    results_list = [dict(row) for row in result.mappings().all()]
-    return results_list
 
+    res = await db.execute(stmt)
+    rows = res.scalars().all()
+    return rows
 
-@app.get("/api/aggregate/year/{year}/{upto_date}", response_model=List[models.AggregateResponse], dependencies=[Depends(get_current_user)])
-async def get_yearly_summary_upto(year: int, upto_date: date, db: AsyncSession = Depends(get_db)):
-    year_start_dt = datetime(year, 1, 1)
-    upto_dt = datetime.combine(upto_date, datetime.max.time())
-    aggregation_cols = [
-        models.UnitReportDB.unit.label("unit"),
-        func.sum(models.UnitReportDB.generation_mu).label("generation_mu"),
-        func.avg(models.UnitReportDB.plf_percent).label("plf_percent"),
-        func.sum(models.UnitReportDB.running_hour).label("running_hour"),
-        func.avg(models.UnitReportDB.plant_availability_percent).label("plant_availability_percent"),
-        func.sum(models.UnitReportDB.planned_outage_hour).label("planned_outage_hour"),
-        func.avg(models.UnitReportDB.planned_outage_percent).label("planned_outage_percent"),
-        func.sum(models.UnitReportDB.forced_outage_hour).label("forced_outage_hour"),
-        func.avg(models.UnitReportDB.forced_outage_percent).label("forced_outage_percent"),
-        func.sum(models.UnitReportDB.strategic_outage_hour).label("strategic_outage_hour"),
-        func.sum(models.UnitReportDB.coal_consumption_t).label("coal_consumption_t"),
-        func.avg(models.UnitReportDB.sp_coal_consumption_kg_kwh).label("sp_coal_consumption_kg_kwh"),
-        func.avg(models.UnitReportDB.avg_gcv_coal_kcal_kg).label("avg_gcv_coal_kcal_kg"),
-        func.avg(models.UnitReportDB.heat_rate).label("heat_rate"),
-        func.sum(models.UnitReportDB.ldo_hsd_consumption_kl).label("ldo_hsd_consumption_kl"),
-        func.avg(models.UnitReportDB.sp_oil_consumption_ml_kwh).label("sp_oil_consumption_ml_kwh"),
-        func.sum(models.UnitReportDB.aux_power_consumption_mu).label("aux_power_consumption_mu"),
-        func.avg(models.UnitReportDB.aux_power_percent).label("aux_power_percent"),
-        func.sum(models.UnitReportDB.dm_water_consumption_cu_m).label("dm_water_consumption_cu_m"),
-        func.avg(models.UnitReportDB.sp_dm_water_consumption_percent).label("sp_dm_water_consumption_percent"),
-        func.sum(models.UnitReportDB.steam_gen_t).label("steam_gen_t"),
-        func.avg(models.UnitReportDB.sp_steam_consumption_kg_kwh).label("sp_steam_consumption_kg_kwh"),
-        func.avg(models.UnitReportDB.stack_emission_spm_mg_nm3).label("stack_emission_spm_mg_nm3"),
-    ]
+# ============================================
+# UNIT YEARLY AGGREGATE API
+# ============================================
+@app.get("/api/aggregate/year/{year}/{upto_date}", dependencies=[Depends(get_current_user)])
+async def get_unit_yearly_aggregate(year: int, upto_date: date, db: AsyncSession = Depends(get_db)):
+
     stmt = (
-        select(*aggregation_cols)
-        .select_from(models.UnitReportDB)
-        .where(models.UnitReportDB.report_date >= year_start_dt, models.UnitReportDB.report_date <= upto_dt)
-        .group_by(models.UnitReportDB.unit)
-        .order_by(models.UnitReportDB.unit)
+        select(models.YearlyAggregateDB)
+        .where(models.YearlyAggregateDB.year == year)
     )
-    result = await db.execute(stmt)
-    results_list = [dict(row) for row in result.mappings().all()]
-    return results_list
 
+    res = await db.execute(stmt)
+    rows = res.scalars().all()
+    return rows
+# ============================================
+# STATION MONTHLY AGGREGATE API
+# ============================================
+@app.get("/api/aggregate/station/month/{year}/{month}/{upto_date}", dependencies=[Depends(get_current_user)])
+async def get_station_monthly_aggregate(year: int, month: int, upto_date: date, db: AsyncSession = Depends(get_db)):
 
-# --- Station aggregate endpoints ---
-@app.get("/api/aggregate/station/month/{year}/{month}/{upto_date}", response_model=models.StationAggregateResponse, dependencies=[Depends(get_current_user)])
-async def get_station_monthly_summary_upto(year: int, month: int, upto_date: date, db: AsyncSession = Depends(get_db)):
-    month_start_dt = datetime(year, month, 1)
-    upto_dt = datetime.combine(upto_date, datetime.max.time())
-    aggregation_cols = [
-        func.avg(models.StationReportDB.avg_raw_water_used_cu_m_hr).label("avg_raw_water_used_cu_m_hr"),
-        func.sum(models.StationReportDB.total_raw_water_used_cu_m).label("total_raw_water_used_cu_m"),
-        func.avg(models.StationReportDB.sp_raw_water_used_ltr_kwh).label("sp_raw_water_used_ltr_kwh"),
-        func.sum(models.StationReportDB.ro_plant_running_hrs).label("ro_plant_running_hrs"),
-        func.sum(models.StationReportDB.ro_plant_il).label("ro_plant_il"),
-        func.sum(models.StationReportDB.ro_plant_ol).label("ro_plant_ol"),
-    ]
-    stmt = select(*aggregation_cols).select_from(models.StationReportDB).where(models.StationReportDB.report_date >= month_start_dt, models.StationReportDB.report_date <= upto_dt)
-    result = await db.execute(stmt)
-    data = result.mappings().first()
-    if not data or data.get("total_raw_water_used_cu_m") is None:
-        raise HTTPException(status_code=404, detail="No station aggregate data found for this month.")
-    return {**data, "year": year, "month": month}
+    stmt = (
+        select(models.StationMonthlyAggregateDB)
+        .where(
+            models.StationMonthlyAggregateDB.year == year,
+            models.StationMonthlyAggregateDB.month == month
+        )
+    )
 
+    res = await db.execute(stmt)
+    row = res.scalar_one_or_none()
+    return row or {}
+# ============================================
+# STATION YEARLY AGGREGATE API
+# ============================================
+@app.get("/api/aggregate/station/year/{year}/{upto_date}", dependencies=[Depends(get_current_user)])
+async def get_station_yearly_aggregate(year: int, upto_date: date, db: AsyncSession = Depends(get_db)):
 
-@app.get("/api/aggregate/station/year/{year}/{upto_date}", response_model=models.StationAggregateResponse, dependencies=[Depends(get_current_user)])
-async def get_station_yearly_summary_upto(year: int, upto_date: date, db: AsyncSession = Depends(get_db)):
-    year_start_dt = datetime(year, 1, 1)
-    upto_dt = datetime.combine(upto_date, datetime.max.time())
-    aggregation_cols = [
-        func.avg(models.StationReportDB.avg_raw_water_used_cu_m_hr).label("avg_raw_water_used_cu_m_hr"),
-        func.sum(models.StationReportDB.total_raw_water_used_cu_m).label("total_raw_water_used_cu_m"),
-        func.avg(models.StationReportDB.sp_raw_water_used_ltr_kwh).label("sp_raw_water_used_ltr_kwh"),
-        func.sum(models.StationReportDB.ro_plant_running_hrs).label("ro_plant_running_hrs"),
-        func.sum(models.StationReportDB.ro_plant_il).label("ro_plant_il"),
-        func.sum(models.StationReportDB.ro_plant_ol).label("ro_plant_ol"),
-    ]
-    stmt = select(*aggregation_cols).select_from(models.StationReportDB).where(models.StationReportDB.report_date >= year_start_dt, models.StationReportDB.report_date <= upto_dt)
-    result = await db.execute(stmt)
-    data = result.mappings().first()
-    if not data or data.get("total_raw_water_used_cu_m") is None:
-        raise HTTPException(status_code=404, detail="No station aggregate data found for this year.")
-    return {**data, "year": year}
+    stmt = (
+        select(models.StationYearlyAggregateDB)
+        .where(models.StationYearlyAggregateDB.year == year)
+    )
+
+    res = await db.execute(stmt)
+    row = res.scalar_one_or_none()
+    return row or {}
+
 
 # ---------------------------
 # EXPORTS (Excel / PDF) - keep existing logic

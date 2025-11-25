@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 
 const FIELDS = [
-  "generation_mu", "plf_percent", "running_hour", "plant_availability_percent",
+  "totalizer_mu","generation_mu", "plf_percent", "running_hour", "plant_availability_percent",
   "planned_outage_hour", "planned_outage_percent", "forced_outage_hour",
   "forced_outage_percent", "strategic_outage_hour", "coal_consumption_t",
   "sp_coal_consumption_kg_kwh", "avg_gcv_coal_kcal_kg", "heat_rate",
