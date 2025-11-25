@@ -291,6 +291,18 @@ class StationAggregateResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class DMPlantEntryDB(Base):
+    __tablename__ = "dm_plant_entries"
+    id = Column(Integer, primary_key=True, index=True)
+    date = Column(Date, nullable=False, index=True)
+    time = Column(Time, nullable=False)
+    unit = Column(String, nullable=False)
+    section = Column(String, nullable=False)
+    parameter = Column(String, nullable=False)
+    value = Column(Float, nullable=False)
+    remarks = Column(String, nullable=True)
+    uploaded_at = Column(DateTime, default=datetime.utcnow)
+
 # ============================================================
 # ADDING USER / ROLE / PERMISSION MODELS
 # ============================================================

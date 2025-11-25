@@ -144,7 +144,7 @@ async def admin_required(current_user: UserDB = Depends(get_current_user)):
 # ROLE CHECK (FOR ANY RESTRICTED API)
 # ======================================================
 
-async def require_role(allowed_roles: list[int]):
+def require_role(allowed_roles: list[int]):
     async def role_checker(current_user: UserDB = Depends(get_current_user)):
         if current_user.role_id not in allowed_roles:
             raise HTTPException(

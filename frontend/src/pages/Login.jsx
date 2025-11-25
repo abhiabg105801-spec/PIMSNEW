@@ -48,7 +48,7 @@ export default function Login({ onLogin }) {
         </div>
 
         {/* Header */}
-        <h1 className="text-3xl font-extrabold text-center text-orange-600 tracking-tight">
+        <h1 className="text-3xl font-extrabold text-center text-orange-400 tracking-tight">
           CPP – PIMS
         </h1>
         <p className="text-center text-gray-600 mb-6 text-sm">

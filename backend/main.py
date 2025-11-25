@@ -3,6 +3,7 @@ from fastapi import FastAPI, HTTPException, Depends, Body, Form, UploadFile, Fil
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from routers import dm_plant
 
 from datetime import datetime, date, timedelta, time
 from typing import List, Optional
@@ -59,6 +60,8 @@ LOGO_PATH = os.path.join(BASE_DIR, "jsl-logo-guide.png")
 
 app = FastAPI(title="PIMS System Backend - JWT + RBAC")
 
+
+
 origins = [
     "http://localhost:4940",
     "http://localhost:5173",
@@ -73,7 +76,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
+app.include_router(dm_plant.router)
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 @app.get("/")

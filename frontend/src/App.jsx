@@ -17,6 +17,9 @@ import KpiRangeViewer from "./pages/KpiRangeViewer";
 import AdminPanel from "./pages/AdminPanel";
 import UserMenu from "./components/UserMenu";
 
+// ⭐ NEW IMPORT — Add DM Plant Page
+import DMPlantPage from "./pages/DMPlantPage";
+
 function decodeJWT(token) {
   try {
     const base64 = token.split(".")[1];
@@ -57,6 +60,7 @@ export default function App() {
 function Layout({ authHeader, onLogout }) {
   const decoded = decodeJWT(authHeader.replace("Bearer ", ""));
   const username = decoded?.sub || "User";
+  const roleId = decoded?.role_id || null;
 
   const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
@@ -65,40 +69,33 @@ function Layout({ authHeader, onLogout }) {
 
   const navLinkStyle = (isActive) =>
     `px-4 h-full flex items-center text-sm font-medium transition-all duration-200
-     ${isActive ? "text-orange-600 border-b-2 border-orange-600" : "text-gray-700 hover:text-orange-500 hover:scale-[1.03]"}
-    `;
+     ${isActive ? "text-orange-600 border-b-2 border-orange-600" : "text-gray-700 hover:text-orange-500 hover:scale-[1.03]"}`;
 
   const dropdownItem = (isActive) =>
     `block px-4 py-2 text-sm rounded transition-all duration-200
-     ${isActive ? "bg-orange-50 text-orange-600 font-semibold" : "text-gray-700 hover:bg-orange-50 hover:text-orange-600"}
-    `;
+     ${isActive ? "bg-orange-50 text-orange-600 font-semibold" : "text-gray-700 hover:bg-orange-50 hover:text-orange-600"}`;
 
   return (
     <div className="min-h-screen flex flex-col">
 
-      {/* TOP ORANGE LINE */}
-      
-
-      {/* HEADER (GLASSMORPHISM) */}
+      {/* HEADER */}
       <div className="fixed top-0 left-0 right-0 z-30 bg-white/80 backdrop-blur-md shadow-md border-b border-gray-300">
         <header className="relative flex items-center px-10 h-16 bg-gray-800 text-white shadow-lg">
-  
-  {/* CENTERED LOGO + TITLE */}
-  <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-3">
-    <img src="/jsl-logo.png" className="h-10 w-auto" alt="logo" />
-    <div className="flex flex-col leading-tight text-center">
-      <span className="text-xl font-extrabold tracking-wide text-white">
-        <span className="text-orange-500">2×125 MW CPP – </span>PIMS
-      </span>
-      <div className="h-0.5 w-full bg-orange-500 mt-1"></div>
-    </div>
-  </div>
 
-  {/* USER MENU (RIGHT) */}
-  <div className="ml-auto">
-    <UserMenu username={username} onLogout={onLogout} />
-  </div>
-</header>
+          <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-3">
+            <img src="/jsl-logo.png" className="h-10 w-auto" alt="logo" />
+            <div className="flex flex-col leading-tight text-center">
+              <span className="text-xl font-extrabold tracking-wide text-white">
+                <span className="text-orange-500">2×125 MW CPP – </span>PIMS
+              </span>
+              <div className="h-0.5 w-full bg-orange-500 mt-1"></div>
+            </div>
+          </div>
+
+          <div className="ml-auto">
+            <UserMenu username={username} onLogout={onLogout} />
+          </div>
+        </header>
 
         {/* NAVIGATION */}
         <nav className="h-12 bg-gray-100 border-t border-gray-300 shadow-inner">
@@ -108,15 +105,20 @@ function Layout({ authHeader, onLogout }) {
               Data Entry
             </NavLink>
 
-            {/* Reports Dropdown */}
+            {/* NEW DM PLANT NAVLINK – role 5 or 8 */}
+            {(roleId === 5 || roleId === 8) && (
+              <NavLink to="/dm-plant" className={({ isActive }) => navLinkStyle(isActive)}>
+                DM Plant
+              </NavLink>
+            )}
+
+            {/* Reports */}
             <div
               className="relative h-full"
               onMouseEnter={() => setIsOpen(true)}
               onMouseLeave={() => setIsOpen(false)}
             >
-              <div
-                className={`${navLinkStyle(highlightReports)} cursor-pointer flex items-center gap-1`}
-              >
+              <div className={`${navLinkStyle(highlightReports)} cursor-pointer flex items-center gap-1`}>
                 Reports ▾
               </div>
 
@@ -128,6 +130,7 @@ function Layout({ authHeader, onLogout }) {
                   >
                     Daily Report
                   </NavLink>
+
                   <NavLink
                     to="/kpi-data"
                     className={({ isActive }) => dropdownItem(isActive)}
@@ -138,7 +141,6 @@ function Layout({ authHeader, onLogout }) {
               )}
             </div>
 
-            {/* Other Menus */}
             <NavLink to="/shutdowns" className={({ isActive }) => navLinkStyle(isActive)}>
               Shutdown Log
             </NavLink>
@@ -166,10 +168,12 @@ function Layout({ authHeader, onLogout }) {
           <Route path="/charts" element={<KpiChartsPage auth={authHeader} />} />
           <Route path="/kpi-data" element={<KpiRangeViewer auth={authHeader} />} />
           <Route path="/admin" element={<AdminPanel auth={authHeader} />} />
+
+          {/* ⭐ NEW – DM PLANT PAGE */}
+          <Route path="/dm-plant" element={<DMPlantPage auth={authHeader} />} />
         </Routes>
       </main>
 
-      {/* CSS Animations */}
       <style>{`
         @keyframes dropdown {
           from { opacity: 0; transform: translateY(-6px); }
