@@ -46,6 +46,7 @@ from auth import (
     require_role,
     login_for_access_token,
     hash_password,
+    verify_password,
 )
 
 # If UPLOAD_DIR not in this module, create it here
@@ -255,6 +256,24 @@ async def delete_user_api(user_id: int, db: AsyncSession = Depends(get_db)):
     await db.delete(user)
     await db.commit()
     return {"message": "User deleted successfully"}
+@app.post("/api/auth/change-password")
+async def change_password(
+    old_password: str = Body(...),
+    new_password: str = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user)
+):
+    # Check if old password matches
+    if not verify_password(old_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Old password incorrect.")
+
+    # Save new password
+    current_user.password_hash = hash_password(new_password)
+    await db.commit()
+
+    return {"message": "Password updated successfully"}
+
+
 
 
 # ---------------------------

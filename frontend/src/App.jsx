@@ -15,6 +15,7 @@ import PlantShutdownPage from "./pages/PlantShutdownPage";
 import KpiChartsPage from "./pages/KpiChartsPage";
 import KpiRangeViewer from "./pages/KpiRangeViewer";
 import AdminPanel from "./pages/AdminPanel";
+import UserMenu from "./components/UserMenu";
 
 function decodeJWT(token) {
   try {
@@ -79,35 +80,25 @@ function Layout({ authHeader, onLogout }) {
       
 
       {/* HEADER (GLASSMORPHISM) */}
-      <div className="fixed top-1.5 left-0 right-0 z-30 bg-white/80 backdrop-blur-md shadow-md border-b border-gray-300">
-        <header className="flex items-center justify-between px-10 h-16">
-
-          {/* Logo + title */}
-          <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-3">
-  <img src="/jsl-logo.png" className="h-10 w-auto" alt="logo" />
+      <div className="fixed top-0 left-0 right-0 z-30 bg-white/80 backdrop-blur-md shadow-md border-b border-gray-300">
+        <header className="relative flex items-center px-10 h-16 bg-gray-800 text-white shadow-lg">
   
-  <div className="flex flex-col leading-tight text-center">
-    <span className="text-xl font-extrabold tracking-wide text-gray-800">
-      <span className="text-orange-600">2×125 MW CPP – </span>PIMS
-    </span>
-    <div className="h-0.5 w-full bg-orange-500 mt-1"></div>
+  {/* CENTERED LOGO + TITLE */}
+  <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-3">
+    <img src="/jsl-logo.png" className="h-10 w-auto" alt="logo" />
+    <div className="flex flex-col leading-tight text-center">
+      <span className="text-xl font-extrabold tracking-wide text-white">
+        <span className="text-orange-500">2×125 MW CPP – </span>PIMS
+      </span>
+      <div className="h-0.5 w-full bg-orange-500 mt-1"></div>
+    </div>
   </div>
-</div>
-          
-          {/* Right side user info */}
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-700">
-              Welcome,&nbsp;
-              <span className="font-semibold text-orange-600">{username}</span>
-            </span>
-            <button
-              onClick={onLogout}
-              className="px-4 py-1.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded shadow transition-all"
-            >
-              Logout
-            </button>
-          </div>
-        </header>
+
+  {/* USER MENU (RIGHT) */}
+  <div className="ml-auto">
+    <UserMenu username={username} onLogout={onLogout} />
+  </div>
+</header>
 
         {/* NAVIGATION */}
         <nav className="h-12 bg-gray-100 border-t border-gray-300 shadow-inner">
