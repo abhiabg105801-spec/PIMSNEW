@@ -4,13 +4,17 @@ import axios from "axios";
 const FIELDS = [
   "totalizer_mu","generation_mu", "plf_percent", "running_hour", "plant_availability_percent",
   "planned_outage_hour", "planned_outage_percent", "forced_outage_hour",
-  "forced_outage_percent", "strategic_outage_hour", "coal_consumption_t",
+  "forced_outage_percent", "strategic_outage_hour","totalizer_coal", "coal_consumption_t",
   "sp_coal_consumption_kg_kwh", "avg_gcv_coal_kcal_kg", "heat_rate",
-  "ldo_hsd_consumption_kl", "sp_oil_consumption_ml_kwh",
+  "ldo_hsd_consumption_kl", "sp_oil_consumption_ml_kwh","totalizer_aux",
   "aux_power_consumption_mu", "aux_power_percent",
   "dm_water_consumption_cu_m", "sp_dm_water_consumption_percent",
-  "steam_gen_t", "sp_steam_consumption_kg_kwh", "stack_emission_spm_mg_nm3"
+  "steam_gen_t", "sp_steam_consumption_kg_kwh", "stack_emission_spm_mg_nm3","avg_raw_water_used_cu_m_hr",
+  "total_raw_water_used_cu_m", "sp_raw_water_used_ltr_kwh",
+  "ro_plant_running_hrs", "ro_plant_il", "ro_plant_ol"
 ];
+
+
 
 export default function RolePermissionEditor({ auth }) {
   const [roles, setRoles] = useState([]);

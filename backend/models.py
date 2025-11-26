@@ -18,37 +18,54 @@ class UnitReportDB(Base):
     unit = Column(String, index=True, nullable=False)
     report_date = Column(DateTime, index=True, nullable=False)
 
-    # Performance
-    totalizer_mu = Column(Float, nullable=True)
-    generation_mu = Column(Float, nullable=True)
+    # -------------------- Totalizers (Today) --------------------
+    totalizer_mu = Column(Float, nullable=True)     # Generation totalizer (today)
+    totalizer_coal = Column(Float, nullable=True)   # Coal totalizer (today)  <-- NEW
+    totalizer_aux = Column(Float, nullable=True)    # Aux power totalizer (today) <-- NEW
+
+    # -------------------- Performance ---------------------------
+    generation_mu = Column(Float, nullable=True)           # derived from totalizer_mu
     plf_percent = Column(Float, nullable=True)
+
     running_hour = Column(Float, nullable=True)
     plant_availability_percent = Column(Float, nullable=True)
-    # Outages
+
+    # -------------------- Outages ------------------------------
     planned_outage_hour = Column(Float, nullable=True)
     planned_outage_percent = Column(Float, nullable=True)
+
     forced_outage_hour = Column(Float, nullable=True)
     forced_outage_percent = Column(Float, nullable=True)
+
     strategic_outage_hour = Column(Float, nullable=True)
-    # Fuel (Coal)
-    coal_consumption_t = Column(Float, nullable=True)
+
+    # -------------------- Fuel (Coal) --------------------------
+    coal_consumption_t = Column(Float, nullable=True)          # derived from totalizer_coal
     sp_coal_consumption_kg_kwh = Column(Float, nullable=True)
     avg_gcv_coal_kcal_kg = Column(Float, nullable=True)
     heat_rate = Column(Float, nullable=True)
-    # Fuel (Oil)
+
+    # -------------------- Fuel (Oil) ---------------------------
     ldo_hsd_consumption_kl = Column(Float, nullable=True)
     sp_oil_consumption_ml_kwh = Column(Float, nullable=True)
-    # Power & Water
-    aux_power_consumption_mu = Column(Float, nullable=True)
+
+    # ---------------- Power & Water -----------------------------
+    aux_power_consumption_mu = Column(Float, nullable=True)    # derived from totalizer_aux
     aux_power_percent = Column(Float, nullable=True)
+
     dm_water_consumption_cu_m = Column(Float, nullable=True)
     sp_dm_water_consumption_percent = Column(Float, nullable=True)
-    # Steam & Emissions
+
+    # ---------------- Steam & Emissions -------------------------
     steam_gen_t = Column(Float, nullable=True)
     sp_steam_consumption_kg_kwh = Column(Float, nullable=True)
+
     stack_emission_spm_mg_nm3 = Column(Float, nullable=True)
 
-    __table_args__ = (UniqueConstraint('unit', 'report_date', name='uq_unit_report_date'),)
+    __table_args__ = (
+        UniqueConstraint('unit', 'report_date', name='uq_unit_report_date'),
+    )
+
 
 
 class StationReportDB(Base):
@@ -181,6 +198,8 @@ class UnitReport(BaseModel):
     report_date: datetime # Keep as date for API input
     edit_password: Optional[str] = None
     totalizer_mu: Optional[float] = None
+    totalizer_coal: Optional[float] = None   # Coal totalizer (today)  <-- NEW
+    totalizer_aux :Optional[float] = None    # Aux power totalizer (today) <-- NEW
     generation_mu: Optional[float] = None
     plf_percent: Optional[float] = None
     running_hour: Optional[float] = None

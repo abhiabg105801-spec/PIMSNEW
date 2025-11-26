@@ -1,14 +1,99 @@
 // DataEntryPage.js
-// Single-file React component — no 'clsx' dependency
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import axios from "axios";
 
+/**
+ * Final DataEntryPage.js
+ * - Option 1 naming:
+ *    totalizer_mu, prev_totalizer
+ *    totalizer_coal, prev_totalizer_coal
+ *    totalizer_aux, prev_totalizer_aux
+ * - Frontend computes:
+ *    generation_mu = totalizer_mu - prev_totalizer
+ *    coal_consumption_t = totalizer_coal - prev_totalizer_coal
+ *    aux_power_consumption_mu = totalizer_aux - prev_totalizer_aux
+ * - Auto results shown as tiny grey helper text under parent inputs.
+ * - Preserves permissions + admin restrictions + confirmation popup.
+ */
+
+/* ----------------------------- Config ------------------------------ */
 const API_URL = "http://localhost:8080/api";
 
+const AUTO_CALCULATED_FIELDS = [
+  "generation_mu",
+  "plf_percent",
+  "plant_availability_percent",
+  "planned_outage_percent",
+  "forced_outage_percent",
+  "sp_coal_consumption_kg_kwh",
+  "sp_oil_consumption_ml_kwh",
+  "aux_power_percent",
+  "sp_dm_water_consumption_percent",
+  "sp_steam_consumption_kg_kwh",
+  // including the computed storage fields (coal, aux, etc.)
+  "coal_consumption_t",
+  "aux_power_consumption_mu",
+];
 
+const PARENT_TO_AUTOS = {
+  totalizer_mu: ["prev_totalizer", "generation_mu", "plf_percent"],
+  totalizer_coal: ["prev_totalizer_coal", "coal_consumption_t", "sp_coal_consumption_kg_kwh"],
+  totalizer_aux: ["prev_totalizer_aux", "aux_power_consumption_mu", "aux_power_percent"],
+  running_hour: ["plant_availability_percent"],
+  planned_outage_hour: ["planned_outage_percent"],
+  forced_outage_hour: ["forced_outage_percent"],
+  steam_gen_t: ["sp_steam_consumption_kg_kwh"],
+  ldo_hsd_consumption_kl: ["sp_oil_consumption_ml_kwh"],
+};
 
+const initialUnitFormState = {
+  unit: "",
+  // generation totalizers
+  totalizer_mu: "",
+  prev_totalizer: "",
+  generation_mu: "",
+  plf_percent: "",
+  // running / availability
+  running_hour: "",
+  plant_availability_percent: "",
+  planned_outage_hour: "",
+  planned_outage_percent: "",
+  forced_outage_hour: "",
+  forced_outage_percent: "",
+  strategic_outage_hour: "",
+  // coal totalizer + derived coal consumption
+  totalizer_coal: "",
+  prev_totalizer_coal: "",
+  coal_consumption_t: "",
+  sp_coal_consumption_kg_kwh: "",
+  avg_gcv_coal_kcal_kg: "",
+  heat_rate: "",
+  // oil
+  ldo_hsd_consumption_kl: "",
+  sp_oil_consumption_ml_kwh: "",
+  // aux totalizer + derived aux power
+  totalizer_aux: "",
+  prev_totalizer_aux: "",
+  aux_power_consumption_mu: "",
+  aux_power_percent: "",
+  // water/steam/emissions
+  dm_water_consumption_cu_m: "",
+  sp_dm_water_consumption_percent: "",
+  steam_gen_t: "",
+  sp_steam_consumption_kg_kwh: "",
+  stack_emission_spm_mg_nm3: "",
+};
 
-// Helpers
+const initialStationFormState = {
+  avg_raw_water_used_cu_m_hr: "",
+  total_raw_water_used_cu_m: "",
+  sp_raw_water_used_ltr_kwh: "",
+  ro_plant_running_hrs: "",
+  ro_plant_il: "",
+  ro_plant_ol: "",
+};
+
+/* -------------------------- Utilities ------------------------------ */
 const normalizeAuthHeader = (auth) => {
   if (!auth) return localStorage.getItem("authToken") || "";
   return auth.startsWith("Bearer ") ? auth : `Bearer ${auth}`;
@@ -27,36 +112,15 @@ const Spinner = ({ size = 16 }) => (
   <div style={{ width: size, height: size }} className="inline-block animate-spin border-2 border-t-transparent rounded-full border-current" />
 );
 
-// Constants
-const AUTO_CALCULATED_FIELDS = [
-  "generation_mu",
-  "plf_percent",
-  "plant_availability_percent",
-  "planned_outage_percent",
-  "forced_outage_percent",
-  "sp_coal_consumption_kg_kwh",
-  "sp_oil_consumption_ml_kwh",
-  "aux_power_percent",
-  "sp_dm_water_consumption_percent",
-  "sp_steam_consumption_kg_kwh",
-];
+/* ------------------------- Tiny Helper UI -------------------------- */
+const AutoLine = ({ label, value }) => (
+  <div className="text-[11px] text-gray-900 mt-1 ml-1">
+    <span className="">{label}:</span>{" "}
+    <span className="font-medium text-gray-900">{value === "" || value === null ? "—" : value}</span>
+  </div>
+);
 
-const initialUnitFormState = {
-  unit: "", totalizer_mu: "", prev_totalizer: "", generation_mu: "", plf_percent: "",
-  running_hour: "", plant_availability_percent: "", planned_outage_hour: "", planned_outage_percent: "",
-  forced_outage_hour: "", forced_outage_percent: "", strategic_outage_hour: "",
-  coal_consumption_t: "", sp_coal_consumption_kg_kwh: "", avg_gcv_coal_kcal_kg: "", heat_rate: "",
-  ldo_hsd_consumption_kl: "", sp_oil_consumption_ml_kwh: "", aux_power_consumption_mu: "", aux_power_percent: "",
-  dm_water_consumption_cu_m: "", sp_dm_water_consumption_percent: "", steam_gen_t: "", sp_steam_consumption_kg_kwh: "",
-  stack_emission_spm_mg_nm3: ""
-};
-
-const initialStationFormState = {
-  avg_raw_water_used_cu_m_hr: "", total_raw_water_used_cu_m: "", sp_raw_water_used_ltr_kwh: "",
-  ro_plant_running_hrs: "", ro_plant_il: "", ro_plant_ol: ""
-};
-
-// Main component
+/* ------------------------- Main Component -------------------------- */
 export default function DataEntryPage({ auth }) {
   const authHeader = useMemo(() => normalizeAuthHeader(auth), [auth]);
   const api = useMemo(() => axios.create({
@@ -64,9 +128,15 @@ export default function DataEntryPage({ auth }) {
     headers: { Authorization: authHeader, "Content-Type": "application/json" }
   }), [authHeader]);
 
-  // user + role
-  const [roleId, setRoleId] = useState(null);
+  // page / user state
+  const [reportDate, setReportDate] = useState(new Date().toISOString().slice(0,10));
+  const [activeTab, setActiveTab] = useState("Unit-1");
+  const [message, setMessage] = useState("");
+  const [loadingRow, setLoadingRow] = useState(false);
+
+  // auth + role
   const [currentUser, setCurrentUser] = useState(null);
+  const [roleId, setRoleId] = useState(null);
   const isAdmin = roleId === 8;
   const [roleLoading, setRoleLoading] = useState(true);
 
@@ -74,53 +144,47 @@ export default function DataEntryPage({ auth }) {
   const [permissionMap, setPermissionMap] = useState({});
   const [permLoading, setPermLoading] = useState(false);
 
-  // page state
-  const [activeTab, setActiveTab] = useState("Unit-1");
-  const [reportDate, setReportDate] = useState(new Date().toISOString().slice(0, 10));
-  const [message, setMessage] = useState("");
-  const [loadingRow, setLoadingRow] = useState(false);
-
-  // forms
+  // forms + originals
   const [unitForms, setUnitForms] = useState({
     "Unit-1": { ...initialUnitFormState, unit: "Unit-1" },
-    "Unit-2": { ...initialUnitFormState, unit: "Unit-2" }
+    "Unit-2": { ...initialUnitFormState, unit: "Unit-2" },
   });
   const [originalUnitForms, setOriginalUnitForms] = useState({
     "Unit-1": { ...initialUnitFormState, unit: "Unit-1" },
-    "Unit-2": { ...initialUnitFormState, unit: "Unit-2" }
+    "Unit-2": { ...initialUnitFormState, unit: "Unit-2" },
   });
   const [isEditingForUnit, setIsEditingForUnit] = useState({ "Unit-1": false, "Unit-2": false });
-  const [stationForm, setStationForm] = useState(initialStationFormState);
 
-  // UI/submit
-  const [submitting, setSubmitting] = useState({ "Unit-1": false, "Unit-2": false, station: false });
- 
-  const [showConfirmPopup, setShowConfirmPopup] = useState(false);
+  const [stationForm, setStationForm] = useState(initialStationFormState);
   const [originalStationForm, setOriginalStationForm] = useState(initialStationFormState);
 
+  // UI state
+  const [submitting, setSubmitting] = useState({ "Unit-1": false, "Unit-2": false, station: false });
+  const [showConfirmPopup, setShowConfirmPopup] = useState(false);
+  const [confirmList, setConfirmList] = useState([]); // list of changed manual fields for confirmation
 
-  // Role detection
+  /* --------------------- Role & permission effects -------------------- */
   useEffect(() => {
-    setRoleLoading(true);
     let cancelled = false;
+    setRoleLoading(true);
     const payload = getTokenPayload(authHeader);
     if (payload) {
       if (!cancelled) {
         setRoleId(payload.role_id || payload.role || null);
         setCurrentUser(payload);
         setRoleLoading(false);
-        const isAdmin = (payload.role_id === 8 || payload.role === 8);
-
       }
       return () => { cancelled = true; };
     }
     api.get("/auth/me").then(r => {
-      if (r.data && r.data.role_id) setRoleId(Number(r.data.role_id));
-      setCurrentUser(r.data);
-    }).catch(()=>{}).finally(()=>setRoleLoading(false));
+      if (!cancelled) {
+        setCurrentUser(r.data);
+        if (r.data && r.data.role_id) setRoleId(Number(r.data.role_id));
+      }
+    }).catch(()=>{}).finally(()=> { if (!cancelled) setRoleLoading(false); });
+    return () => { cancelled = true; };
   }, [api, authHeader]);
 
-  // Permissions fetch: try admin endpoint for role, fallback to /permissions/me
   useEffect(() => {
     let cancelled = false;
     async function fetchPerms() {
@@ -142,751 +206,778 @@ export default function DataEntryPage({ auth }) {
         (r2.data || []).forEach(p => { map2[p.field_name] = { can_edit: !!p.can_edit, can_view: !!p.can_view }; });
         setPermissionMap(map2);
       } catch (e) {
-        if (e.response && (e.response.status === 403 || e.response.status === 401)) {
-          try {
-            const r2 = await api.get("/permissions/me");
-            if (cancelled) return;
-            const map2 = {};
-            (r2.data || []).forEach(p => { map2[p.field_name] = { can_edit: !!p.can_edit, can_view: !!p.can_view }; });
+        try {
+          const r2 = await api.get("/permissions/me");
+          if (!cancelled) {
+            const map2 = {}; (r2.data || []).forEach(p => { map2[p.field_name] = { can_edit: !!p.can_edit, can_view: !!p.can_view }; });
             setPermissionMap(map2);
-          } catch { setPermissionMap({}); }
-        } else { setPermissionMap({}); }
+          }
+        } catch {
+          if (!cancelled) setPermissionMap({});
+        }
       } finally { if (!cancelled) setPermLoading(false); }
     }
     fetchPerms();
     return () => { cancelled = true; };
   }, [api, roleId, authHeader]);
 
-  // Fetch data
-  const fetchUnitData = async (unitKey) => {
-    if (!unitKey) return;
+  /* ------------------------- Fetch helpers --------------------------- */
+  const fetchReport = useCallback(async (unitKey, dateStr) => {
+    try {
+      const res = await api.get(`/reports/single/${unitKey}/${dateStr}`);
+      return res.data ?? null;
+    } catch (e) {
+      if (e.response?.status === 404) return null;
+      throw e;
+    }
+  }, [api]);
+
+  const loadUnitForDate = useCallback(async (unitKey, dateStr) => {
     setLoadingRow(true);
     setMessage("");
+
     try {
-      const res = await api.get(`/reports/single/${unitKey}/${reportDate}`);
+      const data = await fetchReport(unitKey, dateStr);
+      const loaded = { ...initialUnitFormState, unit: unitKey };
+      if (data) {
+        Object.keys(initialUnitFormState).forEach(k => {
+          loaded[k] = data[k] ?? "";
+        });
+      }
+
+      // Load prev_totalizer, prev_totalizer_coal, prev_totalizer_aux
+      try {
+        const d = new Date(dateStr);
+        d.setDate(d.getDate() - 1);
+        const prevDate = d.toISOString().slice(0, 10);
+        const prev = await fetchReport(unitKey, prevDate);
+        loaded.prev_totalizer = prev?.totalizer_mu ?? "";
+        loaded.prev_totalizer_coal = prev?.totalizer_coal ?? "";
+        loaded.prev_totalizer_aux = prev?.totalizer_aux ?? "";
+      } catch {
+        loaded.prev_totalizer = "";
+        loaded.prev_totalizer_coal = "";
+        loaded.prev_totalizer_aux = "";
+      }
+
+      setUnitForms(s => ({ ...s, [unitKey]: loaded }));
+      setOriginalUnitForms(s => ({ ...s, [unitKey]: { ...loaded } }));
+      setIsEditingForUnit(s => ({ ...s, [unitKey]: !!data }));
+
+      setMessage(data ? `✅ Loaded existing report for ${unitKey}` : "");
+    } catch {
+      setMessage("⚠️ Error loading report");
+    } finally {
+      setLoadingRow(false);
+    }
+  }, [fetchReport]);
+
+  const loadStationForDate = useCallback(async (dateStr) => {
+    setLoadingRow(true);
+    try {
+      const res = await api.get(`/reports/station/${dateStr}`);
       if (res.data) {
-        const loaded = { ...initialUnitFormState, unit: unitKey };
-        Object.keys(initialUnitFormState).forEach(k => { loaded[k] = res.data[k] ?? ""; });
-        // prev totalizer from previous day
-        try {
-          const d = new Date(reportDate); d.setDate(d.getDate() - 1);
-          const prevDateStr = d.toISOString().slice(0,10);
-          const prevRes = await api.get(`/reports/single/${unitKey}/${prevDateStr}`);
-          loaded.prev_totalizer = prevRes.data?.totalizer_mu ?? "";
-        } catch { loaded.prev_totalizer = ""; }
-        setUnitForms(s => ({ ...s, [unitKey]: loaded }));
-        setOriginalUnitForms(s => ({ ...s, [unitKey]: { ...loaded } }));
-        setIsEditingForUnit(s => ({ ...s, [unitKey]: true }));
-        setMessage(`✅ Existing data loaded for ${unitKey}`);
+        const ld = {};
+        Object.keys(initialStationFormState).forEach(k => (ld[k] = res.data[k] ?? ""));
+        setStationForm(ld);
+        setOriginalStationForm(ld);
       } else {
-        setUnitForms(s => ({ ...s, [unitKey]: { ...initialUnitFormState, unit: unitKey } }));
-        setOriginalUnitForms(s => ({ ...s, [unitKey]: { ...initialUnitFormState, unit: unitKey } }));
-        setIsEditingForUnit(s => ({ ...s, [unitKey]: false }));
-        setMessage("");
+        setStationForm(initialStationFormState);
+        setOriginalStationForm(initialStationFormState);
       }
     } catch (e) {
       if (e.response?.status === 404) {
-        setUnitForms(s => ({ ...s, [unitKey]: { ...initialUnitFormState, unit: unitKey } }));
-        setOriginalUnitForms(s => ({ ...s, [unitKey]: { ...initialUnitFormState, unit: unitKey } }));
-        setIsEditingForUnit(s => ({ ...s, [unitKey]: false }));
-        setMessage("");
-      } else setMessage("⚠️ Could not load unit data");
-    } finally { setLoadingRow(false); }
-  };
+        setStationForm(initialStationFormState);
+        setOriginalStationForm(initialStationFormState);
+      } else {
+        setMessage("⚠️ Error loading station data");
+      }
+    } finally {
+      setLoadingRow(false);
+    }
+  }, [api]);
 
-  const fetchStation = async () => {
-    setLoadingRow(true);
+  useEffect(() => {
+    if (activeTab === "Station") loadStationForDate(reportDate);
+    else loadUnitForDate(activeTab, reportDate);
+  }, [activeTab, reportDate, loadStationForDate, loadUnitForDate]);
+
+  useEffect(() => {
+  if (!message) return;
+  const timer = setTimeout(() => setMessage(""), 4000);
+  return () => clearTimeout(timer);
+}, [message]);
+
+  /* ---------------------- Refresh prev totalizer --------------------- */
+  const refreshPrevTotalizer = useCallback(async (unitKey) => {
     try {
-      const res = await api.get(`/reports/station/${reportDate}`);
-      if (res.data) {
-        const ld = {}; Object.keys(initialStationFormState).forEach(k => ld[k] = res.data[k] ?? "");
-        setStationForm(ld);
-      } else setStationForm(initialStationFormState);
-    } catch (e) {
-      if (e.response?.status === 404) setStationForm(initialStationFormState);
-      else setMessage("⚠️ Could not load station data");
-    } finally { setLoadingRow(false); }
-  };
+      const d = new Date(reportDate);
+      d.setDate(d.getDate() - 1);
+      const prevDate = d.toISOString().slice(0, 10);
 
+      const prev = await fetchReport(unitKey, prevDate);
+      const prevVal = prev?.totalizer_mu ?? "";
+      const prevCoal = prev?.totalizer_coal ?? "";
+      const prevAux = prev?.totalizer_aux ?? "";
+
+      setUnitForms(s => ({
+        ...s,
+        [unitKey]: {
+          ...s[unitKey],
+          prev_totalizer: prevVal,
+          prev_totalizer_coal: prevCoal,
+          prev_totalizer_aux: prevAux,
+        },
+      }));
+
+      setOriginalUnitForms(s => ({
+        ...s,
+        [unitKey]: {
+          ...s[unitKey],
+          prev_totalizer: prevVal,
+          prev_totalizer_coal: prevCoal,
+          prev_totalizer_aux: prevAux,
+        },
+      }));
+    } catch {
+      // ignore
+    }
+  }, [fetchReport, reportDate]);
+
+  /* ------------------------- Auto calculations ------------------------ */
   useEffect(() => {
-    if (activeTab === "Station") fetchStation();
-    else fetchUnitData(activeTab);
-    // eslint-disable-next-line
-  }, [activeTab, reportDate]);
+    const updateIfDiff = (unitKey, field, value) => {
+      setUnitForms(prev => {
+        const cur = prev[unitKey] || {};
+        if (String(cur[field] ?? "") === String(value ?? "")) return prev;
+        return { ...prev, [unitKey]: { ...cur, [field]: value } };
+      });
+    };
 
-  // Auto-calculation helpers
-  const setUnitField = (unitKey, name, value) => {
-    setUnitForms(prev => ({ ...prev, [unitKey]: { ...prev[unitKey], [name]: value } }));
-  };
+    ["Unit-1", "Unit-2"].forEach(u => {
+      const cur = unitForms[u] || {};
 
-  // PLF
-  useEffect(() => {
-    ["Unit-1","Unit-2"].forEach(u => {
-      const gen = parseFloat(unitForms[u].generation_mu);
-      if (!isNaN(gen) && gen >= 0) {
-        const plf = (gen / 3) * 100;
-        const formatted = isFinite(plf) ? parseFloat(plf.toFixed(2)) : "";
-        if (String(unitForms[u].plf_percent) !== String(formatted)) setUnitField(u, "plf_percent", formatted);
+      // generation from totalizer
+      const prevGen = parseFloat(cur.prev_totalizer);
+      const todayGen = parseFloat(cur.totalizer_mu);
+      if (!isNaN(prevGen) && !isNaN(todayGen)) {
+        const gen = todayGen - prevGen;
+        const v = gen >= 0 && isFinite(gen) ? Number(gen.toFixed(3)) : "";
+        updateIfDiff(u, "generation_mu", v);
       }
-    });
-    // eslint-disable-next-line
-  }, [unitForms["Unit-1"].generation_mu, unitForms["Unit-2"].generation_mu]);
 
-  // Availability
-  useEffect(() => {
-    ["Unit-1","Unit-2"].forEach(u => {
-      const rh = parseFloat(unitForms[u].running_hour);
-      if (!isNaN(rh) && rh >= 0 && rh <= 24) {
+      // coal from coal totalizer
+      const prevCoal = parseFloat(cur.prev_totalizer_coal);
+      const todayCoal = parseFloat(cur.totalizer_coal);
+      if (!isNaN(prevCoal) && !isNaN(todayCoal)) {
+        const coalDiff = todayCoal - prevCoal;
+        const v = coalDiff >= 0 && isFinite(coalDiff) ? Number(coalDiff.toFixed(3)) : "";
+        updateIfDiff(u, "coal_consumption_t", v);
+      }
+
+      // aux from aux totalizer
+      const prevAux = parseFloat(cur.prev_totalizer_aux);
+      const todayAux = parseFloat(cur.totalizer_aux);
+      if (!isNaN(prevAux) && !isNaN(todayAux)) {
+        const auxDiff = todayAux - prevAux;
+        const v = auxDiff >= 0 && isFinite(auxDiff) ? Number(auxDiff.toFixed(3)) : "";
+        updateIfDiff(u, "aux_power_consumption_mu", v);
+      }
+
+      // PLF
+      const genVal = parseFloat(cur.generation_mu);
+      if (!isNaN(genVal)) {
+        const plf = (genVal / 3) * 100;
+        updateIfDiff(u, "plf_percent", Number.isFinite(plf) ? Number(plf.toFixed(2)) : "");
+      }
+
+      // availability
+      const rh = parseFloat(cur.running_hour);
+      if (!isNaN(rh)) {
         const av = (rh / 24) * 100;
-        const f = parseFloat(av.toFixed(2));
-        if (String(unitForms[u].plant_availability_percent) !== String(f)) setUnitField(u, "plant_availability_percent", f);
+        updateIfDiff(u, "plant_availability_percent", Number.isFinite(av) ? Number(av.toFixed(2)) : "");
+      }
+
+      // planned outage %
+      const ph = parseFloat(cur.planned_outage_hour);
+      if (!isNaN(ph)) {
+        updateIfDiff(u, "planned_outage_percent", Number.isFinite(((ph/24)*100)) ? Number(((ph/24)*100).toFixed(2)) : "");
+      }
+
+      // forced outage %
+      const fh = parseFloat(cur.forced_outage_hour);
+      if (!isNaN(fh)) {
+        updateIfDiff(u, "forced_outage_percent", Number.isFinite(((fh/24)*100)) ? Number(((fh/24)*100).toFixed(2)) : "");
+      }
+
+      // sp coal (coal_consumption_t / generation)
+      const coalT = parseFloat(cur.coal_consumption_t);
+      if (!isNaN(coalT) && !isNaN(genVal) && genVal > 0) {
+        updateIfDiff(u, "sp_coal_consumption_kg_kwh", Number((coalT / genVal).toFixed(3)));
+      }
+
+      // sp oil
+      const oil = parseFloat(cur.ldo_hsd_consumption_kl);
+      if (!isNaN(oil) && !isNaN(genVal) && genVal > 0) {
+        updateIfDiff(u, "sp_oil_consumption_ml_kwh", Number((oil / genVal).toFixed(2)));
+      }
+
+      // aux percent
+      const auxMU = parseFloat(cur.aux_power_consumption_mu);
+      if (!isNaN(auxMU) && !isNaN(genVal) && genVal > 0) {
+        updateIfDiff(u, "aux_power_percent", Number(((auxMU / genVal) * 100).toFixed(2)));
+      }
+
+      // sp steam
+      const steam = parseFloat(cur.steam_gen_t);
+      if (!isNaN(steam) && !isNaN(genVal) && genVal > 0) {
+        updateIfDiff(u, "sp_steam_consumption_kg_kwh", Number((steam / genVal).toFixed(2)));
       }
     });
-    // eslint-disable-next-line
-  }, [unitForms["Unit-1"].running_hour, unitForms["Unit-2"].running_hour]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unitForms["Unit-1"], unitForms["Unit-2"]]);
 
-  // Planned outage %
-  useEffect(() => {
-    ["Unit-1","Unit-2"].forEach(u => {
-      const ph = parseFloat(unitForms[u].planned_outage_hour);
-      if (!isNaN(ph) && ph >= 0) {
-        const p = parseFloat(((ph/24)*100).toFixed(2));
-        if (String(unitForms[u].planned_outage_percent) !== String(p)) setUnitField(u, "planned_outage_percent", p);
-      }
-    });
-    // eslint-disable-next-line
-  }, [unitForms["Unit-1"].planned_outage_hour, unitForms["Unit-2"].planned_outage_hour]);
-
-  // Forced outage %
-  useEffect(() => {
-    ["Unit-1","Unit-2"].forEach(u => {
-      const fh = parseFloat(unitForms[u].forced_outage_hour);
-      if (!isNaN(fh) && fh >= 0) {
-        const p = parseFloat(((fh/24)*100).toFixed(2));
-        if (String(unitForms[u].forced_outage_percent) !== String(p)) setUnitField(u, "forced_outage_percent", p);
-      }
-    });
-    // eslint-disable-next-line
-  }, [unitForms["Unit-1"].forced_outage_hour, unitForms["Unit-2"].forced_outage_hour]);
-
-  // sp_coal
-  useEffect(() => {
-    ["Unit-1","Unit-2"].forEach(u => {
-      const coal = parseFloat(unitForms[u].coal_consumption_t);
-      const gen = parseFloat(unitForms[u].generation_mu);
-      let sp = "";
-      if (!isNaN(coal) && !isNaN(gen) && gen > 0) sp = parseFloat((coal/gen).toFixed(3));
-      if (String(unitForms[u].sp_coal_consumption_kg_kwh) !== String(sp)) setUnitField(u, "sp_coal_consumption_kg_kwh", sp);
-    });
-    // eslint-disable-next-line
-  }, [unitForms["Unit-1"].coal_consumption_t, unitForms["Unit-1"].generation_mu, unitForms["Unit-2"].coal_consumption_t, unitForms["Unit-2"].generation_mu]);
-
-  // sp_oil
-  useEffect(() => {
-    ["Unit-1","Unit-2"].forEach(u => {
-      const oil = parseFloat(unitForms[u].ldo_hsd_consumption_kl);
-      const gen = parseFloat(unitForms[u].generation_mu);
-      let sp = "";
-      if (!isNaN(oil) && !isNaN(gen) && gen > 0) sp = parseFloat((oil/gen).toFixed(2));
-      if (String(unitForms[u].sp_oil_consumption_ml_kwh) !== String(sp)) setUnitField(u, "sp_oil_consumption_ml_kwh", sp);
-    });
-    // eslint-disable-next-line
-  }, [unitForms["Unit-1"].ldo_hsd_consumption_kl, unitForms["Unit-1"].generation_mu, unitForms["Unit-2"].ldo_hsd_consumption_kl, unitForms["Unit-2"].generation_mu]);
-
-  // aux %
-  useEffect(() => {
-    ["Unit-1","Unit-2"].forEach(u => {
-      const aux = parseFloat(unitForms[u].aux_power_consumption_mu);
-      const gen = parseFloat(unitForms[u].generation_mu);
-      let p = "";
-      if (!isNaN(aux) && !isNaN(gen) && gen > 0) p = parseFloat(((aux/gen)*100).toFixed(2));
-      if (String(unitForms[u].aux_power_percent) !== String(p)) setUnitField(u, "aux_power_percent", p);
-    });
-    // eslint-disable-next-line
-  }, [unitForms["Unit-1"].aux_power_consumption_mu, unitForms["Unit-1"].generation_mu, unitForms["Unit-2"].aux_power_consumption_mu, unitForms["Unit-2"].generation_mu]);
-
-  // sp_steam
-  useEffect(() => {
-    ["Unit-1","Unit-2"].forEach(u => {
-      const steam = parseFloat(unitForms[u].steam_gen_t);
-      const gen = parseFloat(unitForms[u].generation_mu);
-      let sp = "";
-      if (!isNaN(steam) && !isNaN(gen) && gen > 0) sp = parseFloat((steam/gen).toFixed(2));
-      if (String(unitForms[u].sp_steam_consumption_kg_kwh) !== String(sp)) setUnitField(u, "sp_steam_consumption_kg_kwh", sp);
-    });
-    // eslint-disable-next-line
-  }, [unitForms["Unit-1"].steam_gen_t, unitForms["Unit-1"].generation_mu, unitForms["Unit-2"].steam_gen_t, unitForms["Unit-2"].generation_mu]);
-
-  // generation from totalizer
-  useEffect(() => {
-    ["Unit-1","Unit-2"].forEach(u => {
-      const prev = parseFloat(unitForms[u].prev_totalizer);
-      const today = parseFloat(unitForms[u].totalizer_mu);
-      if (!isNaN(prev) && !isNaN(today)) {
-        const gen = today - prev;
-        const formatted = isFinite(gen) && gen >= 0 ? parseFloat(gen.toFixed(3)) : "";
-        if (String(unitForms[u].generation_mu) !== String(formatted)) setUnitField(u, "generation_mu", formatted);
-      }
-    });
-    // eslint-disable-next-line
-  }, [unitForms["Unit-1"].totalizer_mu, unitForms["Unit-1"].prev_totalizer, unitForms["Unit-2"].totalizer_mu, unitForms["Unit-2"].prev_totalizer]);
-
-  // change detection
-  const detectChangedFilledFieldsForUnit = (unitKey, candidate) => {
-    const changed = [];
-    Object.keys(initialUnitFormState).forEach(k => {
-      if (k === "unit" || k === "prev_totalizer") return;
-      if (AUTO_CALCULATED_FIELDS.includes(k)) return;
-      const orig = originalUnitForms[unitKey]?.[k] ?? "";
-      const curr = candidate?.[k] ?? unitForms[unitKey]?.[k] ?? "";
-      if (String(orig) !== "" && String(orig) !== String(curr)) changed.push(k);
-    });
-    return changed;
+  /* ---------------------- Permission helpers ------------------------- */
+  const canView = (field) => {
+    if (!permissionMap || Object.keys(permissionMap).length === 0) return true;
+    const p = permissionMap[field];
+    return p ? p.can_view : true;
+  };
+  const canEdit = (field) => {
+    if (!permissionMap || Object.keys(permissionMap).length === 0) return true;
+    const p = permissionMap[field];
+    return p ? p.can_edit : false;
   };
 
-  // input handlers
-  const handleUnitInputChange = (unitKey, e) => {
-    const { name, value } = e.target;
-    setUnitForms(prev => ({ ...prev, [unitKey]: { ...prev[unitKey], [name]: value } }));
-  };
-  const handleStationChange = (e) => {
-    const { name, value } = e.target;
-    setStationForm(s => ({ ...s, [name]: value }));
-  };
+  /* -------------------------- Input renderers ------------------------ */
+  const renderInput = (unitKey, name, label, type = "number") => {
+    if (!canView(name)) return null;
 
-  // submit handlers
-  // replace your existing handleUnitSubmit with this
-const handleUnitSubmit = (unitKey) => {
-  if (!unitKey) return;
+    const value = unitForms[unitKey]?.[name] ?? "";
+    const editable = canEdit(name);
 
-  console.log("[handleUnitSubmit] called for", unitKey, {
-    isAdmin,
-    isEditing: isEditingForUnit[unitKey],
-  });
+    const originalHasValue =
+      originalUnitForms[unitKey]?.[name] !== "" &&
+      originalUnitForms[unitKey]?.[name] !== null &&
+      originalUnitForms[unitKey]?.[name] !== undefined;
 
-  const original = originalUnitForms[unitKey] || {};
-  const current = unitForms[unitKey] || {};
+    // Do not render auto-only fields as inputs
+    if (AUTO_CALCULATED_FIELDS.includes(name)) return null;
 
-  // ---------------------------------------------
-  //  FIND ACTUAL CHANGED FIELDS
-  // ---------------------------------------------
-  const changedFields = [];
+    const readOnly = !editable || (!isAdmin && originalHasValue);
 
-  Object.keys(current).forEach((field) => {
-    if (field === "unit" || field === "prev_totalizer") return;
-    if (AUTO_CALCULATED_FIELDS.includes(field)) return;
+    const base = "w-full p-2 rounded text-sm border";
+    const finalClass = readOnly
+      ? `${base} bg-orange-50 text-orange-800 border-orange-200 cursor-not-allowed`
+      : `${base} bg-white border-gray-300 focus:border-orange-500`;
 
-    const origVal = original[field] ?? "";
-    const currVal = current[field] ?? "";
+    // autos to show under this input
+    const autos = PARENT_TO_AUTOS[name] || [];
 
-    if (String(origVal) !== String(currVal)) {
-      changedFields.push(field);
-    }
-  });
+    return (
+      <div key={name} className="flex flex-col bg-white p-3 rounded-lg border border-orange-100 shadow-sm">
+        <label className="block text-xs text-orange-800 font-bold mb-1">{label}</label>
+        <input
+          name={name}
+          type={type}
+          value={value ?? ""}
+          readOnly={readOnly}
+          onChange={(e) => !readOnly && setUnitForms(s => ({ ...s, [unitKey]: { ...s[unitKey], [name]: e.target.value } }))}
+          className={finalClass}
+        />
 
-  // ---------------------------------------------
-  //  NO CHANGES → show message
-  // ---------------------------------------------
-  if (changedFields.length === 0) {
-    setMessage("❌ No changes made to submit.");
-    return;
-  }
-
-  // ---------------------------------------------
-  //  NON-ADMIN FIELD VALIDATION
-  // ---------------------------------------------
-  if (!isAdmin) {
-    for (let field of changedFields) {
-      const origVal = original[field];
-
-      const origIsEmpty =
-        origVal === "" || origVal === null || origVal === undefined;
-
-      // If the original field had a value, block editing
-      if (!origIsEmpty) {
-        setMessage(`❌ Only admin can edit existing field: ${field}`);
-        return;
-      }
-    }
-  }
-
-  // ---------------------------------------------
-  //  PASSED ALL CHECKS → show confirmation popup
-  // ---------------------------------------------
-  setShowConfirmPopup(true);
-};
-
-
-
-  // replace your existing handleConfirmUnitSubmit with this
-const handleConfirmUnitSubmit = async (unitKey) => {
-  const u = unitKey || activeTab;
-  console.log("[handleConfirmUnitSubmit] starting for", u);
-
-  // close popup immediately
-  setShowConfirmPopup(false);
-  setSubmitting(s => ({ ...s, [u]: true }));
-  setMessage("");
-
-  try {
-    // Prepare payload
-    const payload = { ...unitForms[u], report_date: reportDate };
-    delete payload.prev_totalizer;
-
-    // convert empty → null, numeric strings → number
-    Object.keys(payload).forEach(k => {
-      if (k === "unit" || k === "report_date") return;
-      if (payload[k] === "" || payload[k] === undefined) {
-        payload[k] = null;
-      } else if (!isNaN(parseFloat(payload[k])) && isFinite(payload[k])) {
-        payload[k] = parseFloat(payload[k]);
-      }
-    });
-
-    // -----------------------------------------
-    //  NON-ADMIN VALIDATION (field-by-field)
-    // -----------------------------------------
-    if (!isAdmin) {
-      for (let field in payload) {
-        if (field === "unit" || field === "report_date") continue;
-
-        const orig = originalUnitForms[u]?.[field];
-        const curr = payload[field];
-
-        const origIsEmpty = orig === "" || orig === null || orig === undefined;
-
-        // If original had value -> block non-admin
-        if (!origIsEmpty && String(orig) !== String(curr)) {
-          setMessage(`❌ Only admin can edit existing field: ${field}`);
-          setSubmitting(s => ({ ...s, [u]: false }));
-          return;
-        }
-      }
-    }
-
-    // -----------------------------------------
-    //  SEND DATA
-    // -----------------------------------------
-    console.log("[handleConfirmUnitSubmit] posting payload:", payload);
-    const resp = await api.post("/reports/", payload);
-    console.log("[handleConfirmUnitSubmit] response:", resp?.data);
-
-    setMessage(isEditingForUnit[u]
-      ? "✅ Report updated successfully"
-      : "✅ Report added successfully"
+        {/* tiny helper lines for prev & derived auto fields */}
+        {autos.map(autoField => {
+          // prettify label
+          const pretty = autoField.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+          const val = unitForms[unitKey]?.[autoField] ?? "";
+          return <AutoLine key={autoField} label={pretty} value={val} />;
+        })}
+      </div>
     );
+  };
 
-    // -----------------------------------------
-    //  NORMALIZE VALUES (IMPORTANT FIX)
-    // -----------------------------------------
-    const normalized = {};
-    Object.keys(unitForms[u]).forEach(k => {
-      const v = unitForms[u][k];
-      if (v === "" || v === null || v === undefined) normalized[k] = "";
-      else if (!isNaN(v)) normalized[k] = Number(v);
-      else normalized[k] = v;
-    });
+  const renderStationInput = (name, label) => {
+    if (!canView(name)) return null;
 
-    // Update original forms with normalized values
-    setOriginalUnitForms(s => ({
-      ...s,
-      [u]: normalized
-    }));
+    const value = stationForm[name] ?? "";
+    const editable = canEdit(name);
 
-    // Also normalize unitForms so both sides always match
-    setUnitForms(s => ({
-      ...s,
-      [u]: normalized
-    }));
+    const originalHasValue =
+      originalStationForm[name] !== "" &&
+      originalStationForm[name] !== null &&
+      originalStationForm[name] !== undefined;
 
-    // Mark row as editing mode going forward
-    setIsEditingForUnit(s => ({ ...s, [u]: true }));
+    const readOnly = !editable || (!isAdmin && originalHasValue);
 
-  } catch (e) {
-    console.error("[handleConfirmUnitSubmit] error:", e);
-    const det = e?.response?.data?.detail || e.message || "Error saving data";
-    setMessage(`❌ ${det}`);
-  } finally {
-    setSubmitting(s => ({ ...s, [u]: false }));
-  }
-};
+    const base = "w-full p-2 rounded text-sm border";
+    const finalClass = readOnly
+      ? `${base} bg-orange-50 text-orange-800 border-orange-200 cursor-not-allowed`
+      : `${base} bg-white border-gray-300 focus:border-orange-500`;
 
+    return (
+      <div key={name}>
+        <label className="block text-xs text-gray-500 mb-1">{label}</label>
+        <input
+          name={name}
+          type="number"
+          value={value ?? ""}
+          readOnly={readOnly}
+          onChange={(e) => !readOnly && setStationForm(s => ({ ...s, [name]: e.target.value }))}
+          className={finalClass}
+        />
+      </div>
+    );
+  };
 
+  /* -------------------------- Submit Helpers ------------------------- */
+  const getChangedManualFieldsForUnit = (unitKey) => {
+    const skip = ["prev_totalizer", "prev_totalizer_coal", "prev_totalizer_aux", "unit"];
+    const result = [];
 
-  const handleStationSubmit = async () => {
-  setSubmitting(s => ({ ...s, station: true }));
-  setMessage("");
+    Object.keys(initialUnitFormState).forEach((k) => {
+      if (skip.includes(k)) return;
+      if (AUTO_CALCULATED_FIELDS.includes(k)) return;
 
-  try {
-    const original = originalStationForm || {};
-    const current = stationForm || {};
+      const orig = originalUnitForms[unitKey]?.[k] ?? "";
+      const curr = unitForms[unitKey]?.[k] ?? "";
 
-    // ---------------------------------------------
-    //  FIND CHANGED FIELDS
-    // ---------------------------------------------
-    const changedFields = [];
-
-    Object.keys(current).forEach(field => {
-      if (field === "report_date") return;
-
-      const origVal = original[field] ?? "";
-      const currVal = current[field] ?? "";
-
-      if (String(origVal) !== String(currVal)) {
-        changedFields.push(field);
+      if (String(orig) !== String(curr) && String(curr) !== "") {
+        result.push({
+          key: k,
+          label: k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+          value: curr,
+        });
       }
     });
 
-    // ---------------------------------------------
-    //  NO CHANGES → notify user
-    // ---------------------------------------------
-    if (changedFields.length === 0) {
-      setMessage("❌ No changes made to submit.");
+    return result;
+  };
+
+  const handleUnitSubmit = (unitKey) => {
+    setMessage("");
+
+    const changed = getChangedManualFieldsForUnit(unitKey);
+
+    if (changed.length === 0) {
+      setMessage("❌ No manual changes to submit.");
       return;
     }
 
-    // ---------------------------------------------
-    //  NON-ADMIN VALIDATION (field-level)
-    // ---------------------------------------------
+    // Non-admin cannot modify fields that had values
     if (!isAdmin) {
-      for (let field of changedFields) {
-        const origVal = original[field];
-
-        const origIsEmpty =
-          origVal === "" || origVal === null || origVal === undefined;
-
-        // Non-admin cannot modify filled fields
-        if (!origIsEmpty) {
-          setMessage(`❌ Only admin can edit existing field: ${field}`);
+      for (const f of changed) {
+        const orig = originalUnitForms[unitKey]?.[f.key];
+        const origEmpty =
+          orig === "" || orig === null || orig === undefined;
+        if (!origEmpty) {
+          setMessage(`❌ Only admin can edit existing field: ${f.label}`);
           return;
         }
       }
     }
 
-    // ---------------------------------------------
-    //  BUILD PAYLOAD
-    // ---------------------------------------------
-    const payload = { ...current, report_date: reportDate };
+    // show confirmation popup
+    setConfirmList(changed);
+    setShowConfirmPopup(true);
+  };
 
-    Object.keys(payload).forEach(k => {
-      if (k === "report_date") return;
+  const handleConfirmUnitSubmit = async (unitKey) => {
+    const u = unitKey;
+    setShowConfirmPopup(false);
 
-      if (payload[k] === "" || payload[k] === null || payload[k] === undefined) {
-        payload[k] = null;
-      } else if (!isNaN(parseFloat(payload[k])) && isFinite(payload[k])) {
-        payload[k] = parseFloat(payload[k]);
+    setSubmitting((s) => ({ ...s, [u]: true }));
+    setMessage("");
+
+    try {
+      // Build payload: include today's totalizers and manual fields
+      const payload = { ...unitForms[u], report_date: reportDate };
+
+      // Remove prev_totalizer* fields (they are UI-only)
+      delete payload.prev_totalizer;
+      delete payload.prev_totalizer_coal;
+      delete payload.prev_totalizer_aux;
+
+      // normalize: "" => null, numeric strings => numbers
+      Object.keys(payload).forEach((k) => {
+        if (k === "unit" || k === "report_date") return;
+
+        if (payload[k] === "" || payload[k] === undefined) {
+          payload[k] = null;
+        } else if (!isNaN(Number(payload[k]))) {
+          payload[k] = Number(payload[k]);
+        }
+      });
+
+      // Non-admin final validation
+      if (!isAdmin) {
+        for (let field in payload) {
+          if (field === "unit" || field === "report_date") continue;
+
+          const orig = originalUnitForms[u]?.[field];
+          const curr = payload[field];
+          const origEmpty = orig === "" || orig === null || orig === undefined;
+
+          if (!origEmpty && String(orig) !== String(curr)) {
+            setMessage(`❌ Only admin can edit existing field: ${field}`);
+            setSubmitting((s) => ({ ...s, [u]: false }));
+            return;
+          }
+        }
       }
-    });
 
-    // ---------------------------------------------
-    //  SEND API REQUEST
-    // ---------------------------------------------
-    await api.post("/reports/station/", payload);
+      // Submit to backend (backend should store totalizer fields and any derived fields you want to persist)
+      await api.post("/reports/", payload);
 
-    setMessage(
-      Object.values(original).some(v => v !== "" && v !== null && v !== undefined)
-        ? "✅ Station data updated successfully."
-        : "✅ Station data added successfully."
-    );
+      setMessage(
+        isEditingForUnit[u]
+          ? "✅ Report updated successfully"
+          : "✅ Report added successfully"
+      );
 
-    // ---------------------------------------------
-    //  NORMALIZE AND UPDATE ORIGINAL FORM
-    // ---------------------------------------------
-    const normalized = {};
-    Object.keys(current).forEach(k => {
-      const v = current[k];
-      if (v === "" || v === null || v === undefined) normalized[k] = "";
-      else if (!isNaN(v)) normalized[k] = Number(v);
-      else normalized[k] = v;
-    });
+      // normalize + update original forms
+      const normalized = {};
+      Object.keys(unitForms[u]).forEach((k) => {
+        const v = unitForms[u][k];
+        if (v === "" || v === null || v === undefined) normalized[k] = "";
+        else if (!isNaN(Number(v))) normalized[k] = Number(v);
+        else normalized[k] = v;
+      });
 
-    setOriginalStationForm(normalized);
+      setUnitForms((s) => ({ ...s, [u]: normalized }));
+      setOriginalUnitForms((s) => ({ ...s, [u]: normalized }));
+      setIsEditingForUnit((s) => ({ ...s, [u]: true }));
 
-    // Keep UI consistent
-    setStationForm(normalized);
-
-  } catch (e) {
-    const det = e.response?.data?.detail || "Error saving station data";
-    setMessage(`❌ ${det}`);
-  } finally {
-    setSubmitting(s => ({ ...s, station: false }));
-  }
-};
-
-
-
-  // permission helpers
-  const canView = (fieldName) => {
-    if (!permissionMap || Object.keys(permissionMap).length === 0) return true;
-    const p = permissionMap[fieldName]; if (!p) return true; return !!p.can_view;
-  };
-  const canEdit = (fieldName) => {
-    if (!permissionMap || Object.keys(permissionMap).length === 0) return true;
-    const p = permissionMap[fieldName]; if (!p) return false; return !!p.can_edit;
+      // Refresh prev_totalizer values so UI stays consistent (pulls yesterday's totalizer again)
+      await refreshPrevTotalizer(u);
+    } catch (e) {
+      const det = e?.response?.data?.detail || e.message || "Error saving data";
+      setMessage(`❌ ${det}`);
+    } finally {
+      setSubmitting((s) => ({ ...s, [u]: false }));
+    }
   };
 
-  // UI helpers
-  const disabledClassForD3 = "bg-orange-50 text-orange-800 border-orange-200 cursor-not-allowed";
+  /* ------------------------ Station Submit --------------------------- */
+  const handleStationSubmit = async () => {
+    setSubmitting((s) => ({ ...s, station: true }));
+    setMessage("");
 
+    try {
+      const changed = [];
+      Object.keys(stationForm).forEach((field) => {
+        const orig = originalStationForm[field] ?? "";
+        const curr = stationForm[field] ?? "";
+        if (String(orig) !== String(curr)) changed.push(field);
+      });
 
+      if (changed.length === 0) {
+        setMessage("❌ No changes to submit.");
+        setSubmitting((s) => ({ ...s, station: false }));
+        return;
+      }
 
-  const renderInput = (unitKey, name, label, type = "number", autoReadOnly = false) => {
-  const hidden = !canView(name);
-  if (hidden) return null;
+      if (!isAdmin) {
+        for (let f of changed) {
+          const orig = originalStationForm[f];
+          const empty = orig === "" || orig === null || orig === undefined;
+          if (!empty) {
+            setMessage(`❌ Only admin can edit existing field: ${f}`);
+            setSubmitting((s) => ({ ...s, station: false }));
+            return;
+          }
+        }
+      }
 
-  const value = unitForms[unitKey]?.[name] ?? "";
-  const editableByPermission = canEdit(name);
-  const isAutoCalc = AUTO_CALCULATED_FIELDS.includes(name);
+      const payload = { ...stationForm, report_date: reportDate };
+      Object.keys(payload).forEach((k) => {
+        if (k === "report_date") return;
+        if (payload[k] === "" || payload[k] === undefined) payload[k] = null;
+        else if (!isNaN(Number(payload[k]))) payload[k] = Number(payload[k]);
+      });
 
-  // 🚀 FIX: Check ORIGINAL value, not current typed value
-  const originalHasValue =
-    originalUnitForms[unitKey]?.[name] !== "" &&
-    originalUnitForms[unitKey]?.[name] !== null &&
-    originalUnitForms[unitKey]?.[name] !== undefined;
+      await api.post("/reports/station/", payload);
 
-  const readOnly =
-    autoReadOnly ||
-    isAutoCalc ||
-    !editableByPermission ||
-    (!isAdmin && originalHasValue); // ✔ non-admin can edit only if original was empty
+      setMessage(
+        Object.values(originalStationForm).some(
+          (v) => v !== "" && v !== null && v !== undefined
+        )
+          ? "✅ Station data updated successfully."
+          : "✅ Station data added successfully."
+      );
 
-  const baseClass = "w-full p-2 rounded text-sm border transition";
-  const finalClass = readOnly
-    ? `${baseClass} bg-orange-50 text-orange-800 border-orange-200 cursor-not-allowed`
-    : `${baseClass} bg-white border-gray-300 focus:border-orange-500`;
+      const normalized = {};
+      Object.keys(stationForm).forEach((k) => {
+        const v = stationForm[k];
+        if (v === "" || v === null || v === undefined) normalized[k] = "";
+        else if (!isNaN(Number(v))) normalized[k] = Number(v);
+        else normalized[k] = v;
+      });
 
+      setStationForm(normalized);
+      setOriginalStationForm(normalized);
+    } catch (e) {
+      const det = e?.response?.data?.detail || "Error saving station data";
+      setMessage(`❌ ${det}`);
+    } finally {
+      setSubmitting((s) => ({ ...s, station: false }));
+    }
+  };
+
+  /* ------------------------------ UI -------------------------------- */
   return (
-    <div key={name}>
-      <label className="block text-xs text-gray-500 mb-1">{label}</label>
+    <div className="flex gap-6 p-6 max-w-7xl mx-auto"> 
+
+  {/* Sidebar */}
+  <aside
+    className="
+      w-60 bg-white 
+      rounded-xl border border-gray-200 
+      shadow-[0_4px_10px_rgba(0,0,0,0.08)]
+      p-5 flex flex-col gap-6
+    "
+  >
+    {/* Date */}
+    <div className="flex flex-col gap-1">
+      <label className="text-xs text-gray-500 font-medium">Select Date</label>
       <input
-        name={name}
-        type={type}
-        value={value ?? ""}
-        readOnly={readOnly}
-        onChange={(e) => !readOnly && handleUnitInputChange(unitKey, e)}
-        className={finalClass}
+        type="date"
+        className="
+          w-full p-2 rounded-md border border-gray-300 
+          bg-gray-50 text-gray-700 
+          focus:outline-none focus:ring-2 focus:ring-orange-400 shadow-sm
+        "
+        value={reportDate}
+        onChange={(e) => setReportDate(e.target.value)}
       />
     </div>
-  );
-};
 
- const renderStationInput = (name, label) => {
-  const hidden = !canView(name);
-  if (hidden) return null;
-
-  const value = stationForm[name] ?? "";
-  const editableByPermission = canEdit(name);
-
-  // 🚀 FIX: Check original station value
-  const originalHasValue =
-    originalStationForm[name] !== "" &&
-    originalStationForm[name] !== null &&
-    originalStationForm[name] !== undefined;
-
-  const readOnly =
-    !editableByPermission ||
-    (!isAdmin && originalHasValue); // ✔ same rule as unit
-
-  const baseClass = "w-full p-2 rounded text-sm border transition";
-  const finalClass = readOnly
-    ? `${baseClass} bg-orange-50 text-orange-800 border-orange-200 cursor-not-allowed`
-    : `${baseClass} bg-white border-gray-300 focus:border-orange-500`;
-
-  return (
-    <div key={name}>
-      <label className="block text-xs text-gray-500 mb-1">{label}</label>
-      <input
-        name={name}
-        type="number"
-        value={value ?? ""}
-        readOnly={readOnly}
-        onChange={(e) => !readOnly && handleStationChange(e)}
-        className={finalClass}
-      />
+    {/* Tabs */}
+    <div>
+      <div className="text-xs text-gray-500 mb-2 font-medium">Tabs</div>
+      <div className="flex flex-col gap-2">
+        {["Unit-1", "Unit-2", "Station"].map((t) => (
+          <button
+            key={t}
+            onClick={() => setActiveTab(t)}
+            className={`
+              p-3 rounded-lg text-left font-medium transition-all 
+              border shadow-sm
+              ${
+                activeTab === t
+                  ? "bg-orange-500 border-orange-600 text-white shadow-md"
+                  : "bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200"
+              }
+            `}
+          >
+            {t}
+            {activeTab === t && loadingRow && (
+              <span className="ml-2 text-xs opacity-70">
+                <Spinner size={12} />
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
     </div>
-  );
-};
+  </aside>
 
-  // confirmation list
-  const getChangedManualFieldsForDisplay = (unitKey) => {
-    const skip = ["prev_totalizer", "unit"];
-    const result = [];
-    Object.keys(initialUnitFormState).forEach(k => {
-      if (skip.includes(k)) return;
-      if (AUTO_CALCULATED_FIELDS.includes(k)) return;
-      const orig = originalUnitForms[unitKey]?.[k] ?? "";
-      const curr = unitForms[unitKey]?.[k] ?? "";
-      if (String(orig) !== String(curr) && String(curr) !== "") result.push({ key: k, label: prettify(k), value: String(curr) });
-    });
-    return result;
-  };
-  const prettify = (k) => k.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  {/* MAIN GLASS PANEL */}
+  <main className="flex-1">
+    <div
+      className="
+        relative rounded-xl border border-white/40 
+        bg-white/30 backdrop-blur-lg
+        shadow-[0_8px_30px_rgba(0,0,0,0.15)]
+        p-6 overflow-hidden
+      "
+      style={{
+        WebkitBackdropFilter: "blur(14px)",
+        backdropFilter: "blur(14px)",
+      }}
+    >
 
-  // Render
-  return (
-    <div className="flex gap-6 p-6 max-w-7xl mx-auto">
-      {/* Sidebar */}
-      <aside className="w-64 bg-white rounded-lg shadow py-4 px-3 flex flex-col gap-4">
-        <div>
-          <label className="block text-xs text-gray-500">Date</label>
-          <input type="date" className="w-full p-2 rounded border border-gray-300" value={reportDate} onChange={(e) => setReportDate(e.target.value)} />
-        </div>
+      {/* Glass top highlight */}
+      <div className="
+        absolute inset-0 rounded-xl pointer-events-none
+        bg-gradient-to-br from-white/50 via-transparent to-white/10
+      "></div>
 
-        <div>
-          <div className="text-xs text-gray-500 mb-2">Tabs</div>
-          <div className="flex flex-col gap-2">
-            {["Unit-1","Unit-2","Station"].map(t => (
-              <button key={t} onClick={() => setActiveTab(t)} className={`text-left p-2 rounded-md transition ${activeTab===t ? "bg-orange-500 text-white shadow" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}>
-                {t} {activeTab===t && <span className="ml-2 text-xs opacity-70">{loadingRow ? <Spinner size={12} /> : ""}</span>}
-              </button>
-            ))}
-          </div>
-        </div>
+      {/* Floating Glass 3D Gradient Shadow */}
+      <div
+        className="
+          absolute left-6 right-6 bottom-0 translate-y-[18px]
+          h-8 rounded-b-xl pointer-events-none
+          bg-gradient-to-b from-white/50 via-orange-100/30 to-gray-400/40
+          backdrop-blur-[4px]
+          shadow-[0_10px_32px_rgba(0,0,0,0.22)]
+          blur-[8px]
+        "
+      ></div>
 
-        <div className="mt-auto text-xs text-gray-500">
-          <div><strong>User Role:</strong> {roleLoading ? <Spinner size={12} /> : currentUser?.role_id || roleId || "Unknown"}</div>
-          <div className="mt-1 text-sm text-orange-700">{message}</div>
-        </div>
-      </aside>
+      {/* HEADER */}
+      <div
+        className="
+          w-full flex items-center justify-between
+          text-md font-semibold text-orange-700
+          px-1 py-3 mb-4 
+          border-b border-orange-300/70
+        "
+      >
+        {/* Left Title */}
+        <h3 className="flex-shrink-0">{activeTab} Report</h3>
 
-      {/* Main */}
-      <main className="flex-1">
-        <div className="bg-white rounded-lg shadow p-4">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-800">{activeTab} Report</h2>
-            <div className="text-sm text-gray-600">
-              {permLoading ? <span className="inline-flex items-center gap-2"><Spinner size={14} /> Loading permissions</span> : <span className="text-green-600">Permissions loaded</span>}
+        {/* Middle Message */}
+        <div className="flex-grow flex justify-center">
+          {message && (
+            <div
+              className={`
+                text-sm font-semibold px-3 py-1 rounded-md border shadow-sm 
+                animate-[fadeInSlide_.25s_ease-out,pulseOnce_.8s_ease-out]
+                backdrop-blur-md bg-white/60
+                ${
+                  message.startsWith("❌")
+                    ? "border-red-300 text-red-800"
+                    : "border-green-300 text-green-800"
+                }
+              `}
+            >
+              <span className="mr-1">
+                {message.startsWith("❌") ? "✖" : "✔"}
+              </span>
+              {message.replace("❌", "").replace("✅", "")}
             </div>
-          </div>
+          )}
+        </div>
 
-          {/* Unit forms */}
-          {activeTab === "Unit-1" || activeTab === "Unit-2" ? (
-            <>
-              <form onSubmit={(e)=>{e.preventDefault(); handleUnitSubmit(activeTab);}}>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">Prev Totalizer (MU)</label>
-                    <input value={unitForms[activeTab].prev_totalizer ?? ""} readOnly className="w-full p-2 rounded border border-gray-200 bg-gray-100 text-sm" />
-                  </div>
+        {/* Right Button */}
+        <button
+          onClick={() => {
+            if (activeTab === "Station") handleStationSubmit();
+            else handleUnitSubmit(activeTab);
+          }}
+          disabled={
+            submitting[activeTab] ||
+            (activeTab === "Station" && submitting.station) ||
+            loadingRow
+          }
+          className={`
+            px-4 py-2 rounded-lg text-white font-medium shadow-sm ml-2
+            transition active:scale-95 backdrop-blur-md
+            ${
+              loadingRow
+                ? "bg-gray-400"
+                : activeTab === "Station"
+                ? submitting.station
+                  ? "bg-gray-400"
+                  : "bg-orange-500 hover:bg-orange-600"
+                : submitting[activeTab]
+                ? "bg-gray-400"
+                : isEditingForUnit[activeTab]
+                ? "bg-yellow-500 hover:bg-yellow-600"
+                : "bg-orange-500 hover:bg-orange-600"
+            }
+          `}
+        >
+          {loadingRow
+            ? "Loading..."
+            : activeTab === "Station"
+            ? submitting.station
+              ? "Processing..."
+              : "Save Station Data"
+            : submitting[activeTab]
+            ? "Processing..."
+            : isEditingForUnit[activeTab]
+            ? "Update Unit Data"
+            : "Submit Unit Report"}
+        </button>
+      </div>
 
-                  <div>{renderInput(activeTab,"totalizer_mu","Totalizer (MU) — today")}</div>
-                  <div>{renderInput(activeTab,"generation_mu","Generation (MU)","number", true)}</div>
-                  <div>{renderInput(activeTab,"plf_percent","PLF (%)","number", true)}</div>
-                </div>
+            
+          
 
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
-                  <div>{renderInput(activeTab,"running_hour","Running Hour")}</div>
-                  <div>{renderInput(activeTab,"plant_availability_percent","Plant Availability (%)","number", true)}</div>
-                  <div>{renderInput(activeTab,"planned_outage_hour","Planned Outage (Hr)")}</div>
-                  <div>{renderInput(activeTab,"planned_outage_percent","Planned Outage (%)","number", true)}</div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
-                  <div>{renderInput(activeTab,"forced_outage_hour","Forced Outage (Hr)")}</div>
-                  <div>{renderInput(activeTab,"forced_outage_percent","Forced Outage (%)","number", true)}</div>
-                  <div>{renderInput(activeTab,"strategic_outage_hour","Strategic Outage (Hr)")}</div>
-                  <div />
-                </div>
-
-                <div className="mt-6">
-                  <h4 className="text-sm font-medium text-gray-700 mb-2">Fuel & Efficiency</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div>{renderInput(activeTab,"coal_consumption_t","Coal (T)")}</div>
-                    <div>{renderInput(activeTab,"sp_coal_consumption_kg_kwh","Sp. Coal (kg/kwh)","number", true)}</div>
-                    <div>{renderInput(activeTab,"avg_gcv_coal_kcal_kg","Avg GCV (kcal/kg)")}</div>
-                    <div>{renderInput(activeTab,"heat_rate","Heat Rate")}</div>
-                  </div>
-                </div>
-
-                <div className="mt-6">
-                  <h4 className="text-sm font-medium text-gray-700 mb-2">Auxiliary, Water, Steam & Emissions</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div>{renderInput(activeTab,"aux_power_consumption_mu","Aux. Power (MU)")}</div>
-                    <div>{renderInput(activeTab,"aux_power_percent","Aux. Power (%)","number", true)}</div>
-                    <div>{renderInput(activeTab,"dm_water_consumption_cu_m","DM Water (Cu.m)")}</div>
-                    <div>{renderInput(activeTab,"sp_dm_water_consumption_percent","Sp. DM Water (%)","number", true)}</div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
-                    <div>{renderInput(activeTab,"steam_gen_t","Steam Gen (T)")}</div>
-                    <div>{renderInput(activeTab,"sp_steam_consumption_kg_kwh","Sp. Steam (kg/kwh)","number", true)}</div>
-                    <div>{renderInput(activeTab,"stack_emission_spm_mg_nm3","Stack Emission (mg/Nm3)")}</div>
-                    <div />
-                  </div>
-                </div>
-
-                <div className="mt-6">
-                  <button
-  type="submit"
-  disabled={submitting[activeTab] || loadingRow}
-  className={`px-4 py-2 rounded font-medium shadow ${
-    submitting[activeTab]
-      ? "bg-gray-300 text-gray-600"
-      : isEditingForUnit[activeTab]
-      ? "bg-yellow-500 text-white hover:bg-yellow-600"
-      : "bg-gradient-to-r from-orange-500 to-amber-400 text-white hover:from-orange-600 hover:to-amber-500"
-  }`}
->
-  {submitting[activeTab]
-    ? "Processing..."
-    : isEditingForUnit[activeTab]
-    ? "Update Unit Data"
-    : "Submit Unit Report"}
-</button>
-                </div>
-              </form>
-            </>
-          ) : (
-            <form onSubmit={(e)=>{e.preventDefault(); handleStationSubmit();}}>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {renderStationInput("avg_raw_water_used_cu_m_hr","Avg. Raw Water (Cu.m/hr)")}
-                {renderStationInput("total_raw_water_used_cu_m","Total Raw Water (Cu.m)")}
-                {renderStationInput("sp_raw_water_used_ltr_kwh","Sp. Raw Water (Ltr/kWh)")}
+          {/* UNIT FORM */}
+          {(activeTab === "Unit-1" || activeTab === "Unit-2") && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleUnitSubmit(activeTab);
+              }}
+            >
+              {/* Prev Totalizer shown below totalizer input - handled by renderInput */}
+              <div className="grid grid-cols-4 gap-4 mb-4">
+                {renderInput(activeTab, "totalizer_mu", "Totalizer (MU)")}
+                {renderInput(activeTab, "totalizer_coal", "Coal Totalizer")}
+                {renderInput(activeTab, "totalizer_aux", "Aux Power Totalizer")}
+                {renderInput(activeTab, "running_hour", "Running Hour")}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-                {renderStationInput("ro_plant_running_hrs","RO Plant Running (Hrs)")}
-                {renderStationInput("ro_plant_il","RO Plant I/L")}
-                {renderStationInput("ro_plant_ol","RO Plant O/L")}
+              <div className="grid grid-cols-4 gap-4 mt-4">
+                {renderInput(activeTab, "planned_outage_hour", "Planned Outage (Hr)")}
+                {renderInput(activeTab, "forced_outage_hour", "Forced Outage (Hr)")}
+                {renderInput(activeTab, "strategic_outage_hour", "Strategic Outage (Hr)")}
+                {renderInput(activeTab, "avg_gcv_coal_kcal_kg", "Avg GCV (kcal/kg)")}
               </div>
 
-              <div className="mt-6">
-                <button
-  type="submit"
-  disabled={submitting.station}
-  className="px-4 py-2 rounded bg-gradient-to-r from-orange-500 to-amber-400 text-white hover:from-orange-600 hover:to-amber-500"
->
-  {submitting.station ? "Processing..." : "Save Station Data"}
-</button>
+              <div className="grid grid-cols-4 gap-4 mt-4">
+                {renderInput(activeTab, "ldo_hsd_consumption_kl", "LDO/HSD (KL)")}
+                {renderInput(activeTab, "steam_gen_t", "Steam Gen (T)")}
+                {renderInput(activeTab, "dm_water_consumption_cu_m", "DM Water (Cu.m)")}
+                {renderInput(activeTab, "stack_emission_spm_mg_nm3", "Stack Emission (mg/Nm3)")}
               </div>
+
+              
             </form>
           )}
 
-         
+          {/* STATION FORM */}
+          {activeTab === "Station" && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleStationSubmit();
+              }}
+            >
+              <div className="grid grid-cols-3 gap-4">
+                {renderStationInput("avg_raw_water_used_cu_m_hr", "Avg Raw Water (Cu.m/hr)")}
+                {renderStationInput("total_raw_water_used_cu_m", "Total Raw Water (Cu.m)")}
+                {renderStationInput("sp_raw_water_used_ltr_kwh", "Sp Raw Water (Ltr/kWh)")}
+              </div>
 
-          {/* Confirm popup */}
+              <div className="grid grid-cols-3 gap-4 mt-4">
+                {renderStationInput("ro_plant_running_hrs", "RO Running (Hrs)")}
+                {renderStationInput("ro_plant_il", "RO I/L")}
+                {renderStationInput("ro_plant_ol", "RO O/L")}
+              </div>
+
+              
+            </form>
+          )}
+
+          {/* CONFIRMATION POPUP */}
           {showConfirmPopup && (
-            <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50 p-4">
-              <div className="bg-white p-5 rounded-xl shadow-lg w-full max-w-2xl max-h-[80vh] overflow-auto">
-                <h3 className="text-lg font-semibold mb-3 text-center text-orange-800">Confirm changed values</h3>
-                <div className="space-y-2 mb-4">
-                  {activeTab !== "Station" ? (
-                    <>
-                      {getChangedManualFieldsForDisplay(activeTab).length === 0 ? (
-                        <div className="text-sm text-gray-600">No manual changes to confirm.</div>
-                      ) : (
-                        <ul className="list-disc ml-5 text-sm">
-                          {getChangedManualFieldsForDisplay(activeTab).map(f => <li key={f.key} className="py-1"><span className="font-medium">{f.label}:</span> <span className="font-mono">{f.value}</span></li>)}
-                        </ul>
-                      )}
-                    </>
-                  ) : (
-                    <div className="text-sm text-gray-600">Confirm saving station data?</div>
-                  )}
-                </div>
-                <div className="flex justify-end gap-3">
-                  <button className="bg-gray-400 px-3 py-1 rounded text-white" onClick={()=>setShowConfirmPopup(false)}>Cancel</button>
-                  <button className="bg-orange-600 px-3 py-1 rounded text-white" onClick={() => { if (activeTab==="Station") handleStationSubmit(); else handleConfirmUnitSubmit(activeTab); }}>Confirm & Submit</button>
+            <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center p-4 z-50">
+              <div className="bg-white p-5 rounded-xl shadow-lg w-full max-w-xl max-h-[80vh] overflow-auto">
+                <h3 className="text-lg font-semibold text-center text-orange-700 mb-3">
+                  Confirm manual changes
+                </h3>
+
+                {confirmList.length === 0 ? (
+                  <div className="text-sm text-gray-700">No manual changes detected.</div>
+                ) : (
+                  <ul className="list-disc ml-5 text-sm">
+                    {confirmList.map((f) => (
+                      <li key={f.key} className="py-1">
+                        <span className="font-medium">{f.label}:</span>{" "}
+                        <span className="font-mono">{f.value}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                <div className="flex justify-end gap-3 mt-5">
+                  <button onClick={() => setShowConfirmPopup(false)} className="px-3 py-1 rounded bg-gray-400 text-white">Cancel</button>
+                  <button onClick={() => handleConfirmUnitSubmit(activeTab)} className="px-3 py-1 rounded bg-orange-600 text-white">Confirm & Submit</button>
                 </div>
               </div>
             </div>
