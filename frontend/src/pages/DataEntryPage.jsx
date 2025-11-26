@@ -355,106 +355,255 @@ export default function DataEntryPage({ auth }) {
   };
 
   // submit handlers
-  const handleUnitSubmit = async (unitKey) => {
-    if (!unitKey) return;
-    const anyChange = Object.keys(initialUnitFormState).some(k => {
-      if (k === "unit" || k === "prev_totalizer") return false;
-      if (AUTO_CALCULATED_FIELDS.includes(k)) return false;
-      const orig = originalUnitForms[unitKey]?.[k] ?? "";
-      const curr = unitForms[unitKey]?.[k] ?? "";
-      return String(orig) !== String(curr);
-    });
-    if (isEditingForUnit[unitKey] && !anyChange) { setMessage("❌ No changes made to submit."); return; }
-    const changed = detectChangedFilledFieldsForUnit(unitKey, unitForms[unitKey]);
-    if (!isAdmin && isEditingForUnit[unitKey]) {
-    setMessage("❌ Only admin can edit existing data.");
-    return;
-}
-    setShowConfirmPopup(true);
-  };
+  // replace your existing handleUnitSubmit with this
+const handleUnitSubmit = (unitKey) => {
+  if (!unitKey) return;
 
-  const handleConfirmUnitSubmit = async (unitKey) => {
-    const u = unitKey || activeTab;
-    setSubmitting(s => ({ ...s, [u]: true }));
-    setShowConfirmPopup(false);
-    setMessage("");
-   try {
-    const payload = { ...unitForms[u], report_date: reportDate };
-    delete payload.prev_totalizer;
+  console.log("[handleUnitSubmit] called for", unitKey, {
+    isAdmin,
+    isEditing: isEditingForUnit[unitKey],
+  });
 
-    // convert empty -> null, numeric strings -> number
-    Object.keys(payload).forEach(k => {
-      if (k === "unit" || k === "report_date") return;
-      if (payload[k] === "") payload[k] = null;
-      else if (!isNaN(parseFloat(payload[k])) && isFinite(payload[k])) {
-        payload[k] = parseFloat(payload[k]);
-      }
-    });
+  const original = originalUnitForms[unitKey] || {};
+  const current = unitForms[unitKey] || {};
 
-    // 🚨 Block update if NOT admin and existing data is being edited
-    if (!isAdmin && isEditingForUnit[u]) {
-      setMessage("❌ Only admin can edit existing data.");
-      return;
+  // ---------------------------------------------
+  //  FIND ACTUAL CHANGED FIELDS
+  // ---------------------------------------------
+  const changedFields = [];
+
+  Object.keys(current).forEach((field) => {
+    if (field === "unit" || field === "prev_totalizer") return;
+    if (AUTO_CALCULATED_FIELDS.includes(field)) return;
+
+    const origVal = original[field] ?? "";
+    const currVal = current[field] ?? "";
+
+    if (String(origVal) !== String(currVal)) {
+      changedFields.push(field);
     }
+  });
 
-    await api.post("/reports/", payload);
+  // ---------------------------------------------
+  //  NO CHANGES → show message
+  // ---------------------------------------------
+  if (changedFields.length === 0) {
+    setMessage("❌ No changes made to submit.");
+    return;
+  }
 
-    setMessage(isEditingForUnit[u]
-      ? "✅ Report updated successfully"
-      : "✅ Report added successfully"
-    );
+  // ---------------------------------------------
+  //  NON-ADMIN FIELD VALIDATION
+  // ---------------------------------------------
+  if (!isAdmin) {
+    for (let field of changedFields) {
+      const origVal = original[field];
 
-    // update local original values
-    setOriginalUnitForms(s => ({ ...s, [u]: { ...unitForms[u] } }));
-    setIsEditingForUnit(s => ({ ...s, [u]: true }));
-    
-} catch (e) {
-    const det = e.response?.data?.detail || "Error saving data";
-    setMessage(`❌ ${det}`);
-} finally {
-    setSubmitting(s => ({ ...s, [u]: false }));
-}
-  };
+      const origIsEmpty =
+        origVal === "" || origVal === null || origVal === undefined;
 
-  const handleStationSubmit = async () => {
-  setSubmitting(s => ({ ...s, station: true }));
+      // If the original field had a value, block editing
+      if (!origIsEmpty) {
+        setMessage(`❌ Only admin can edit existing field: ${field}`);
+        return;
+      }
+    }
+  }
+
+  // ---------------------------------------------
+  //  PASSED ALL CHECKS → show confirmation popup
+  // ---------------------------------------------
+  setShowConfirmPopup(true);
+};
+
+
+
+  // replace your existing handleConfirmUnitSubmit with this
+const handleConfirmUnitSubmit = async (unitKey) => {
+  const u = unitKey || activeTab;
+  console.log("[handleConfirmUnitSubmit] starting for", u);
+
+  // close popup immediately
+  setShowConfirmPopup(false);
+  setSubmitting(s => ({ ...s, [u]: true }));
   setMessage("");
 
   try {
-    // 🚨 Block non-admin from editing existing station data
-    const stationHasExistingData = Object.values(originalStationForm || {}).some(
-      v => v !== "" && v !== null
-    );
+    // Prepare payload
+    const payload = { ...unitForms[u], report_date: reportDate };
+    delete payload.prev_totalizer;
 
-    if (!isAdmin && stationHasExistingData) {
-      setMessage("❌ Only admin can edit existing station data.");
-      return;
-    }
-
-    // Build payload
-    const payload = { ...stationForm, report_date: reportDate };
-
+    // convert empty → null, numeric strings → number
     Object.keys(payload).forEach(k => {
-      if (k === "report_date") return;
-
-      if (payload[k] === "" || payload[k] === null) {
+      if (k === "unit" || k === "report_date") return;
+      if (payload[k] === "" || payload[k] === undefined) {
         payload[k] = null;
       } else if (!isNaN(parseFloat(payload[k])) && isFinite(payload[k])) {
         payload[k] = parseFloat(payload[k]);
       }
     });
 
-    // Save
+    // -----------------------------------------
+    //  NON-ADMIN VALIDATION (field-by-field)
+    // -----------------------------------------
+    if (!isAdmin) {
+      for (let field in payload) {
+        if (field === "unit" || field === "report_date") continue;
+
+        const orig = originalUnitForms[u]?.[field];
+        const curr = payload[field];
+
+        const origIsEmpty = orig === "" || orig === null || orig === undefined;
+
+        // If original had value -> block non-admin
+        if (!origIsEmpty && String(orig) !== String(curr)) {
+          setMessage(`❌ Only admin can edit existing field: ${field}`);
+          setSubmitting(s => ({ ...s, [u]: false }));
+          return;
+        }
+      }
+    }
+
+    // -----------------------------------------
+    //  SEND DATA
+    // -----------------------------------------
+    console.log("[handleConfirmUnitSubmit] posting payload:", payload);
+    const resp = await api.post("/reports/", payload);
+    console.log("[handleConfirmUnitSubmit] response:", resp?.data);
+
+    setMessage(isEditingForUnit[u]
+      ? "✅ Report updated successfully"
+      : "✅ Report added successfully"
+    );
+
+    // -----------------------------------------
+    //  NORMALIZE VALUES (IMPORTANT FIX)
+    // -----------------------------------------
+    const normalized = {};
+    Object.keys(unitForms[u]).forEach(k => {
+      const v = unitForms[u][k];
+      if (v === "" || v === null || v === undefined) normalized[k] = "";
+      else if (!isNaN(v)) normalized[k] = Number(v);
+      else normalized[k] = v;
+    });
+
+    // Update original forms with normalized values
+    setOriginalUnitForms(s => ({
+      ...s,
+      [u]: normalized
+    }));
+
+    // Also normalize unitForms so both sides always match
+    setUnitForms(s => ({
+      ...s,
+      [u]: normalized
+    }));
+
+    // Mark row as editing mode going forward
+    setIsEditingForUnit(s => ({ ...s, [u]: true }));
+
+  } catch (e) {
+    console.error("[handleConfirmUnitSubmit] error:", e);
+    const det = e?.response?.data?.detail || e.message || "Error saving data";
+    setMessage(`❌ ${det}`);
+  } finally {
+    setSubmitting(s => ({ ...s, [u]: false }));
+  }
+};
+
+
+
+  const handleStationSubmit = async () => {
+  setSubmitting(s => ({ ...s, station: true }));
+  setMessage("");
+
+  try {
+    const original = originalStationForm || {};
+    const current = stationForm || {};
+
+    // ---------------------------------------------
+    //  FIND CHANGED FIELDS
+    // ---------------------------------------------
+    const changedFields = [];
+
+    Object.keys(current).forEach(field => {
+      if (field === "report_date") return;
+
+      const origVal = original[field] ?? "";
+      const currVal = current[field] ?? "";
+
+      if (String(origVal) !== String(currVal)) {
+        changedFields.push(field);
+      }
+    });
+
+    // ---------------------------------------------
+    //  NO CHANGES → notify user
+    // ---------------------------------------------
+    if (changedFields.length === 0) {
+      setMessage("❌ No changes made to submit.");
+      return;
+    }
+
+    // ---------------------------------------------
+    //  NON-ADMIN VALIDATION (field-level)
+    // ---------------------------------------------
+    if (!isAdmin) {
+      for (let field of changedFields) {
+        const origVal = original[field];
+
+        const origIsEmpty =
+          origVal === "" || origVal === null || origVal === undefined;
+
+        // Non-admin cannot modify filled fields
+        if (!origIsEmpty) {
+          setMessage(`❌ Only admin can edit existing field: ${field}`);
+          return;
+        }
+      }
+    }
+
+    // ---------------------------------------------
+    //  BUILD PAYLOAD
+    // ---------------------------------------------
+    const payload = { ...current, report_date: reportDate };
+
+    Object.keys(payload).forEach(k => {
+      if (k === "report_date") return;
+
+      if (payload[k] === "" || payload[k] === null || payload[k] === undefined) {
+        payload[k] = null;
+      } else if (!isNaN(parseFloat(payload[k])) && isFinite(payload[k])) {
+        payload[k] = parseFloat(payload[k]);
+      }
+    });
+
+    // ---------------------------------------------
+    //  SEND API REQUEST
+    // ---------------------------------------------
     await api.post("/reports/station/", payload);
 
     setMessage(
-      stationHasExistingData
+      Object.values(original).some(v => v !== "" && v !== null && v !== undefined)
         ? "✅ Station data updated successfully."
         : "✅ Station data added successfully."
     );
 
-    // Update original values so UI knows it is now an existing entry
-    setOriginalStationForm({ ...stationForm });
+    // ---------------------------------------------
+    //  NORMALIZE AND UPDATE ORIGINAL FORM
+    // ---------------------------------------------
+    const normalized = {};
+    Object.keys(current).forEach(k => {
+      const v = current[k];
+      if (v === "" || v === null || v === undefined) normalized[k] = "";
+      else if (!isNaN(v)) normalized[k] = Number(v);
+      else normalized[k] = v;
+    });
+
+    setOriginalStationForm(normalized);
+
+    // Keep UI consistent
+    setStationForm(normalized);
 
   } catch (e) {
     const det = e.response?.data?.detail || "Error saving station data";
@@ -463,6 +612,7 @@ export default function DataEntryPage({ auth }) {
     setSubmitting(s => ({ ...s, station: false }));
   }
 };
+
 
 
   // permission helpers
@@ -488,16 +638,17 @@ export default function DataEntryPage({ auth }) {
   const editableByPermission = canEdit(name);
   const isAutoCalc = AUTO_CALCULATED_FIELDS.includes(name);
 
-  // FINAL RULE:
-  // If field already has value → only admin can edit
-  // If field is empty → anyone with permission can edit
-  const fieldHasValue = value !== "" && value !== null;
+  // 🚀 FIX: Check ORIGINAL value, not current typed value
+  const originalHasValue =
+    originalUnitForms[unitKey]?.[name] !== "" &&
+    originalUnitForms[unitKey]?.[name] !== null &&
+    originalUnitForms[unitKey]?.[name] !== undefined;
 
   const readOnly =
     autoReadOnly ||
     isAutoCalc ||
     !editableByPermission ||
-    (fieldHasValue && !isAdmin); // This is the important rule
+    (!isAdmin && originalHasValue); // ✔ non-admin can edit only if original was empty
 
   const baseClass = "w-full p-2 rounded text-sm border transition";
   const finalClass = readOnly
@@ -519,7 +670,6 @@ export default function DataEntryPage({ auth }) {
   );
 };
 
-
  const renderStationInput = (name, label) => {
   const hidden = !canView(name);
   if (hidden) return null;
@@ -527,11 +677,15 @@ export default function DataEntryPage({ auth }) {
   const value = stationForm[name] ?? "";
   const editableByPermission = canEdit(name);
 
-  const fieldHasValue = value !== "" && value !== null;
+  // 🚀 FIX: Check original station value
+  const originalHasValue =
+    originalStationForm[name] !== "" &&
+    originalStationForm[name] !== null &&
+    originalStationForm[name] !== undefined;
 
   const readOnly =
     !editableByPermission ||
-    (fieldHasValue && !isAdmin);  
+    (!isAdmin && originalHasValue); // ✔ same rule as unit
 
   const baseClass = "w-full p-2 rounded text-sm border transition";
   const finalClass = readOnly
@@ -662,9 +816,23 @@ export default function DataEntryPage({ auth }) {
                 </div>
 
                 <div className="mt-6">
-                  <button type="submit" disabled={submitting[activeTab] || loadingRow || (!isAdmin && isEditingForUnit[activeTab])}className={`px-4 py-2 rounded font-medium shadow ${submitting[activeTab] ? "bg-gray-300 text-gray-600" : isEditingForUnit[activeTab] ? "bg-yellow-500 text-white hover:bg-yellow-600" : "bg-gradient-to-r from-orange-500 to-amber-400 text-white hover:from-orange-600 hover:to-amber-500"}`} onClick={() => handleUnitSubmit(activeTab)}>
-                    {submitting[activeTab] ? "Processing..." : isEditingForUnit[activeTab] ? "Update Unit Data" : "Submit Unit Report"}
-                  </button>
+                  <button
+  type="submit"
+  disabled={submitting[activeTab] || loadingRow}
+  className={`px-4 py-2 rounded font-medium shadow ${
+    submitting[activeTab]
+      ? "bg-gray-300 text-gray-600"
+      : isEditingForUnit[activeTab]
+      ? "bg-yellow-500 text-white hover:bg-yellow-600"
+      : "bg-gradient-to-r from-orange-500 to-amber-400 text-white hover:from-orange-600 hover:to-amber-500"
+  }`}
+>
+  {submitting[activeTab]
+    ? "Processing..."
+    : isEditingForUnit[activeTab]
+    ? "Update Unit Data"
+    : "Submit Unit Report"}
+</button>
                 </div>
               </form>
             </>
@@ -683,9 +851,13 @@ export default function DataEntryPage({ auth }) {
               </div>
 
               <div className="mt-6">
-                <button disabled={submitting.station || (!isAdmin && Object.values(stationForm).some(v => v !== ""))} className="px-4 py-2 rounded bg-gradient-to-r from-orange-500 to-amber-400 text-white hover:from-orange-600 hover:to-amber-500">
-                  {submitting.station ? "Processing..." : "Save Station Data"}
-                </button>
+                <button
+  type="submit"
+  disabled={submitting.station}
+  className="px-4 py-2 rounded bg-gradient-to-r from-orange-500 to-amber-400 text-white hover:from-orange-600 hover:to-amber-500"
+>
+  {submitting.station ? "Processing..." : "Save Station Data"}
+</button>
               </div>
             </form>
           )}

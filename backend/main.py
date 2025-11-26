@@ -368,29 +368,31 @@ async def add_or_update_report(
             raise HTTPException(status_code=500, detail="Could not save report.")
     else:
         changed_fields = []
-        only_new_fields_added = True
-        # build list of fields to update
-        for field, new_value in report_dict.items():
-            if field in ("unit", "report_date"): continue
-            old_value = getattr(existing_report, field, None)
-            if new_value != old_value:
-                changed_fields.append(field)
-                if old_value not in [None, "", 0]:
-                    only_new_fields_added = False
 
-        # Enforce field-level permissions for all changed fields
-        for fld in changed_fields:
-            allowed = await can_role_edit_field(current_user.role_id, fld, db)
-            if not allowed:
-                raise HTTPException(status_code=403, detail=f"You do not have permission to edit '{fld}'.")
+    for field, new_value in report_dict.items():
+        if field in ("unit", "report_date"):
+            continue
 
-        # Password enforcement for modifying originally-filled fields
-        if not only_new_fields_added:
-            # HOD bypass
-            if current_user.role_id in (7, 8):
-             pass  # OK
-            else:
-             raise HTTPException(status_code=403, detail="Only admin can edit existing data.")
+        old_value = getattr(existing_report, field, None)
+
+        if new_value == old_value:
+            continue
+
+        changed_fields.append(field)
+
+        allowed = await can_role_edit_field(current_user.role_id, field, db)
+        if not allowed:
+            raise HTTPException(
+                status_code=403,
+                detail=f"You do not have permission to edit '{field}'."
+            )
+
+        if current_user.role_id not in (7, 8):
+            if old_value not in (None, "", 0):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Only admin can edit existing data for field '{field}'."
+                )
 
         # If nothing changed -> refresh aggregates
         if len(changed_fields) == 0:

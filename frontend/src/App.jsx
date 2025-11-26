@@ -16,6 +16,7 @@ import KpiChartsPage from "./pages/KpiChartsPage";
 import KpiRangeViewer from "./pages/KpiRangeViewer";
 import AdminPanel from "./pages/AdminPanel";
 import UserMenu from "./components/UserMenu";
+import DMPlantReportPage from "./pages/DMPlantReportPage";
 
 // ⭐ NEW IMPORT — Add DM Plant Page
 import DMPlantPage from "./pages/DMPlantPage";
@@ -171,6 +172,7 @@ function Layout({ authHeader, onLogout }) {
 
           {/* ⭐ NEW – DM PLANT PAGE */}
           <Route path="/dm-plant" element={<DMPlantPage auth={authHeader} />} />
+          <Route path="/dm-plant-report" element={<DMPlantReportPage />} />
         </Routes>
       </main>
 

@@ -1,5 +1,5 @@
 // pages/DMPlantPage.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 
 /**
@@ -10,19 +10,13 @@ import axios from "axios";
  *
  * Notes:
  * - Auth token: passed via `auth` prop or read from localStorage "authToken"
- * - SAMPLE_PDF_PATH uses the uploaded file path in your environment:
- *     "/mnt/data/dm plant daily report dated 14.12.2023 (1).pdf"
- *
- * Role editing rules implemented:
+ * - Role editing rules implemented:
  *  - role_id === 8 (Admin) -> can edit any field (always)
  *  - role_id === 5 (DM editor) -> can edit a field only if it is empty
  *  - Others -> cannot submit
- *
- * Sidebar is scrollable (independent); page does not require vertical scrolling to reach sidebar items.
  */
 
 const API_URL = "http://localhost:8080/api";
-// uploaded sample PDF path (use local path from your environment)
 const SAMPLE_PDF_PATH = "/mnt/data/dm plant daily report dated 14.12.2023 (1).pdf";
 
 const Spinner = ({ size = 14 }) => (
@@ -32,6 +26,7 @@ const Spinner = ({ size = 14 }) => (
   />
 );
 
+// parameter lists (same as your earlier file)
 const CHEMICAL_PARAMETERS = [
   { key: "pH", label: "pH" },
   { key: "do_ppm", label: "DO (ppm)" },
@@ -170,38 +165,49 @@ export default function DMPlantPage({ auth }) {
     [authHeader]
   );
 
+  // ----- auth / permissions
   const [roleId, setRoleId] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [roleLoading, setRoleLoading] = useState(true);
-
   const [permissionMap, setPermissionMap] = useState({});
   const [permLoading, setPermLoading] = useState(false);
 
-  // UI
+  // ----- UI state
   const [activeUnit, setActiveUnit] = useState("Unit-1");
   const [activeSection, setActiveSection] = useState(
     SECTION_DEFINITIONS.find((s) => s.unit === "Unit-1")?.section || SECTION_DEFINITIONS[0].section
   );
-  const [reportDate, setReportDate] = useState(new Date().toISOString().slice(0, 10));
+
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  // Collapsible units state (true = expanded)
+  // collapsible sidebar units
   const units = [...new Set(SECTION_DEFINITIONS.map((s) => s.unit))];
   const initialCollapsed = {};
   units.forEach((u) => {
-    initialCollapsed[u] = true; // default expanded
+    initialCollapsed[u] = true;
   });
   const [unitExpanded, setUnitExpanded] = useState(initialCollapsed);
 
-  // form for selected section
+  // section form (this contains the single date used for both entry + report)
   const paramsForActive = SECTION_DEFINITIONS.find((s) => s.unit === activeUnit && s.section === activeSection)?.params || [];
   const [sectionForm, setSectionForm] = useState(emptySectionForm(activeUnit, activeSection, paramsForActive));
 
-  // report
+  // report summary
   const [reportStats, setReportStats] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
 
+  // raw values cache and expanded state
+  const rawCache = useRef({}); // key => array of raw entries
+  const [allRawData, setAllRawData] = useState({}); // reactive copy for rendering
+  const [expandedRows, setExpandedRows] = useState({}); // key => bool
+  const [rawLoadingKeys, setRawLoadingKeys] = useState({}); // key => bool
+
+  // convenience flags
+  const isDMEditor = roleId === 5 || roleId === 8;
+  const isAdmin = roleId === 8;
+
+  // ---------- AUTH / PERMISSIONS: get current user (token payload or /auth/me)
   useEffect(() => {
     setRoleLoading(true);
     let cancelled = false;
@@ -233,7 +239,7 @@ export default function DMPlantPage({ auth }) {
     };
   }, [api, authHeader]);
 
-  // fetch permissions (kept for compatibility but DM page logic ignores them for edit rights)
+  // fetch permissions (kept for compatibility)
   useEffect(() => {
     let cancelled = false;
     async function fetchPerms() {
@@ -279,17 +285,17 @@ export default function DMPlantPage({ auth }) {
     };
   }, [api, roleId]);
 
-  // convenience flags
-  const isDMEditor = roleId === 5 || roleId === 8;
-  const isAdmin = roleId === 8;
-
-  // sync sectionForm when active unit/section change
+  // --------- keep sectionForm in sync when unit/section change
   useEffect(() => {
     const params = SECTION_DEFINITIONS.find((s) => s.unit === activeUnit && s.section === activeSection)?.params || [];
     setSectionForm(emptySectionForm(activeUnit, activeSection, params));
+    // reset expanded / raw cache for UI clarity (optional)
+    setExpandedRows({});
+    rawCache.current = {};
+    setAllRawData({});
   }, [activeUnit, activeSection]);
 
-  // helper permissions (canView uses permissionMap, but editing rules use roleId logic)
+  // helper permission checks
   const canView = (fieldName) => {
     if (!permissionMap || Object.keys(permissionMap).length === 0) return true;
     const p = permissionMap[fieldName];
@@ -314,7 +320,7 @@ export default function DMPlantPage({ auth }) {
   // toggle unit expansion
   const toggleUnit = (u) => setUnitExpanded((prev) => ({ ...prev, [u]: !prev[u] }));
 
-  // submit section in bulk (POST /dm-plant/add-section)
+  // ---------------- SUBMIT SECTION (bulk)
   const handleSubmitSection = async () => {
     setMessage("");
     if (!isDMEditor) {
@@ -322,28 +328,22 @@ export default function DMPlantPage({ auth }) {
       return;
     }
 
-    // Basic validation: at least one numeric entry filled
     const filled = sectionForm.entries.filter((e) => e.value !== "" && e.value !== null);
     if (filled.length === 0) {
       setMessage("⚠️ Please fill at least one parameter value before submitting.");
       return;
     }
 
-    // Validate numeric and check editing rights per entry
     for (let i = 0; i < filled.length; i++) {
       const ent = filled[i];
       if (isNaN(Number(ent.value))) {
         setMessage(`⚠️ Value for ${ent.label} must be numeric.`);
         return;
       }
-      // editing rule: only admin can change existing non-empty values.
-      // Our form only allows editing empty fields for role 5 by UI, but double-check server-side
-      // (this check is mostly to provide user-friendly message)
     }
 
     setSubmitting(true);
     try {
-      // Build payload in the contract format
       const payload = {
         date: sectionForm.date,
         time: sectionForm.time,
@@ -359,12 +359,16 @@ export default function DMPlantPage({ auth }) {
       };
 
       await api.post("/dm-plant/add-section", payload);
-
       setMessage("✅ Section data submitted successfully.");
-      // refresh report & reset form for this section
-      fetchReportStats();
+      // refresh report for the same date (sectionForm.date)
+      fetchReportStats(sectionForm.date);
+      // reset form entries for current section
       const params = SECTION_DEFINITIONS.find((s) => s.unit === activeUnit && s.section === activeSection)?.params || [];
       setSectionForm(emptySectionForm(activeUnit, activeSection, params));
+      // clear raw cache for that date because new entries may be present
+      rawCache.current = {};
+      setAllRawData({});
+      setExpandedRows({});
     } catch (e) {
       console.error("submit error", e);
       const det = e.response?.data?.detail || e.message || "Error saving section";
@@ -374,14 +378,19 @@ export default function DMPlantPage({ auth }) {
     }
   };
 
-  // report fetch
-  const fetchReportStats = async () => {
+  // ---------------- FETCH REPORT SUMMARY (uses sectionForm.date)
+  const fetchReportStats = async (dateToFetch = null) => {
     setReportLoading(true);
     setReportStats(null);
     setMessage("");
     try {
-      const res = await api.get(`/dm-plant/report`, { params: { date: reportDate } });
+      const dateParam = dateToFetch || sectionForm.date;
+      const res = await api.get(`/dm-plant/report`, { params: { date: dateParam } });
       setReportStats(res.data);
+      // clear raw cache because date changed
+      rawCache.current = {};
+      setAllRawData({});
+      setExpandedRows({});
     } catch (e) {
       console.error("report fetch error", e);
       const det = e.response?.data?.detail || "Could not fetch DM plant report.";
@@ -391,15 +400,17 @@ export default function DMPlantPage({ auth }) {
     }
   };
 
+  // When the form date changes, fetch the report for that date automatically.
   useEffect(() => {
-    fetchReportStats();
-    // eslint-disable-next-line
-  }, [reportDate]);
+    if (sectionForm?.date) {
+      fetchReportStats(sectionForm.date);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sectionForm.date]);
 
-  // Convert report stats into rows
+  // parse stats into rows
   const parseStats = (statsObj) => {
     if (!statsObj || !statsObj.stats) return [];
-    // Expect stats to be an object where keys are "Unit | Section | Parameter" or stringified tuple
     return Object.entries(statsObj.stats).map(([k, v]) => {
       let unit = "",
         section = "",
@@ -410,7 +421,6 @@ export default function DMPlantPage({ auth }) {
         section = parts[1] || "";
         parameter = parts[2] || "";
       } else {
-        // try parse tuple-like string
         try {
           const inside = k.trim().startsWith("(") && k.trim().endsWith(")") ? k.trim().slice(1, -1) : k;
           const parts = inside.split(",").map((p) => p.trim().replace(/^['"]|['"]$/g, ""));
@@ -435,6 +445,55 @@ export default function DMPlantPage({ auth }) {
     });
   };
 
+  // fetch raw values for a particular row (caching)
+  const fetchRawForRow = async (r) => {
+    const key = `${r.unit}_${r.section}_${r.parameter}`;
+    if (rawCache.current[key]) {
+      // already cached
+      setAllRawData((old) => ({ ...old, [key]: rawCache.current[key] }));
+      return;
+    }
+
+    // mark loading for this key
+    setRawLoadingKeys((s) => ({ ...s, [key]: true }));
+
+    try {
+      const res = await api.get("/dm-plant/raw", {
+        params: {
+          date: sectionForm.date,
+          unit: r.unit,
+          section: r.section,
+          parameter: r.parameter,
+        },
+      });
+      rawCache.current[key] = res.data || [];
+      setAllRawData((old) => ({ ...old, [key]: rawCache.current[key] }));
+    } catch (e) {
+      console.error("raw fetch error", e);
+      rawCache.current[key] = [];
+      setAllRawData((old) => ({ ...old, [key]: [] }));
+    } finally {
+      setRawLoadingKeys((s) => {
+        const copy = { ...s };
+        delete copy[key];
+        return copy;
+      });
+    }
+  };
+
+  // toggle expand row (and fetch raw if needed)
+  const toggleExpandRow = async (r) => {
+    const key = `${r.unit}_${r.section}_${r.parameter}`;
+    const isExpanded = !!expandedRows[key];
+    // toggle
+    setExpandedRows((s) => ({ ...s, [key]: !isExpanded }));
+
+    // if expanding and not cached, fetch
+    if (!isExpanded && !rawCache.current[key]) {
+      await fetchRawForRow(r);
+    }
+  };
+
   const sectionsForActiveUnit = SECTION_DEFINITIONS.filter((s) => s.unit === activeUnit).map((s) => s.section);
 
   return (
@@ -446,12 +505,15 @@ export default function DMPlantPage({ auth }) {
       >
         <div className="px-3 pb-3">
           <label className="block text-xs text-gray-500">Date</label>
-          <input
-            type="date"
-            value={reportDate}
-            onChange={(e) => setReportDate(e.target.value)}
-            className="w-full p-2 rounded border border-gray-300"
-          />
+          {/* Single date selector used for both form entry and report */}
+          
+
+          <button
+            onClick={() => (window.location.href = "/dm-plant-report")}
+            className="mt-3 px-3 py-2 w-full bg-orange-500 text-white text-sm rounded hover:bg-orange-600"
+          >
+            View DM Plant Report
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto pr-2">
@@ -460,7 +522,6 @@ export default function DMPlantPage({ auth }) {
               <div className="flex items-center gap-2 px-2">
                 <button
                   onClick={() => {
-                    // toggle expand / collapse
                     toggleUnit(u);
                   }}
                   className={`flex-1 text-left px-3 py-2 rounded-md font-medium flex items-center justify-between ${
@@ -472,7 +533,6 @@ export default function DMPlantPage({ auth }) {
                 </button>
               </div>
 
-              {/* sections nested (collapsible) */}
               {unitExpanded[u] && (
                 <div className="pl-4 mt-2 space-y-1">
                   {SECTION_DEFINITIONS.filter((s) => s.unit === u).map((sec) => (
@@ -483,9 +543,7 @@ export default function DMPlantPage({ auth }) {
                         setActiveSection(sec.section);
                       }}
                       className={`w-full text-left px-2 py-1 rounded-sm text-sm ${
-                        activeUnit === u && activeSection === sec.section
-                          ? "bg-orange-100 text-orange-800"
-                          : "text-gray-600 hover:bg-gray-100"
+                        activeUnit === u && activeSection === sec.section ? "bg-orange-100 text-orange-800" : "text-gray-600 hover:bg-gray-100"
                       }`}
                     >
                       {sec.section}
@@ -570,10 +628,8 @@ export default function DMPlantPage({ auth }) {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {sectionForm.entries.map((e, idx) => {
                 const fieldName = e.parameter;
-                // Editable if admin OR (role 5/8 DM editor and field currently empty AND role is editor)
                 const editable = isAdmin || (isDMEditor && (e.value === "" || e.value === null));
                 const visible = canView(fieldName);
-                // note: canEdit(fieldName) from permissionMap is not enforced strictly for DM; role logic used instead.
                 if (!visible) return null;
                 return (
                   <div key={fieldName} className="p-3 border rounded">
@@ -626,7 +682,7 @@ export default function DMPlantPage({ auth }) {
           {/* Report viewer */}
           <div className="mt-8">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-md font-medium">Daily DM Stats</h3>
+              <h3 className="text-md font-medium">Daily DM Stats for {sectionForm.date}</h3>
               <div className="text-sm text-gray-500">{reportLoading ? <Spinner /> : reportStats ? `${reportStats.total_entries || 0} entries aggregated` : ""}</div>
             </div>
 
@@ -651,6 +707,7 @@ export default function DMPlantPage({ auth }) {
                       </td>
                     </tr>
                   )}
+
                   {!reportLoading && reportStats && parseStats(reportStats).length === 0 && (
                     <tr>
                       <td colSpan={7} className="px-4 py-6 text-center text-sm text-gray-500">
@@ -658,25 +715,74 @@ export default function DMPlantPage({ auth }) {
                       </td>
                     </tr>
                   )}
+
                   {!reportLoading &&
                     reportStats &&
-                    parseStats(reportStats).map((r, i) => (
-                      <tr key={i} className="border-t">
-                        <td className="px-3 py-2 text-sm">{r.unit}</td>
-                        <td className="px-3 py-2 text-sm">{r.section}</td>
-                        <td className="px-3 py-2 text-sm">{r.parameter}</td>
-                        <td className="px-3 py-2 text-sm text-right">{r.avg}</td>
-                        <td className="px-3 py-2 text-sm text-right">{r.min}</td>
-                        <td className="px-3 py-2 text-sm text-right">{r.max}</td>
-                        <td className="px-3 py-2 text-sm text-right">{r.count}</td>
-                      </tr>
-                    ))}
+                    parseStats(reportStats)
+                      .filter((r) => r.unit === activeUnit && r.section === activeSection)
+                      .map((r, i) => {
+                        const key = `${r.unit}_${r.section}_${r.parameter}`;
+                        const expanded = !!expandedRows[key];
+                        const raws = allRawData[key] || [];
+                        const loadingKey = !!rawLoadingKeys[key];
+
+                        return (
+                          <React.Fragment key={key}>
+                            <tr
+                              onClick={() => toggleExpandRow(r)}
+                              className="border-t hover:bg-orange-50 cursor-pointer"
+                            >
+                              <td className="px-3 py-2 text-sm">{r.unit}</td>
+                              <td className="px-3 py-2 text-sm">{r.section}</td>
+                              <td className="px-3 py-2 text-sm flex items-center gap-2">
+                                {r.parameter}
+                                <span className="text-xs text-gray-500">{expanded ? "▾" : "▸"}</span>
+                              </td>
+                              <td className="px-3 py-2 text-sm text-right">{r.avg}</td>
+                              <td className="px-3 py-2 text-sm text-right">{r.min}</td>
+                              <td className="px-3 py-2 text-sm text-right">{r.max}</td>
+                              <td className="px-3 py-2 text-sm text-right">{r.count}</td>
+                            </tr>
+
+                            {expanded && (
+                              <tr className="bg-gray-50">
+                                <td colSpan={7} className="p-3">
+                                  {loadingKey ? (
+                                    <div className="flex items-center gap-2"><Spinner /> <span>Loading raw values...</span></div>
+                                  ) : raws.length === 0 ? (
+                                    <div className="text-gray-500 text-sm px-2 py-1">No raw data available.</div>
+                                  ) : (
+                                    <table className="min-w-full text-sm border mt-2">
+                                      <thead>
+                                        <tr className="bg-gray-200">
+                                          <th className="px-2 py-1 text-left">Time</th>
+                                          <th className="px-2 py-1 text-left">Value</th>
+                                          <th className="px-2 py-1 text-left">Remarks</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {raws.map((rv, idx) => (
+                                          <tr key={idx} className="border-t">
+                                            <td className="px-2 py-1">{rv.time}</td>
+                                            <td className="px-2 py-1">{rv.value}</td>
+                                            <td className="px-2 py-1">{rv.remarks || "-"}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
                 </tbody>
               </table>
             </div>
 
             <div className="mt-3">
-              <button onClick={fetchReportStats} className="px-3 py-1 rounded bg-gray-100 hover:bg-gray-200">
+              <button onClick={() => fetchReportStats(sectionForm.date)} className="px-3 py-1 rounded bg-gray-100 hover:bg-gray-200">
                 Refresh
               </button>
             </div>

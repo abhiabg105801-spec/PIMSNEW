@@ -113,3 +113,30 @@ async def get_entries_by_date(db: AsyncSession, target_date):
 
     result = await db.execute(stmt)
     return result.scalars().all()
+
+async def get_raw_entries(db: AsyncSession, date, unit, section, parameter):
+    """Return all raw entries for given filters."""
+    q = (
+        select(
+            DMPlantEntryDB.time,
+            DMPlantEntryDB.value,
+            DMPlantEntryDB.remarks
+        )
+        .where(DMPlantEntryDB.date == date)
+        .where(DMPlantEntryDB.unit == unit)
+        .where(DMPlantEntryDB.section == section)
+        .where(DMPlantEntryDB.parameter == parameter)
+        .order_by(DMPlantEntryDB.time.asc())
+    )
+
+    rows = (await db.execute(q)).all()
+
+    # Convert to serializable dicts
+    return [
+        {
+            "time": str(r.time),
+            "value": float(r.value) if r.value is not None else None,
+            "remarks": r.remarks or ""
+        }
+        for r in rows
+    ]
