@@ -93,6 +93,34 @@ const initialStationFormState = {
   ro_plant_ol: "",
 };
 
+const AUTO_LABELS = {
+  /* -------- Previous Day Totalizers -------- */
+  prev_totalizer: "Prev MU",
+  prev_totalizer_coal: "Prev Coal",
+  prev_totalizer_aux: "Prev Aux",
+
+  /* -------- Calculated Outputs -------- */
+  generation_mu: "Gen (MU)",
+  coal_consumption_t: "Coal Used (T)",
+  aux_power_consumption_mu: "Aux Used (MU)",
+
+  /* -------- Performance -------- */
+  plf_percent: "PLF (%)",
+  plant_availability_percent: "Availability (%)",
+  planned_outage_percent: "Planned Out (%)",
+  forced_outage_percent: "Forced Out (%)",
+
+  /* -------- Specific Consumptions -------- */
+  sp_coal_consumption_kg_kwh: "SP Coal (kg/kWh)",
+  sp_oil_consumption_ml_kwh: "SP Oil (ml/kWh)",
+  aux_power_percent: "Aux (%)",
+  sp_dm_water_consumption_percent: "SP DM (%)",
+  sp_steam_consumption_kg_kwh: "SP Steam (kg/kWh)",
+
+  /* -------- Station Level -------- */
+  sp_raw_water_used_ltr_kwh: "SP Raw Water (L/kWh)",
+};
+
 /* -------------------------- Utilities ------------------------------ */
 const normalizeAuthHeader = (auth) => {
   if (!auth) return localStorage.getItem("authToken") || "";
@@ -308,6 +336,10 @@ export default function DataEntryPage({ auth }) {
   return () => clearTimeout(timer);
 }, [message]);
 
+useEffect(() => {
+  setMessage("");
+}, [activeTab]);
+
   /* ---------------------- Refresh prev totalizer --------------------- */
   const refreshPrevTotalizer = useCallback(async (unitKey) => {
     try {
@@ -346,96 +378,148 @@ export default function DataEntryPage({ auth }) {
 
   /* ------------------------- Auto calculations ------------------------ */
   useEffect(() => {
-    const updateIfDiff = (unitKey, field, value) => {
-      setUnitForms(prev => {
-        const cur = prev[unitKey] || {};
-        if (String(cur[field] ?? "") === String(value ?? "")) return prev;
-        return { ...prev, [unitKey]: { ...cur, [field]: value } };
-      });
-    };
+  const updateIfDiff = (unitKey, field, value) => {
+    setUnitForms(prev => {
+      const cur = prev[unitKey] || {};
+      if (String(cur[field] ?? "") === String(value ?? "")) return prev;
+      return { ...prev, [unitKey]: { ...cur, [field]: value } };
+    });
+  };
 
-    ["Unit-1", "Unit-2"].forEach(u => {
-      const cur = unitForms[u] || {};
+  ["Unit-1", "Unit-2"].forEach(u => {
+    const cur = unitForms[u] || {};
 
-      // generation from totalizer
+    /* -----------------------------------------------------------
+       1) GENERATION (MU)
+       Only calculate when today totalizer input is NOT empty
+    ------------------------------------------------------------ */
+    if (cur.totalizer_mu !== "" && cur.totalizer_mu !== null) {
       const prevGen = parseFloat(cur.prev_totalizer);
       const todayGen = parseFloat(cur.totalizer_mu);
+
       if (!isNaN(prevGen) && !isNaN(todayGen)) {
         const gen = todayGen - prevGen;
-        const v = gen >= 0 && isFinite(gen) ? Number(gen.toFixed(3)) : "";
-        updateIfDiff(u, "generation_mu", v);
+        updateIfDiff(
+          u,
+          "generation_mu",
+          gen >= 0 && isFinite(gen) ? Number(gen.toFixed(3)) : ""
+        );
       }
+    } else {
+      updateIfDiff(u, "generation_mu", "");
+    }
 
-      // coal from coal totalizer
+    /* -----------------------------------------------------------
+       2) COAL USAGE
+       Only calculate when today coal totalizer is NOT empty
+    ------------------------------------------------------------ */
+    if (cur.totalizer_coal !== "" && cur.totalizer_coal !== null) {
       const prevCoal = parseFloat(cur.prev_totalizer_coal);
       const todayCoal = parseFloat(cur.totalizer_coal);
-      if (!isNaN(prevCoal) && !isNaN(todayCoal)) {
-        const coalDiff = todayCoal - prevCoal;
-        const v = coalDiff >= 0 && isFinite(coalDiff) ? Number(coalDiff.toFixed(3)) : "";
-        updateIfDiff(u, "coal_consumption_t", v);
-      }
 
-      // aux from aux totalizer
+      if (!isNaN(prevCoal) && !isNaN(todayCoal)) {
+        const diff = todayCoal - prevCoal;
+        updateIfDiff(
+          u,
+          "coal_consumption_t",
+          diff >= 0 && isFinite(diff) ? Number(diff.toFixed(3)) : ""
+        );
+      }
+    } else {
+      updateIfDiff(u, "coal_consumption_t", "");
+    }
+
+    /* -----------------------------------------------------------
+       3) AUX USAGE
+       Only calculate when today aux totalizer is NOT empty
+    ------------------------------------------------------------ */
+    if (cur.totalizer_aux !== "" && cur.totalizer_aux !== null) {
       const prevAux = parseFloat(cur.prev_totalizer_aux);
       const todayAux = parseFloat(cur.totalizer_aux);
+
       if (!isNaN(prevAux) && !isNaN(todayAux)) {
-        const auxDiff = todayAux - prevAux;
-        const v = auxDiff >= 0 && isFinite(auxDiff) ? Number(auxDiff.toFixed(3)) : "";
-        updateIfDiff(u, "aux_power_consumption_mu", v);
+        const diff = todayAux - prevAux;
+        updateIfDiff(
+          u,
+          "aux_power_consumption_mu",
+          diff >= 0 && isFinite(diff) ? Number(diff.toFixed(3)) : ""
+        );
       }
+    } else {
+      updateIfDiff(u, "aux_power_consumption_mu", "");
+    }
 
-      // PLF
-      const genVal = parseFloat(cur.generation_mu);
-      if (!isNaN(genVal)) {
-        const plf = (genVal / 3) * 100;
-        updateIfDiff(u, "plf_percent", Number.isFinite(plf) ? Number(plf.toFixed(2)) : "");
-      }
+    /* -----------------------------------------------------------
+       DEPENDENT CALCULATIONS (ONLY when generation exists)
+    ------------------------------------------------------------ */
+    const genVal = parseFloat(cur.generation_mu);
 
-      // availability
-      const rh = parseFloat(cur.running_hour);
-      if (!isNaN(rh)) {
-        const av = (rh / 24) * 100;
-        updateIfDiff(u, "plant_availability_percent", Number.isFinite(av) ? Number(av.toFixed(2)) : "");
-      }
+    /* PLF */
+    if (!isNaN(genVal) && genVal > 0) {
+      updateIfDiff(u, "plf_percent", Number(((genVal / 3) * 100).toFixed(2)));
+    } else {
+      updateIfDiff(u, "plf_percent", "");
+    }
 
-      // planned outage %
-      const ph = parseFloat(cur.planned_outage_hour);
-      if (!isNaN(ph)) {
-        updateIfDiff(u, "planned_outage_percent", Number.isFinite(((ph/24)*100)) ? Number(((ph/24)*100).toFixed(2)) : "");
-      }
+    /* Availability */
+    const rh = parseFloat(cur.running_hour);
+    if (!isNaN(rh)) {
+      updateIfDiff(u, "plant_availability_percent", Number(((rh / 24) * 100).toFixed(2)));
+    } else {
+      updateIfDiff(u, "plant_availability_percent", "");
+    }
 
-      // forced outage %
-      const fh = parseFloat(cur.forced_outage_hour);
-      if (!isNaN(fh)) {
-        updateIfDiff(u, "forced_outage_percent", Number.isFinite(((fh/24)*100)) ? Number(((fh/24)*100).toFixed(2)) : "");
-      }
+    /* Planned outage % */
+    const ph = parseFloat(cur.planned_outage_hour);
+    if (!isNaN(ph)) {
+      updateIfDiff(u, "planned_outage_percent", Number(((ph / 24) * 100).toFixed(2)));
+    } else {
+      updateIfDiff(u, "planned_outage_percent", "");
+    }
 
-      // sp coal (coal_consumption_t / generation)
-      const coalT = parseFloat(cur.coal_consumption_t);
-      if (!isNaN(coalT) && !isNaN(genVal) && genVal > 0) {
-        updateIfDiff(u, "sp_coal_consumption_kg_kwh", Number((coalT / genVal).toFixed(3)));
-      }
+    /* Forced outage % */
+    const fh = parseFloat(cur.forced_outage_hour);
+    if (!isNaN(fh)) {
+      updateIfDiff(u, "forced_outage_percent", Number(((fh / 24) * 100).toFixed(2)));
+    } else {
+      updateIfDiff(u, "forced_outage_percent", "");
+    }
 
-      // sp oil
-      const oil = parseFloat(cur.ldo_hsd_consumption_kl);
-      if (!isNaN(oil) && !isNaN(genVal) && genVal > 0) {
-        updateIfDiff(u, "sp_oil_consumption_ml_kwh", Number((oil / genVal).toFixed(2)));
-      }
+    /* -----------------------------------------------------------
+       SPECIFIC COAL (coal_consumption_t / generation)
+    ------------------------------------------------------------ */
+    const coalT = parseFloat(cur.coal_consumption_t);
+    if (!isNaN(coalT) && !isNaN(genVal) && genVal > 0) {
+      updateIfDiff(u, "sp_coal_consumption_kg_kwh", Number((coalT / genVal).toFixed(3)));
+    } else {
+      updateIfDiff(u, "sp_coal_consumption_kg_kwh", "");
+    }
 
-      // aux percent
-      const auxMU = parseFloat(cur.aux_power_consumption_mu);
-      if (!isNaN(auxMU) && !isNaN(genVal) && genVal > 0) {
-        updateIfDiff(u, "aux_power_percent", Number(((auxMU / genVal) * 100).toFixed(2)));
-      }
+    /* SPECIFIC OIL */
+    const oil = parseFloat(cur.ldo_hsd_consumption_kl);
+    if (!isNaN(oil) && !isNaN(genVal) && genVal > 0) {
+      updateIfDiff(u, "sp_oil_consumption_ml_kwh", Number((oil / genVal).toFixed(2)));
+    } else {
+      updateIfDiff(u, "sp_oil_consumption_ml_kwh", "");
+    }
 
-      // sp steam
-      const steam = parseFloat(cur.steam_gen_t);
-      if (!isNaN(steam) && !isNaN(genVal) && genVal > 0) {
-        updateIfDiff(u, "sp_steam_consumption_kg_kwh", Number((steam / genVal).toFixed(2)));
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [unitForms["Unit-1"], unitForms["Unit-2"]]);
+    /* AUX PERCENT */
+    const auxMU = parseFloat(cur.aux_power_consumption_mu);
+    if (!isNaN(auxMU) && !isNaN(genVal) && genVal > 0) {
+      updateIfDiff(u, "aux_power_percent", Number(((auxMU / genVal) * 100).toFixed(2)));
+    } else {
+      updateIfDiff(u, "aux_power_percent", "");
+    }
+
+    /* SPECIFIC STEAM */
+    const steam = parseFloat(cur.steam_gen_t);
+    if (!isNaN(steam) && !isNaN(genVal) && genVal > 0) {
+      updateIfDiff(u, "sp_steam_consumption_kg_kwh", Number((steam / genVal).toFixed(2)));
+    } else {
+      updateIfDiff(u, "sp_steam_consumption_kg_kwh", "");
+    }
+  });
+}, [unitForms["Unit-1"], unitForms["Unit-2"]]);
 
   /* ---------------------- Permission helpers ------------------------- */
   const canView = (field) => {
@@ -451,85 +535,137 @@ export default function DataEntryPage({ auth }) {
 
   /* -------------------------- Input renderers ------------------------ */
   const renderInput = (unitKey, name, label, type = "number") => {
-    if (!canView(name)) return null;
+  if (!canView(name)) return null;
 
-    const value = unitForms[unitKey]?.[name] ?? "";
-    const editable = canEdit(name);
+  const value = unitForms[unitKey]?.[name] ?? "";
+  const editable = canEdit(name);
 
-    const originalHasValue =
-      originalUnitForms[unitKey]?.[name] !== "" &&
-      originalUnitForms[unitKey]?.[name] !== null &&
-      originalUnitForms[unitKey]?.[name] !== undefined;
+  const originalHasValue =
+    originalUnitForms[unitKey]?.[name] !== "" &&
+    originalUnitForms[unitKey]?.[name] !== null &&
+    originalUnitForms[unitKey]?.[name] !== undefined;
 
-    // Do not render auto-only fields as inputs
-    if (AUTO_CALCULATED_FIELDS.includes(name)) return null;
+  // Avoid rendering derived fields
+  if (AUTO_CALCULATED_FIELDS.includes(name)) return null;
 
-    const readOnly = !editable || (!isAdmin && originalHasValue);
+  const readOnly = !editable || (!isAdmin && originalHasValue);
 
-    const base = "w-full p-2 rounded text-sm border";
-    const finalClass = readOnly
-      ? `${base} bg-orange-50 text-orange-800 border-orange-200 cursor-not-allowed`
-      : `${base} bg-white border-gray-300 focus:border-orange-500`;
+  return (
+    <div
+      key={name}
+      className="
+        bg-zinc-100 backdrop-blur-sm 
+        p-2 rounded-xl border border-gray-200 
+        shadow-sm hover:shadow-md
+        transition-all duration-200
+      "
+    >
+      {/* LABEL */}
+      <label
+        className="
+          block text-xs font-semibold text-gray-700 
+          tracking-wide mb-2
+        "
+      >
+        {label}
+      </label>
 
-    // autos to show under this input
-    const autos = PARENT_TO_AUTOS[name] || [];
+      {/* INPUT */}
+      <input
+        name={name}
+        type={type}
+        value={value ?? ""}
+        readOnly={readOnly}
+        onChange={(e) =>
+          !readOnly &&
+          setUnitForms((s) => ({
+            ...s,
+            [unitKey]: { ...s[unitKey], [name]: e.target.value },
+          }))
+        }
+        className={`
+          w-full p-1 rounded-lg text-gray-800 font-medium
+          border transition-all duration-200
+          ${
+            readOnly
+              ? "bg-gray-100 border-gray-300 cursor-not-allowed text-gray-600"
+              : "bg-white border-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+          }
+        `}
+      />
 
-    return (
-      <div key={name} className="flex flex-col bg-white p-3 rounded-lg border border-orange-100 shadow-sm">
-        <label className="block text-xs text-orange-800 font-bold mb-1">{label}</label>
-        <input
-          name={name}
-          type={type}
-          value={value ?? ""}
-          readOnly={readOnly}
-          onChange={(e) => !readOnly && setUnitForms(s => ({ ...s, [unitKey]: { ...s[unitKey], [name]: e.target.value } }))}
-          className={finalClass}
-        />
+      {/* AUTO CALCULATED INFO */}
+      {PARENT_TO_AUTOS[name]?.map((autoField) => {
+        const pretty = AUTO_LABELS[autoField] || autoField.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+        const val = unitForms[unitKey]?.[autoField] ?? "";
 
-        {/* tiny helper lines for prev & derived auto fields */}
-        {autos.map(autoField => {
-          // prettify label
-          const pretty = autoField.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-          const val = unitForms[unitKey]?.[autoField] ?? "";
-          return <AutoLine key={autoField} label={pretty} value={val} />;
-        })}
-      </div>
-    );
-  };
+        return (
+          <div
+            key={autoField}
+            className="
+              text-[11px] text-gray-600 mt-2 pl-1 
+              border-l-4 border-orange-400/40 
+              ml-1
+            "
+          >
+            <span className="font-semibold text-gray-700">{pretty}:</span>{" "}
+            <span className="font-semibold text-gray-900">{val || "—"}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
   const renderStationInput = (name, label) => {
-    if (!canView(name)) return null;
+  if (!canView(name)) return null;
 
-    const value = stationForm[name] ?? "";
-    const editable = canEdit(name);
+  const value = stationForm[name] ?? "";
+  const editable = canEdit(name);
 
-    const originalHasValue =
-      originalStationForm[name] !== "" &&
-      originalStationForm[name] !== null &&
-      originalStationForm[name] !== undefined;
+  const originalHasValue =
+    originalStationForm[name] !== "" &&
+    originalStationForm[name] !== null &&
+    originalStationForm[name] !== undefined;
 
-    const readOnly = !editable || (!isAdmin && originalHasValue);
+  const readOnly = !editable || (!isAdmin && originalHasValue);
 
-    const base = "w-full p-2 rounded text-sm border";
-    const finalClass = readOnly
-      ? `${base} bg-orange-50 text-orange-800 border-orange-200 cursor-not-allowed`
-      : `${base} bg-white border-gray-300 focus:border-orange-500`;
+  return (
+    <div
+      key={name}
+      className="
+        bg-zinc-100 backdrop-blur-sm 
+        p-2 rounded-xl border border-gray-200 
+        shadow-sm hover:shadow-md
+        transition-all duration-200
+      "
+    >
+      <label className="block text-xs text-gray-700 font-semibold mb-2 tracking-wide">
+        {label}
+      </label>
 
-    return (
-      <div key={name}>
-        <label className="block text-xs text-gray-500 mb-1">{label}</label>
-        <input
-          name={name}
-          type="number"
-          value={value ?? ""}
-          readOnly={readOnly}
-          onChange={(e) => !readOnly && setStationForm(s => ({ ...s, [name]: e.target.value }))}
-          className={finalClass}
-        />
-      </div>
-    );
-  };
-
+      <input
+        name={name}
+        type="number"
+        value={value ?? ""}
+        readOnly={readOnly}
+        onChange={(e) =>
+          !readOnly &&
+          setStationForm((s) => ({ ...s, [name]: e.target.value }))
+        }
+        className={`
+          w-full p-1 rounded-lg text-gray-800 font-medium
+          border transition-all 
+          ${
+            readOnly
+              ? "bg-gray-100 border-gray-300 cursor-not-allowed text-gray-600"
+              : "bg-white border-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+          }
+        `}
+      />
+    </div>
+  );
+};
   /* -------------------------- Submit Helpers ------------------------- */
   const getChangedManualFieldsForUnit = (unitKey) => {
     const skip = ["prev_totalizer", "prev_totalizer_coal", "prev_totalizer_aux", "unit"];
@@ -726,189 +862,169 @@ export default function DataEntryPage({ auth }) {
 
   /* ------------------------------ UI -------------------------------- */
   return (
-    <div className="flex gap-6 p-6 max-w-7xl mx-auto"> 
+  <div className="flex gap-6  max-w-7xl mx-auto">
 
-  {/* Sidebar */}
-  <aside
-    className="
-      w-60 bg-white 
-      rounded-xl border border-gray-200 
-      shadow-[0_4px_10px_rgba(0,0,0,0.08)]
-      p-5 flex flex-col gap-6
-    "
-  >
-    {/* Date */}
-    <div className="flex flex-col gap-1">
-      <label className="text-xs text-gray-500 font-medium">Select Date</label>
-      <input
-        type="date"
-        className="
-          w-full p-2 rounded-md border border-gray-300 
-          bg-gray-50 text-gray-700 
-          focus:outline-none focus:ring-2 focus:ring-orange-400 shadow-sm
-        "
-        value={reportDate}
-        onChange={(e) => setReportDate(e.target.value)}
-      />
-    </div>
-
-    {/* Tabs */}
-    <div>
-      <div className="text-xs text-gray-500 mb-2 font-medium">Tabs</div>
-      <div className="flex flex-col gap-2">
-        {["Unit-1", "Unit-2", "Station"].map((t) => (
-          <button
-            key={t}
-            onClick={() => setActiveTab(t)}
-            className={`
-              p-3 rounded-lg text-left font-medium transition-all 
-              border shadow-sm
-              ${
-                activeTab === t
-                  ? "bg-orange-500 border-orange-600 text-white shadow-md"
-                  : "bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200"
-              }
-            `}
-          >
-            {t}
-            {activeTab === t && loadingRow && (
-              <span className="ml-2 text-xs opacity-70">
-                <Spinner size={12} />
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
-    </div>
-  </aside>
-
-  {/* MAIN GLASS PANEL */}
-  <main className="flex-1">
-    <div
+    {/* SIDEBAR */}
+    <aside
       className="
-        relative rounded-xl border border-white/40 
-        bg-white/30 backdrop-blur-lg
-        shadow-[0_8px_30px_rgba(0,0,0,0.15)]
-        p-6 overflow-hidden
+        w-48 bg-white 
+        rounded-xl border border-gray-200 
+        shadow-[0_4px_10px_rgba(0,0,0,0.08)]
+        p-2 flex flex-col gap-6
+        min-h-[560px]
       "
-      style={{
-        WebkitBackdropFilter: "blur(14px)",
-        backdropFilter: "blur(14px)",
-      }}
     >
+      {/* Date */}
+      <div className="flex flex-col gap-1">
+        <label className="text-xs text-gray-500 font-medium">Select Date</label>
+        <input
+          type="date"
+          className="
+            w-full p-2 rounded-md border border-gray-300 
+            bg-gray-50 text-gray-700 
+            focus:outline-none focus:ring-2 focus:ring-orange-400 shadow-sm
+          "
+          value={reportDate}
+          onChange={(e) => setReportDate(e.target.value)}
+        />
+      </div>
 
-      {/* Glass top highlight */}
-      <div className="
-        absolute inset-0 rounded-xl pointer-events-none
-        bg-gradient-to-br from-white/50 via-transparent to-white/10
-      "></div>
+      {/* Tabs */}
+      <div>
+        <div className="text-xs text-gray-500 mb-2 font-medium">Tabs</div>
 
-      {/* Floating Glass 3D Gradient Shadow */}
-      <div
-        className="
-          absolute left-6 right-6 bottom-0 translate-y-[18px]
-          h-8 rounded-b-xl pointer-events-none
-          bg-gradient-to-b from-white/50 via-orange-100/30 to-gray-400/40
-          backdrop-blur-[4px]
-          shadow-[0_10px_32px_rgba(0,0,0,0.22)]
-          blur-[8px]
-        "
-      ></div>
-
-      {/* HEADER */}
-      <div
-        className="
-          w-full flex items-center justify-between
-          text-md font-semibold text-orange-700
-          px-1 py-3 mb-4 
-          border-b border-orange-300/70
-        "
-      >
-        {/* Left Title */}
-        <h3 className="flex-shrink-0">{activeTab} Report</h3>
-
-        {/* Middle Message */}
-        <div className="flex-grow flex justify-center">
-          {message && (
-            <div
+        <div className="flex flex-col gap-2">
+          {["Unit-1", "Unit-2", "Station"].map((t) => (
+            <button
+              key={t}
+              onClick={() => setActiveTab(t)}
               className={`
-                text-sm font-semibold px-3 py-1 rounded-md border shadow-sm 
-                animate-[fadeInSlide_.25s_ease-out,pulseOnce_.8s_ease-out]
-                backdrop-blur-md bg-white/60
+                p-2 rounded-lg text-left font-medium transition-all 
+                border shadow-sm relative overflow-hidden group
                 ${
-                  message.startsWith("❌")
-                    ? "border-red-300 text-red-800"
-                    : "border-green-300 text-green-800"
+                  activeTab === t
+                    ? "bg-gradient-to-r from-orange-500 to-amber-400 border-orange-600 text-white shadow-md"
+                    : "bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200"
                 }
               `}
             >
-              <span className="mr-1">
-                {message.startsWith("❌") ? "✖" : "✔"}
-              </span>
-              {message.replace("❌", "").replace("✅", "")}
-            </div>
-          )}
+              {/* left highlight */}
+              <span
+                className={`
+                  absolute left-0 top-0 h-full w-1 
+                  transition-all duration-300
+                  ${
+                    activeTab === t
+                      ? "bg-orange-500"
+                      : "bg-transparent group-hover:bg-orange-300"
+                  }
+                `}
+              ></span>
+
+              {t}
+
+              {activeTab === t && loadingRow && (
+                <span className="ml-2 text-xs opacity-70">
+                  <Spinner size={12} />
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+    </aside>
+
+    {/* MAIN CONTENT PANEL */}
+    <main className="flex-1">
+
+      {/* OUTER PANEL: Clean white card instead of layered glass */}
+      <div
+        className="
+          relative rounded-xl border border-gray-200 
+          bg-white shadow-[0_6px_18px_rgba(0,0,0,0.08)]
+          p-1 overflow-hidden
+          min-h-[560px]
+        "
+      >
+
+        {/* HEADER */}
+        <div className="w-full flex items-center justify-between py-1 mb-3">
+
+          <h3 className="text-xl px-5 py-2 font-semibold tracking-wide text-gray-500">
+            {activeTab} Report
+          </h3>
+
+          <div className="flex-grow flex justify-center">
+            {message && (
+              <div
+                className={`
+                  text-xl font-medium px-3 py-1 rounded-md 
+                  shadow-sm border
+                  ${
+                    message.startsWith("❌")
+                      ? "bg-red-50 text-red-700 border-red-300"
+                      : "bg-green-50 text-green-700 border-green-300"
+                  }
+                `}
+              >
+                {message}
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={() =>
+              activeTab === "Station"
+                ? handleStationSubmit()
+                : handleUnitSubmit(activeTab)
+            }
+            disabled={
+              submitting[activeTab] ||
+              (activeTab === "Station" && submitting.station) ||
+              loadingRow
+            }
+            className={`
+              px-3 py-1.5 rounded-md font-medium ml-3 text-white text-sm
+              shadow-sm transition-all active:scale-95
+              ${
+                loadingRow
+                  ? "bg-gray-300 text-gray-600 cursor-not-allowed"
+                  : "bg-gradient-to-r from-orange-500 to-amber-400 hover:from-orange-600 hover:to-amber-500"
+              }
+            `}
+          >
+            {loadingRow
+              ? "Loading..."
+              : activeTab === "Station"
+              ? submitting.station
+                ? "Processing..."
+                : "Submit"
+              : submitting[activeTab]
+              ? "Processing..."
+              : isEditingForUnit[activeTab]
+              ? "Update"
+              : "Submit"}
+          </button>
         </div>
 
-        {/* Right Button */}
-        <button
-          onClick={() => {
-            if (activeTab === "Station") handleStationSubmit();
-            else handleUnitSubmit(activeTab);
-          }}
-          disabled={
-            submitting[activeTab] ||
-            (activeTab === "Station" && submitting.station) ||
-            loadingRow
-          }
-          className={`
-            px-4 py-2 rounded-lg text-white font-medium shadow-sm ml-2
-            transition active:scale-95 backdrop-blur-md
-            ${
-              loadingRow
-                ? "bg-gray-400"
-                : activeTab === "Station"
-                ? submitting.station
-                  ? "bg-gray-400"
-                  : "bg-orange-500 hover:bg-orange-600"
-                : submitting[activeTab]
-                ? "bg-gray-400"
-                : isEditingForUnit[activeTab]
-                ? "bg-yellow-500 hover:bg-yellow-600"
-                : "bg-orange-500 hover:bg-orange-600"
-            }
-          `}
-        >
-          {loadingRow
-            ? "Loading..."
-            : activeTab === "Station"
-            ? submitting.station
-              ? "Processing..."
-              : "Save Station Data"
-            : submitting[activeTab]
-            ? "Processing..."
-            : isEditingForUnit[activeTab]
-            ? "Update Unit Data"
-            : "Submit Unit Report"}
-        </button>
-      </div>
+        {/* Thin underline */}
+        <div className="w-full h-px bg-gradient-to-r from-orange-500 via-orange-400 to-gray-300 mb-2"></div>
 
-            
-          
+        {/* FORM PANEL — animation fixes */}
+        <div key={activeTab} className="slide-in-left min-h-[520px]">
 
-          {/* UNIT FORM */}
-          {(activeTab === "Unit-1" || activeTab === "Unit-2") && (
+          {/* ---------- UNIT FORM ---------- */}
+          {["Unit-1", "Unit-2"].includes(activeTab) && (
             <form
               onSubmit={(e) => {
                 e.preventDefault();
                 handleUnitSubmit(activeTab);
               }}
             >
-              {/* Prev Totalizer shown below totalizer input - handled by renderInput */}
               <div className="grid grid-cols-4 gap-4 mb-4">
                 {renderInput(activeTab, "totalizer_mu", "Totalizer (MU)")}
                 {renderInput(activeTab, "totalizer_coal", "Coal Totalizer")}
-                {renderInput(activeTab, "totalizer_aux", "Aux Power Totalizer")}
+                {renderInput(activeTab, "totalizer_aux", "Aux Totalizer")}
                 {renderInput(activeTab, "running_hour", "Running Hour")}
               </div>
 
@@ -923,14 +1039,12 @@ export default function DataEntryPage({ auth }) {
                 {renderInput(activeTab, "ldo_hsd_consumption_kl", "LDO/HSD (KL)")}
                 {renderInput(activeTab, "steam_gen_t", "Steam Gen (T)")}
                 {renderInput(activeTab, "dm_water_consumption_cu_m", "DM Water (Cu.m)")}
-                {renderInput(activeTab, "stack_emission_spm_mg_nm3", "Stack Emission (mg/Nm3)")}
+                {renderInput(activeTab, "stack_emission_spm_mg_nm3", "SPM (mg/Nm3)")}
               </div>
-
-              
             </form>
           )}
 
-          {/* STATION FORM */}
+          {/* ---------- STATION FORM ---------- */}
           {activeTab === "Station" && (
             <form
               onSubmit={(e) => {
@@ -941,7 +1055,7 @@ export default function DataEntryPage({ auth }) {
               <div className="grid grid-cols-3 gap-4">
                 {renderStationInput("avg_raw_water_used_cu_m_hr", "Avg Raw Water (Cu.m/hr)")}
                 {renderStationInput("total_raw_water_used_cu_m", "Total Raw Water (Cu.m)")}
-                {renderStationInput("sp_raw_water_used_ltr_kwh", "Sp Raw Water (Ltr/kWh)")}
+                {renderStationInput("sp_raw_water_used_ltr_kwh", "SP Raw Water (L/kWh)")}
               </div>
 
               <div className="grid grid-cols-3 gap-4 mt-4">
@@ -949,42 +1063,53 @@ export default function DataEntryPage({ auth }) {
                 {renderStationInput("ro_plant_il", "RO I/L")}
                 {renderStationInput("ro_plant_ol", "RO O/L")}
               </div>
-
-              
             </form>
           )}
 
-          {/* CONFIRMATION POPUP */}
-          {showConfirmPopup && (
-            <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center p-4 z-50">
-              <div className="bg-white p-5 rounded-xl shadow-lg w-full max-w-xl max-h-[80vh] overflow-auto">
-                <h3 className="text-lg font-semibold text-center text-orange-700 mb-3">
-                  Confirm manual changes
-                </h3>
+        </div>
 
-                {confirmList.length === 0 ? (
-                  <div className="text-sm text-gray-700">No manual changes detected.</div>
-                ) : (
-                  <ul className="list-disc ml-5 text-sm">
-                    {confirmList.map((f) => (
-                      <li key={f.key} className="py-1">
-                        <span className="font-medium">{f.label}:</span>{" "}
-                        <span className="font-mono">{f.value}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+        {/* POPUP */}
+        {showConfirmPopup && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+            <div className="bg-white p-5 rounded-xl shadow-lg w-full max-w-xl max-h-[80vh] overflow-auto">
+              <h3 className="text-lg font-semibold text-center text-orange-700 mb-3">
+                Confirm manual changes
+              </h3>
 
-                <div className="flex justify-end gap-3 mt-5">
-                  <button onClick={() => setShowConfirmPopup(false)} className="px-3 py-1 rounded bg-gray-400 text-white">Cancel</button>
-                  <button onClick={() => handleConfirmUnitSubmit(activeTab)} className="px-3 py-1 rounded bg-orange-600 text-white">Confirm & Submit</button>
-                </div>
+              {confirmList.length === 0 ? (
+                <div className="text-sm text-gray-700">No manual changes detected.</div>
+              ) : (
+                <ul className="list-disc ml-5 text-sm">
+                  {confirmList.map((f) => (
+                    <li key={f.key} className="py-1">
+                      <span className="font-medium">{f.label}:</span>{" "}
+                      <span className="font-mono">{f.value}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <div className="flex justify-end gap-3 mt-5">
+                <button
+                  onClick={() => setShowConfirmPopup(false)}
+                  className="px-3 py-1 rounded bg-gray-400 text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => handleConfirmUnitSubmit(activeTab)}
+                  className="px-3 py-1 rounded bg-orange-600 text-white"
+                >
+                  Confirm & Submit
+                </button>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-        </div>
-      </main>
-    </div>
-  );
+      </div>
+    </main>
+  </div>
+);
+
 }

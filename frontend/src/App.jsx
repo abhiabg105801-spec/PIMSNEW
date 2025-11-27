@@ -17,6 +17,8 @@ import KpiRangeViewer from "./pages/KpiRangeViewer";
 import AdminPanel from "./pages/AdminPanel";
 import UserMenu from "./components/UserMenu";
 import DMPlantReportPage from "./pages/DMPlantReportPage";
+import Reports from "./pages/Reports";
+import FloatingMessageBox from "./components/FloatingMessageBox";
 
 // ⭐ NEW IMPORT — Add DM Plant Page
 import DMPlantPage from "./pages/DMPlantPage";
@@ -65,93 +67,154 @@ function Layout({ authHeader, onLogout }) {
 
   const [isOpen, setIsOpen] = useState(false);
   const location = useLocation();
+
   const highlightReports =
-    location.pathname === "/report" || location.pathname === "/kpi-data";
-
-  const navLinkStyle = (isActive) =>
-    `px-4 h-full flex items-center text-sm font-medium transition-all duration-200
-     ${isActive ? "text-orange-600 border-b-2 border-orange-600" : "text-gray-700 hover:text-orange-500 hover:scale-[1.03]"}`;
-
-  const dropdownItem = (isActive) =>
-    `block px-4 py-2 text-sm rounded transition-all duration-200
-     ${isActive ? "bg-orange-50 text-orange-600 font-semibold" : "text-gray-700 hover:bg-orange-50 hover:text-orange-600"}`;
+    location.pathname === "/report" ||
+    location.pathname === "/kpi-data";
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col bg-white">
 
-      {/* HEADER */}
-      <div className="fixed top-0 left-0 right-0 z-30 bg-white/80 backdrop-blur-md shadow-md border-b border-gray-300">
-        <header className="relative flex items-center px-10 h-16 bg-gray-800 text-white shadow-lg">
+      {/* ------------------ HEADER ------------------ */}
+      {/* ─────────────────────────────────────────────────────────── */}
+{/*        JSL – CORPORATE HEADER (FULLY BRANDED VERSION)       */}
+{/* ─────────────────────────────────────────────────────────── */}
+<div className="fixed top-0 left-0 right-0 z-40 bg-white shadow-[0_2px_10px_rgba(0,0,0,0.12)]">
 
-          <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-3">
-            <img src="/jsl-logo.png" className="h-10 w-auto" alt="logo" />
-            <div className="flex flex-col leading-tight text-center">
-              <span className="text-xl font-extrabold tracking-wide text-white">
-                <span className="text-orange-500">2×125 MW CPP – </span>PIMS
-              </span>
-              <div className="h-0.5 w-full bg-orange-500 mt-1"></div>
-            </div>
-          </div>
+  {/* TOP STEEL BAR */}
+ 
 
-          <div className="ml-auto">
-            <UserMenu username={username} onLogout={onLogout} />
-          </div>
-        </header>
+  {/* MAIN HEADER PANEL */}
+  <header className="relative flex items-center px-10 h-16 bg-white">
 
-        {/* NAVIGATION */}
-        <nav className="h-12 bg-gray-100 border-t border-gray-300 shadow-inner">
-          <div className="max-w-7xl mx-auto flex items-center h-full gap-8 px-8">
+    {/* LEFT — JSL LOGO */}
+    <div className="flex items-center">
+      <img src="/jsl-logo.png" className="h-14 w-auto" alt="JSL Logo" />
+    </div>
 
-            <NavLink to="/entry" className={({ isActive }) => navLinkStyle(isActive)}>
-              Data Entry
-            </NavLink>
+    {/* CENTER — TITLE */}
+    <div className="absolute left-1/2 -translate-x-1/2 flex flex-col items-center">
+      <span className="text-[32px] font-bold tracking-wide text-[#8D8D8D]">
+        <span className="text-[#E06A1B] font-extrabold">2×125 MW CPP –</span> PIMS
+      </span>
+    </div>
 
-            {/* NEW DM PLANT NAVLINK – role 5 or 8 */}
-            {(roleId === 5 || roleId === 8) && (
-              <NavLink to="/dm-plant" className={({ isActive }) => navLinkStyle(isActive)}>
-                DM Plant
+    {/* RIGHT — USER MENU */}
+    <div className="ml-auto">
+      <UserMenu username={username} onLogout={onLogout} />
+    </div>
+
+  </header>
+
+  {/* BOTTOM CORPORATE ORANGE BAR[#E06A1B] */}
+  <div className="h-[4px] w-full bg-[#8D8D8D]"></div>
+
+  {/* SLIM SHADOW SEPARATOR FOR DEPTH */}
+
+
+
+
+
+        {/* ------------------ NAVIGATION ------------------ */}
+        <nav className="h-9 bg-[#F5F5F5] border-t border-[#D0D0D0]">
+          <div className="max-w-7xl mx-auto flex items-center h-full gap-10 px-10">
+
+            {/* ----- Generic NavLink Style ----- */}
+            {[
+              { to: "/entry", label: "Data Entry" },
+              ...(roleId === 5 || roleId === 8 || roleId === 3|| roleId === 7|| roleId === 1|| roleId === 2
+                ? [{ to: "/dm-plant", label: "DM Plant" }]
+                : []),
+            ].map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  `
+                    relative px-3 h-full flex items-center 
+                    text-sm font-semibold uppercase tracking-wider
+
+                    ${isActive
+                      ? "text-[#E06A1B] after:w-full"
+                      : "text-[#555] hover:text-[#E06A1B] hover:after:w-full"}
+
+                    after:absolute after:bottom-0 after:left-0 after:h-[3px]
+                    after:bg-[#E06A1B] after:transition-all after:duration-300 after:w-0
+                  `
+                }
+              >
+                {item.label}
               </NavLink>
-            )}
+            ))}
 
-            {/* Reports */}
-            <div
-              className="relative h-full"
-              onMouseEnter={() => setIsOpen(true)}
-              onMouseLeave={() => setIsOpen(false)}
+            {/* ------------------ Reports Dropdown ------------------ */}
+             <NavLink
+      to="/reports"
+      className={({ isActive }) =>
+        `
+          relative px-3 h-full flex items-center 
+          text-sm font-semibold uppercase tracking-wider
+
+          ${isActive
+            ? "text-[#E06A1B] after:w-full"
+            : "text-[#555] hover:text-[#E06A1B] hover:after:w-full"}
+
+          after:absolute after:bottom-0 after:left-0 after:h-[3px]
+          after:bg-[#E06A1B] after:transition-all after:duration-300 after:w-0
+        `
+      }
+    >
+      Reports
+    </NavLink>
+            {/* ------------------ Shutdown ------------------ */}
+            <NavLink
+              to="/shutdowns"
+              className={({ isActive }) =>
+                `
+                  relative px-3 h-full flex items-center text-sm font-semibold uppercase tracking-wider
+                  ${isActive
+                    ? "text-[#E06A1B] after:w-full"
+                    : "text-[#555] hover:text-[#E06A1B] hover:after:w-full"}
+                  after:absolute after:bottom-0 after:left-0 after:h-[3px]
+                  after:bg-[#E06A1B] after:transition-all after:duration-300 after:w-0
+                `
+              }
             >
-              <div className={`${navLinkStyle(highlightReports)} cursor-pointer flex items-center gap-1`}>
-                Reports ▾
-              </div>
-
-              {isOpen && (
-                <div className="absolute top-full mt-0 left-0 bg-white shadow-xl border border-gray-200 rounded-b w-48 z-50 animate-dropdown">
-                  <NavLink
-                    to="/report"
-                    className={({ isActive }) => dropdownItem(isActive)}
-                  >
-                    Daily Report
-                  </NavLink>
-
-                  <NavLink
-                    to="/kpi-data"
-                    className={({ isActive }) => dropdownItem(isActive)}
-                  >
-                    KPI Data Viewer
-                  </NavLink>
-                </div>
-              )}
-            </div>
-
-            <NavLink to="/shutdowns" className={({ isActive }) => navLinkStyle(isActive)}>
               Shutdown Log
             </NavLink>
 
-            <NavLink to="/charts" className={({ isActive }) => navLinkStyle(isActive)}>
+            {/* ------------------ KPI Charts ------------------ */}
+            <NavLink
+              to="/charts"
+              className={({ isActive }) =>
+                `
+                  relative px-3 h-full flex items-center text-sm font-semibold uppercase tracking-wider
+                  ${isActive
+                    ? "text-[#E06A1B] after:w-full"
+                    : "text-[#555] hover:text-[#E06A1B] hover:after:w-full"}
+                  after:absolute after:bottom-0 after:left-0 after:h-[3px]
+                  after:bg-[#E06A1B] after:transition-all after:duration-300 after:w-0
+                `
+              }
+            >
               KPI Charts
             </NavLink>
 
+            {/* ------------------ Admin Panel ------------------ */}
             {username === "admin" && (
-              <NavLink to="/admin" className={({ isActive }) => navLinkStyle(isActive)}>
+              <NavLink
+                to="/admin"
+                className={({ isActive }) =>
+                  `
+                    relative px-3 h-full flex items-center text-sm font-semibold uppercase tracking-wider
+                    ${isActive
+                      ? "text-[#E06A1B] after:w-full"
+                      : "text-[#555] hover:text-[#E06A1B] hover:after:w-full"}
+                    after:absolute after:bottom-0 after:left-0 after:h-[3px]
+                    after:bg-[#E06A1B] after:transition-all after:duration-300 after:w-0
+                  `
+                }
+              >
                 Admin Panel
               </NavLink>
             )}
@@ -159,32 +222,36 @@ function Layout({ authHeader, onLogout }) {
         </nav>
       </div>
 
-      {/* PAGE CONTENT */}
-      <main className="flex-1 bg-gray-100 pt-32 px-6 pb-6">
+      {/* ------------------ PAGE CONTENT ------------------ */}
+      <main className="flex-1 bg-white pt-32 px-6 pb-6">
         <Routes>
           <Route path="/" element={<Navigate to="/entry" />} />
           <Route path="/entry" element={<DataEntryPage auth={authHeader} />} />
-          <Route path="/report" element={<ReportViewer auth={authHeader} />} />
+          <Route path="/reports" element={<Reports auth={authHeader} /> }  />
           <Route path="/shutdowns" element={<PlantShutdownPage auth={authHeader} />} />
           <Route path="/charts" element={<KpiChartsPage auth={authHeader} />} />
           <Route path="/kpi-data" element={<KpiRangeViewer auth={authHeader} />} />
           <Route path="/admin" element={<AdminPanel auth={authHeader} />} />
 
-          {/* ⭐ NEW – DM PLANT PAGE */}
+          {/* DM PLANT */}
           <Route path="/dm-plant" element={<DMPlantPage auth={authHeader} />} />
           <Route path="/dm-plant-report" element={<DMPlantReportPage />} />
         </Routes>
       </main>
+      <FloatingMessageBox auth={authHeader} />
+      <footer className="bg-[#F5F5F5] border-t border-gray-300 mt-6">
+  <div className="max-w-7xl mx-auto px-6 py-4 text-sm text-gray-600 flex flex-col md:flex-row items-center justify-between gap-2">
+    <span>© {new Date().getFullYear()} Jindal Stainless Ltd. All Rights Reserved.</span>
+    <span className="text-gray-500">
+      Contact: <a href="mailto:cppsupport@jsl.com" className="text-[#E06A1B] font-semibold hover:underline">
+        email
+      </a>
+    </span>
+  </div>
+  <div className="h-[4px] w-full bg-[#E06A1B]"></div>
+</footer>
 
-      <style>{`
-        @keyframes dropdown {
-          from { opacity: 0; transform: translateY(-6px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        .animate-dropdown {
-          animation: dropdown 0.18s ease-out;
-        }
-      `}</style>
+      
     </div>
   );
 }

@@ -185,7 +185,7 @@ export default function DMPlantPage({ auth }) {
   const units = [...new Set(SECTION_DEFINITIONS.map((s) => s.unit))];
   const initialCollapsed = {};
   units.forEach((u) => {
-    initialCollapsed[u] = true;
+    initialCollapsed[u] = false;
   });
   const [unitExpanded, setUnitExpanded] = useState(initialCollapsed);
 
@@ -500,73 +500,80 @@ export default function DMPlantPage({ auth }) {
     <div className="flex gap-6 p-6 max-w-7xl mx-auto">
       {/* Left vertical nav (scrollable independent) */}
       <aside
-        className="w-72 bg-white rounded-lg shadow py-4 px-2 flex flex-col"
-        style={{ maxHeight: "calc(100vh - 48px)", position: "sticky", top: "24px" }}
-      >
-        <div className="px-3 pb-3">
-          <label className="block text-xs text-gray-500">Date</label>
-          {/* Single date selector used for both form entry and report */}
-          
+  className="w-60 bg-white border border-gray-300 rounded-lg shadow-sm py-4 px-3 flex flex-col"
+  style={{ maxHeight: "calc(100vh - 48px)", position: "sticky", top: "24px" }}
+>
+  {/* Date + Report Button */}
+  <div className="pb-3">
+    <label className="block text-xs text-gray-600 font-medium">Date</label>
 
-          <button
-            onClick={() => (window.location.href = "/dm-plant-report")}
-            className="mt-3 px-3 py-2 w-full bg-orange-500 text-white text-sm rounded hover:bg-orange-600"
-          >
-            View DM Plant Report
-          </button>
-        </div>
+    <button
+      onClick={() => (window.location.href = "/dm-plant-report")}
+      className="mt-3 px-3 py-2 w-full bg-[#E06A1B] hover:bg-[#C65E17] 
+                 text-white text-sm rounded-md shadow-sm transition"
+    >
+      View DM Plant Report
+    </button>
+  </div>
 
-        <div className="flex-1 overflow-y-auto pr-2">
-          {units.map((u) => (
-            <div key={u} className="mb-2">
-              <div className="flex items-center gap-2 px-2">
-                <button
-                  onClick={() => {
-                    toggleUnit(u);
-                  }}
-                  className={`flex-1 text-left px-3 py-2 rounded-md font-medium flex items-center justify-between ${
-                    unitExpanded[u] ? "bg-orange-500 text-white" : "bg-gray-50 text-gray-800 hover:bg-gray-100"
-                  }`}
-                >
-                  <span>{u}</span>
-                  <span className="text-xs opacity-80">{unitExpanded[u] ? "▾" : "▸"}</span>
-                </button>
-              </div>
+  {/* Units + Sections Navigation */}
+  <div className="flex-1 overflow-y-auto pr-1">
+    {units.map((u) => (
+      <div key={u} className="mb-3">
+        {/* Unit Expand Button */}
+        <button
+          onClick={() => toggleUnit(u)}
+          className={`
+            w-full px-3 py-2 rounded-md font-semibold flex items-center justify-between
+            ${unitExpanded[u]
+              ? "bg-[#E06A1B] text-white"
+              : "bg-gray-100 text-[#6B6B6B] hover:bg-gray-200"}
+          `}
+        >
+          <span>{u}</span>
+          <span className="text-xs opacity-90">
+            {unitExpanded[u] ? "▾" : "▸"}
+          </span>
+        </button>
 
-              {unitExpanded[u] && (
-                <div className="pl-4 mt-2 space-y-1">
-                  {SECTION_DEFINITIONS.filter((s) => s.unit === u).map((sec) => (
-                    <button
-                      key={sec.section}
-                      onClick={() => {
-                        setActiveUnit(u);
-                        setActiveSection(sec.section);
-                      }}
-                      className={`w-full text-left px-2 py-1 rounded-sm text-sm ${
-                        activeUnit === u && activeSection === sec.section ? "bg-orange-100 text-orange-800" : "text-gray-600 hover:bg-gray-100"
-                      }`}
-                    >
-                      {sec.section}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-
-        <div className="px-3 pt-3">
-          <a href={SAMPLE_PDF_PATH} target="_blank" rel="noreferrer" className="text-sm text-blue-600 underline">
-            View sample DM Plant PDF
-          </a>
-          <div className="mt-3 text-xs text-gray-500">
-            <div>
-              <strong>Role:</strong> {roleLoading ? <Spinner size={12} /> : (currentUser?.role_id ?? roleId ?? "Unknown")}
-            </div>
-            <div className="mt-2 text-orange-700">{message}</div>
+        {/* Section List */}
+        {unitExpanded[u] && (
+          <div className="pl-4 mt-2 space-y-1">
+            {SECTION_DEFINITIONS.filter((s) => s.unit === u).map((sec) => (
+              <button
+                key={sec.section}
+                onClick={() => {
+                  setActiveUnit(u);
+                  setActiveSection(sec.section);
+                }}
+                className={`
+                  w-full text-left px-2 py-1 rounded-md text-sm
+                  ${
+                    activeUnit === u && activeSection === sec.section
+                      ? "bg-orange-100 text-[#E06A1B] font-medium"
+                      : "text-gray-600 hover:bg-gray-100"
+                  }
+                `}
+              >
+                {sec.section}
+              </button>
+            ))}
           </div>
-        </div>
-      </aside>
+        )}
+      </div>
+    ))}
+  </div>
+
+  {/* Footer Info */}
+  <div className="pt-3 text-xs text-gray-500">
+    <div className="mb-2">
+      <strong>Role:</strong>{" "}
+      {roleLoading ? <Spinner size={12} /> : currentUser?.role_id ?? roleId}
+    </div>
+    <div className="text-[#E06A1B] font-medium">{message}</div>
+  </div>
+</aside>
+
 
       {/* Main panel */}
       <main className="flex-1">
