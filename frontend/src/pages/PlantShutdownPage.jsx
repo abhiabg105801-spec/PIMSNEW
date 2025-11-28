@@ -271,7 +271,7 @@ export default function PlantShutdownPage({ auth }) {
   /* -------------------------------------------------------------------------- */
 
   return (
-    <div className="max-w-7xl mx-auto my-4 p-4 bg-white rounded-lg space-y-6">
+    <div className="max-w-7xl mx-auto my-4 p-1 bg-white rounded-lg space-y-6">
       {/* -------------------------- TABS -------------------------- */}
       <div className="flex gap-2 mb-2">
         <button

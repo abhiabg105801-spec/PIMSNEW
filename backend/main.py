@@ -3,7 +3,10 @@ from fastapi import FastAPI, HTTPException, Depends, Body, Form, UploadFile, Fil
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.websockets import WebSocket
 from routers import dm_plant
+from routers import messages
+from routers.router_logic import router as logic_router
 
 from datetime import datetime, date, timedelta, time
 from typing import List, Optional
@@ -76,7 +79,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 app.include_router(dm_plant.router)
+app.include_router(messages.router, prefix="/messages")
+app.include_router(logic_router)
+
+
+
+
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 @app.get("/")

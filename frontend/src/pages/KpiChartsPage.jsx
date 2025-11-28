@@ -217,7 +217,7 @@ const KpiSummaryBox = ({ auth }) => {
     return (
         // ✅ Use themed background, border, and title text
         <div className="p-4 bg-orange-50 rounded-lg border border-orange-200 shadow-inner">
-            <h3 className="text-xl font-semibold mb-4 text-center bg-orange-500 text-white">Performance Highlights</h3>
+            
             <div className="flex flex-col md:flex-row gap-6">
                 <SummaryCard title="This Month" data={summaryData.month} />
                 <SummaryCard title="This Year" data={summaryData.year} />
@@ -605,9 +605,9 @@ export default function KpiChartsPage({ auth }) {
 
     return (
         // ✅ Use themed background and border
-        <div className="p-3 bg-orange-50 rounded-lg shadow-md border border-orange-200 space-y-4">
+        <div className="p-1 ">
             {/* ✅ Use themed title */}
-            <h2 className="text-xl font-semibold mb-2 text-center text-orange-800">KPI Daily Analysis</h2>
+            
 
             {/* --- TABS --- */}
             {/* ✅ Use themed border */}

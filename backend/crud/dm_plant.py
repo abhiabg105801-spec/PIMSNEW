@@ -1,4 +1,4 @@
-# cUud/dm_plant.py
+# crud/dm_plant.py
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select

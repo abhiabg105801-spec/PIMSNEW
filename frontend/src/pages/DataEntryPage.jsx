@@ -862,7 +862,7 @@ useEffect(() => {
 
   /* ------------------------------ UI -------------------------------- */
   return (
-  <div className="flex gap-6 p-6 max-w-7xl mx-auto">
+  <div className="flex gap-6  max-w-7xl mx-auto">
 
     {/* SIDEBAR */}
     <aside
@@ -870,7 +870,7 @@ useEffect(() => {
         w-48 bg-white 
         rounded-xl border border-gray-200 
         shadow-[0_4px_10px_rgba(0,0,0,0.08)]
-        p-5 flex flex-col gap-6
+        p-2 flex flex-col gap-6
         min-h-[560px]
       "
     >
@@ -942,15 +942,15 @@ useEffect(() => {
         className="
           relative rounded-xl border border-gray-200 
           bg-white shadow-[0_6px_18px_rgba(0,0,0,0.08)]
-          p-6 overflow-hidden
+          p-1 overflow-hidden
           min-h-[560px]
         "
       >
 
         {/* HEADER */}
-        <div className="w-full flex items-center justify-between py-2 mb-3">
+        <div className="w-full flex items-center justify-between py-1 mb-3">
 
-          <h3 className="text-sm font-semibold tracking-wide text-gray-800">
+          <h3 className="text-xl px-5 py-2 font-semibold tracking-wide text-gray-500">
             {activeTab} Report
           </h3>
 
@@ -958,7 +958,7 @@ useEffect(() => {
             {message && (
               <div
                 className={`
-                  text-xs font-medium px-3 py-1 rounded-md 
+                  text-xl font-medium px-3 py-1 rounded-md 
                   shadow-sm border
                   ${
                     message.startsWith("❌")
@@ -1008,7 +1008,7 @@ useEffect(() => {
         </div>
 
         {/* Thin underline */}
-        <div className="w-full h-px bg-gradient-to-r from-orange-500 via-orange-400 to-gray-300 mb-5"></div>
+        <div className="w-full h-px bg-gradient-to-r from-orange-500 via-orange-400 to-gray-300 mb-2"></div>
 
         {/* FORM PANEL — animation fixes */}
         <div key={activeTab} className="slide-in-left min-h-[520px]">

@@ -17,6 +17,10 @@ import KpiRangeViewer from "./pages/KpiRangeViewer";
 import AdminPanel from "./pages/AdminPanel";
 import UserMenu from "./components/UserMenu";
 import DMPlantReportPage from "./pages/DMPlantReportPage";
+import DesignDataPage from "./pages/DesignDataPage";
+import Reports from "./pages/Reports";
+import LogicDiagramPage from "./pages//LogicDiagramPage";
+import FloatingMessageBox from "./components/FloatingMessageBox";
 
 // ⭐ NEW IMPORT — Add DM Plant Page
 import DMPlantPage from "./pages/DMPlantPage";
@@ -114,13 +118,13 @@ function Layout({ authHeader, onLogout }) {
 
 
         {/* ------------------ NAVIGATION ------------------ */}
-        <nav className="h-12 bg-[#F5F5F5] border-t border-[#D0D0D0]">
+        <nav className="h-9 bg-[#F5F5F5] border-t border-[#D0D0D0]">
           <div className="max-w-7xl mx-auto flex items-center h-full gap-10 px-10">
 
             {/* ----- Generic NavLink Style ----- */}
             {[
               { to: "/entry", label: "Data Entry" },
-              ...(roleId === 5 || roleId === 8
+              ...(roleId === 5 || roleId === 8 || roleId === 3|| roleId === 7|| roleId === 1|| roleId === 2
                 ? [{ to: "/dm-plant", label: "DM Plant" }]
                 : []),
             ].map((item) => (
@@ -146,55 +150,24 @@ function Layout({ authHeader, onLogout }) {
             ))}
 
             {/* ------------------ Reports Dropdown ------------------ */}
-            <div
-  className="relative h-full group"
->
-  {/* Dropdown Trigger */}
-  <div
-    onMouseEnter={() => setIsOpen(true)}
-    className={`relative px-3 h-full flex items-center text-sm font-semibold uppercase
-      ${highlightReports ? "text-[#E06A1B]" : "text-[#555] hover:text-[#E06A1B]"}
-    `}
-  >
-    Reports ▾
-  </div>
+             <NavLink
+      to="/reports"
+      className={({ isActive }) =>
+        `
+          relative px-3 h-full flex items-center 
+          text-sm font-semibold uppercase tracking-wider
 
-  {/* Dropdown Panel */}
-  {isOpen && (
-    <div
-      onMouseEnter={() => setIsOpen(true)}
-      onMouseLeave={() => setIsOpen(false)}
-      className="
-        absolute top-full left-0 mt-1 bg-white 
-        border border-[#C9C9C9] rounded-md 
-        shadow-[0_3px_12px_rgba(0,0,0,0.15)]
-        w-48 animate-dropdown z-50
-      "
+          ${isActive
+            ? "text-[#E06A1B] after:w-full"
+            : "text-[#555] hover:text-[#E06A1B] hover:after:w-full"}
+
+          after:absolute after:bottom-0 after:left-0 after:h-[3px]
+          after:bg-[#E06A1B] after:transition-all after:duration-300 after:w-0
+        `
+      }
     >
-      <NavLink
-        to="/report"
-        className={({ isActive }) =>
-          `block px-4 py-2 text-sm font-medium
-           ${isActive
-             ? "bg-[#FFF4EC] text-[#E06A1B]"
-             : "text-[#555] hover:bg-[#F7F7F7]"}`}
-      >
-        Daily Report
-      </NavLink>
-
-      <NavLink
-        to="/kpi-data"
-        className={({ isActive }) =>
-          `block px-4 py-2 text-sm font-medium
-           ${isActive
-             ? "bg-[#FFF4EC] text-[#E06A1B]"
-             : "text-[#555] hover:bg-[#F7F7F7]"}`}
-      >
-        KPI Data Viewer
-      </NavLink>
-    </div>
-  )}
-</div>
+      Reports
+    </NavLink>
             {/* ------------------ Shutdown ------------------ */}
             <NavLink
               to="/shutdowns"
@@ -228,7 +201,38 @@ function Layout({ authHeader, onLogout }) {
             >
               KPI Charts
             </NavLink>
-
+            {/* ------------------  Design Data ------------------ */}
+            <NavLink
+              to="/DesignDataPage"
+              className={({ isActive }) =>
+                `
+                  relative px-3 h-full flex items-center text-sm font-semibold uppercase tracking-wider
+                  ${isActive
+                    ? "text-[#E06A1B] after:w-full"
+                    : "text-[#555] hover:text-[#E06A1B] hover:after:w-full"}
+                  after:absolute after:bottom-0 after:left-0 after:h-[3px]
+                  after:bg-[#E06A1B] after:transition-all after:duration-300 after:w-0
+                `
+              }
+            >
+              Design Data
+            </NavLink>
+             {/* ------------------  Logic Diagram ------------------ */}
+            <NavLink
+              to="/LogicDiagramPage"
+              className={({ isActive }) =>
+                `
+                  relative px-3 h-full flex items-center text-sm font-semibold uppercase tracking-wider
+                  ${isActive
+                    ? "text-[#E06A1B] after:w-full"
+                    : "text-[#555] hover:text-[#E06A1B] hover:after:w-full"}
+                  after:absolute after:bottom-0 after:left-0 after:h-[3px]
+                  after:bg-[#E06A1B] after:transition-all after:duration-300 after:w-0
+                `
+              }
+            >
+              Logic 
+            </NavLink>
             {/* ------------------ Admin Panel ------------------ */}
             {username === "admin" && (
               <NavLink
@@ -256,7 +260,7 @@ function Layout({ authHeader, onLogout }) {
         <Routes>
           <Route path="/" element={<Navigate to="/entry" />} />
           <Route path="/entry" element={<DataEntryPage auth={authHeader} />} />
-          <Route path="/report" element={<ReportViewer auth={authHeader} />} />
+          <Route path="/reports" element={<Reports auth={authHeader} /> }  />
           <Route path="/shutdowns" element={<PlantShutdownPage auth={authHeader} />} />
           <Route path="/charts" element={<KpiChartsPage auth={authHeader} />} />
           <Route path="/kpi-data" element={<KpiRangeViewer auth={authHeader} />} />
@@ -265,19 +269,24 @@ function Layout({ authHeader, onLogout }) {
           {/* DM PLANT */}
           <Route path="/dm-plant" element={<DMPlantPage auth={authHeader} />} />
           <Route path="/dm-plant-report" element={<DMPlantReportPage />} />
+          <Route path="/DesignDataPage" element={<DesignDataPage auth={authHeader} />} />
+          <Route path="/LogicDiagramPage" element={<LogicDiagramPage auth={authHeader} />} />
         </Routes>
       </main>
+      <FloatingMessageBox auth={authHeader} />
+      <footer className="bg-[#F5F5F5] border-t border-gray-300 mt-6">
+  <div className="max-w-7xl mx-auto px-6 py-4 text-sm text-gray-600 flex flex-col md:flex-row items-center justify-between gap-2">
+    <span>© {new Date().getFullYear()} Jindal Stainless Ltd. All Rights Reserved.</span>
+    <span className="text-gray-500">
+      Contact: <a href="mailto:cppsupport@jsl.com" className="text-[#E06A1B] font-semibold hover:underline">
+        email
+      </a>
+    </span>
+  </div>
+  <div className="h-[4px] w-full bg-[#E06A1B]"></div>
+</footer>
 
-      {/* Dropdown animation */}
-      <style>{`
-        @keyframes dropdown {
-          from { opacity: 0; transform: translateY(-6px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        .animate-dropdown {
-          animation: dropdown 0.18s ease-out;
-        }
-      `}</style>
+      
     </div>
   );
 }

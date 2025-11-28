@@ -25,7 +25,8 @@
     "react-dom": "^18.2.0",
     "react-icons": "^5.5.0",
     "react-router-dom": "^6.30.1",
-    "react-select": "^5.10.2"
+    "react-select": "^5.10.2",
+    "reactflow": "^11.11.4"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.1.0",

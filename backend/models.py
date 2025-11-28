@@ -4,7 +4,7 @@ from typing import Optional
 
 from sqlalchemy import (
     Column, Integer, String, Float, Date, DateTime, Time,
-    UniqueConstraint, Index, ForeignKey, Boolean
+    UniqueConstraint, Index, ForeignKey, Boolean,Text
 )
 from sqlalchemy.orm import relationship
 from database import Base # Import Base from our new database.py
@@ -362,6 +362,16 @@ class PermissionDB(Base):
     can_view = Column(Boolean, default=True)
 
     role = relationship("RoleDB", back_populates="permissions")
+
+class MessageDB(Base):
+    __tablename__ = "messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String(50))
+    content = Column(Text)
+    pinned = Column(Boolean, default=False)
+    pinned_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 # ============================================================

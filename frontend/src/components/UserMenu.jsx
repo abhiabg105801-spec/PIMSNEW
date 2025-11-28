@@ -76,10 +76,10 @@ export default function UserMenu({ username, onLogout }) {
           px-4 py-1.5
           border border-[#D0D0D0]
           rounded-md
-          bg-white
-          text-[#5A5A5A]
+          bg-orange-600
+          text-white
           font-medium text-sm
-          hover:border-[#E06A1B] hover:text-[#E06A1B]
+          hover:border-[#E06A1B] hover:text-white hover:bg-gray-600
           transition-all duration-200
           shadow-sm
         "
@@ -91,9 +91,9 @@ export default function UserMenu({ username, onLogout }) {
       {open && (
         <div
           className="
-            absolute right-0 mt-2 w-48 
+            absolute right-0 mt-2 w-40 
             bg-white shadow-lg 
-            border border-[#D0D0D0] 
+            border border-orange-200
             rounded-md z-50 py-2
           "
         >
