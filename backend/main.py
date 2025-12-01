@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.websockets import WebSocket
 from routers import dm_plant
 from routers import messages
+from routers import fuel_inventory
 from routers.router_logic import router as logic_router
 
 from datetime import datetime, date, timedelta, time
@@ -83,6 +84,7 @@ app.add_middleware(
 app.include_router(dm_plant.router)
 app.include_router(messages.router, prefix="/messages")
 app.include_router(logic_router)
+app.include_router(fuel_inventory.router)
 
 
 

@@ -51,7 +51,6 @@ const TABS = [
   { id: "pressure", label: "Pressure", data: pressureData },
   { id: "drafts", label: "Drafts", data: draftsData },
   { id: "mill", label: "Mill Performance", data: millPerformanceData },
-  { id: "fuel", label: "Fuel", data: fuelData },
   { id: "gas", label: "Gas Analysis", data: gasAnalysisData },
   { id: "vel", label: "Gas Velocities", data: gasVelocitiesData },
   { id: "heat", label: "Heat Balance", data: heatBalanceData },

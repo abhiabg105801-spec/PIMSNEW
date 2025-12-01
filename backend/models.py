@@ -1,6 +1,7 @@
 from pydantic import BaseModel, field_validator
 from datetime import date, datetime, time
 from typing import Optional
+import enum
 
 from sqlalchemy import (
     Column, Integer, String, Float, Date, DateTime, Time,
@@ -409,6 +410,43 @@ class PermissionOut(BaseModel):
     field_name: str
     can_edit: bool
     can_view: bool
+
+    class Config:
+        from_attributes = True
+
+
+
+
+
+class FuelType(str, enum.Enum):
+    LDO = "LDO"
+    HSD = "HSD"
+
+class TxType(str, enum.Enum):
+    INITIAL = "initial"
+    RECEIPT = "receipt"
+    USAGE = "usage"
+
+class FuelTransactionDB(Base):
+    __tablename__ = "fuel_transactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    tx_date = Column(Date, nullable=False, index=True)
+    fuel_type = Column(String, nullable=False)            # LDO or HSD
+    tx_type = Column(String, nullable=False)              # initial / receipt / usage
+    quantity = Column(Float, nullable=False)              # positive number
+    remarks = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+class FuelTransactionCreate(BaseModel):
+    tx_date: date
+    fuel_type: FuelType
+    tx_type: TxType
+    quantity: float
+    remarks: Optional[str] = None
+
+class FuelTransactionOut(FuelTransactionCreate):
+    id: int
+    created_at: datetime
 
     class Config:
         from_attributes = True

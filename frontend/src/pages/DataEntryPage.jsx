@@ -44,6 +44,7 @@ const PARENT_TO_AUTOS = {
   forced_outage_hour: ["forced_outage_percent"],
   steam_gen_t: ["sp_steam_consumption_kg_kwh"],
   ldo_hsd_consumption_kl: ["sp_oil_consumption_ml_kwh"],
+  dm_water_consumption_cu_m: ["sp_dm_water_consumption_percent"],
 };
 
 const initialUnitFormState = {
@@ -490,7 +491,7 @@ useEffect(() => {
     ------------------------------------------------------------ */
     const coalT = parseFloat(cur.coal_consumption_t);
     if (!isNaN(coalT) && !isNaN(genVal) && genVal > 0) {
-      updateIfDiff(u, "sp_coal_consumption_kg_kwh", Number((coalT / genVal).toFixed(3)));
+      updateIfDiff(u, "sp_coal_consumption_kg_kwh", Number((coalT / (genVal*1000)).toFixed(3)));
     } else {
       updateIfDiff(u, "sp_coal_consumption_kg_kwh", "");
     }
@@ -498,7 +499,7 @@ useEffect(() => {
     /* SPECIFIC OIL */
     const oil = parseFloat(cur.ldo_hsd_consumption_kl);
     if (!isNaN(oil) && !isNaN(genVal) && genVal > 0) {
-      updateIfDiff(u, "sp_oil_consumption_ml_kwh", Number((oil / genVal).toFixed(2)));
+      updateIfDiff(u, "sp_oil_consumption_ml_kwh", Number((oil / genVal).toFixed(3)));
     } else {
       updateIfDiff(u, "sp_oil_consumption_ml_kwh", "");
     }
@@ -506,7 +507,7 @@ useEffect(() => {
     /* AUX PERCENT */
     const auxMU = parseFloat(cur.aux_power_consumption_mu);
     if (!isNaN(auxMU) && !isNaN(genVal) && genVal > 0) {
-      updateIfDiff(u, "aux_power_percent", Number(((auxMU / genVal) * 100).toFixed(2)));
+      updateIfDiff(u, "aux_power_percent", Number(((auxMU / genVal) * 100).toFixed(3)));
     } else {
       updateIfDiff(u, "aux_power_percent", "");
     }
@@ -514,7 +515,7 @@ useEffect(() => {
     /* SPECIFIC STEAM */
     const steam = parseFloat(cur.steam_gen_t);
     if (!isNaN(steam) && !isNaN(genVal) && genVal > 0) {
-      updateIfDiff(u, "sp_steam_consumption_kg_kwh", Number((steam / genVal).toFixed(2)));
+      updateIfDiff(u, "sp_steam_consumption_kg_kwh", Number((steam / (genVal*1000)).toFixed(3)));
     } else {
       updateIfDiff(u, "sp_steam_consumption_kg_kwh", "");
     }
