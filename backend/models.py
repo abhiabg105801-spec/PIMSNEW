@@ -470,3 +470,25 @@ class TotalizerReadingDB(Base):
     adjust_value = Column(Float, default=0)
     difference_value = Column(Float, default=0)
     created_at = Column(Date, default=datetime.utcnow)
+
+class KPIRecordDB(Base):
+    __tablename__ = "kpi_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    report_date = Column(Date, nullable=False, index=True)
+    kpi_type = Column(String, nullable=False, index=True)     # energy / water / etc.
+    plant_name = Column(String, nullable=False, index=True)   # Unit-1, Unit-2, Station…
+    kpi_name = Column(String, nullable=False, index=True)
+    kpi_value = Column(Float, nullable=False)
+    unit = Column(String, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "report_date", "kpi_type", "plant_name", "kpi_name",
+            name="uq_kpi_unique"
+        ),
+    )
+
