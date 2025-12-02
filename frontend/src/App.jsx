@@ -22,6 +22,8 @@ import Reports from "./pages/Reports";
 import LogicDiagramPage from "./pages//LogicDiagramPage";
 import FloatingMessageBox from "./components/FloatingMessageBox";
 
+import TotalizerEntry from "./pages/TotalizerEntry";
+
 // ⭐ NEW IMPORT — Add DM Plant Page
 import DMPlantPage from "./pages/DMPlantPage";
 
@@ -233,6 +235,22 @@ function Layout({ authHeader, onLogout }) {
             >
               Logic 
             </NavLink>
+            <NavLink
+              to="/TotalizerEntry"
+              className={({ isActive }) =>
+                `
+
+                  relative px-3 h-full flex items-center text-sm font-semibold uppercase tracking-wider
+                  ${isActive
+                    ? "text-[#E06A1B] after:w-full"
+                    : "text-[#555] hover:text-[#E06A1B] hover:after:w-full"}
+                  after:absolute after:bottom-0 after:left-0 after:h-[3px]
+                  after:bg-[#E06A1B] after:transition-all after:duration-300 after:w-0
+                `
+              }
+            >
+              Operation
+            </NavLink>
             {/* ------------------ Admin Panel ------------------ */}
             {username === "admin" && (
               <NavLink
@@ -271,6 +289,10 @@ function Layout({ authHeader, onLogout }) {
           <Route path="/dm-plant-report" element={<DMPlantReportPage />} />
           <Route path="/DesignDataPage" element={<DesignDataPage auth={authHeader} />} />
           <Route path="/LogicDiagramPage" element={<LogicDiagramPage auth={authHeader} />} />
+          <Route
+  path="/TotalizerEntry"
+  element={<TotalizerEntry auth={authHeader} />}
+/>
         </Routes>
       </main>
       <FloatingMessageBox auth={authHeader} />

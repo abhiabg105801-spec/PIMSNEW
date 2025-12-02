@@ -450,3 +450,23 @@ class FuelTransactionOut(FuelTransactionCreate):
 
     class Config:
         from_attributes = True
+
+class TotalizerMasterDB(Base):
+    __tablename__ = "totalizers_master"
+
+    id = Column(Integer, primary_key=True, index=True)
+    unit = Column(String)
+    name = Column(String)
+    display_name = Column(String)
+    sequence = Column(Integer)
+
+class TotalizerReadingDB(Base):
+    __tablename__ = "totalizer_readings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    totalizer_id = Column(Integer)
+    date = Column(Date)
+    reading_value = Column(Float, default=0)
+    adjust_value = Column(Float, default=0)
+    difference_value = Column(Float, default=0)
+    created_at = Column(Date, default=datetime.utcnow)

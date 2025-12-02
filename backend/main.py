@@ -85,6 +85,8 @@ app.include_router(dm_plant.router)
 app.include_router(messages.router, prefix="/messages")
 app.include_router(logic_router)
 app.include_router(fuel_inventory.router)
+from routers import totalizers
+app.include_router(totalizers.router, prefix="/api/totalizers", tags=["Totalizers"])
 
 
 

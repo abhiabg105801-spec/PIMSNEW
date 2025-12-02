@@ -973,39 +973,7 @@ useEffect(() => {
             )}
           </div>
 
-          <button
-            onClick={() =>
-              activeTab === "Station"
-                ? handleStationSubmit()
-                : handleUnitSubmit(activeTab)
-            }
-            disabled={
-              submitting[activeTab] ||
-              (activeTab === "Station" && submitting.station) ||
-              loadingRow
-            }
-            className={`
-              px-3 py-1.5 rounded-md font-medium ml-3 text-white text-sm
-              shadow-sm transition-all active:scale-95
-              ${
-                loadingRow
-                  ? "bg-gray-300 text-gray-600 cursor-not-allowed"
-                  : "bg-gradient-to-r from-orange-500 to-amber-400 hover:from-orange-600 hover:to-amber-500"
-              }
-            `}
-          >
-            {loadingRow
-              ? "Loading..."
-              : activeTab === "Station"
-              ? submitting.station
-                ? "Processing..."
-                : "Submit"
-              : submitting[activeTab]
-              ? "Processing..."
-              : isEditingForUnit[activeTab]
-              ? "Update"
-              : "Submit"}
-          </button>
+          
         </div>
 
         {/* Thin underline */}
@@ -1042,6 +1010,30 @@ useEffect(() => {
                 {renderInput(activeTab, "dm_water_consumption_cu_m", "DM Water (Cu.m)")}
                 {renderInput(activeTab, "stack_emission_spm_mg_nm3", "SPM (mg/Nm3)")}
               </div>
+              
+             <div className="w-full  h-px bg-gradient-to-r from-orange-500 via-orange-400 to-gray-300 mb-2 mt-5"></div>
+
+              <button
+    type="submit"
+    disabled={submitting[activeTab] || loadingRow}
+    className={`
+      px-6 py-2 rounded-lg font-semibold text-white shadow-sm
+      transition-all active:scale-95
+      ${
+        loadingRow
+          ? "bg-gray-300 text-gray-600 cursor-not-allowed"
+          : "bg-gradient-to-r from-orange-500 to-amber-400 hover:from-orange-600 hover:to-amber-500"
+      }
+    `}
+  >
+    {loadingRow
+      ? "Loading..."
+      : submitting[activeTab]
+      ? "Processing..."
+      : isEditingForUnit[activeTab]
+      ? "Update"
+      : "Submit"}
+  </button>
             </form>
           )}
 
@@ -1064,6 +1056,26 @@ useEffect(() => {
                 {renderStationInput("ro_plant_il", "RO I/L")}
                 {renderStationInput("ro_plant_ol", "RO O/L")}
               </div>
+              <div className="w-full  h-px bg-gradient-to-r from-orange-500 via-orange-400 to-gray-300 mb-2 mt-5"></div>
+              <button
+    type="submit"
+    disabled={submitting.station || loadingRow}
+    className={`
+      px-6 py-2 rounded-lg font-semibold text-white shadow-sm
+      transition-all active:scale-95
+      ${
+        loadingRow
+          ? "bg-gray-300 text-gray-600 cursor-not-allowed"
+          : "bg-gradient-to-r from-orange-500 to-amber-400 hover:from-orange-600 hover:to-amber-500"
+      }
+    `}
+  >
+    {loadingRow
+      ? "Loading..."
+      : submitting.station
+      ? "Processing..."
+      : "Submit"}
+  </button>
             </form>
           )}
 
