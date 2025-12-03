@@ -42,7 +42,7 @@ async def seed_master(db: AsyncSession = Depends(get_db)):
     # UNIT 1
     # ---------------------------------------
     for f in ["A", "B", "C", "D", "E"]:
-        add("Unit-1", f"feeder_{f.lower()}", f"Unit-1 : Feeder{f} Totalizer")
+        add("Unit-1", f"feeder_{f.lower()}", f"Feeder1{f} Totalizer")
 
     add("Unit-1", "ldo_flow", "Unit-1 : LDO FLOW")
     add("Unit-1", "dm7", "Unit-1 : DM7 Water")
@@ -54,7 +54,7 @@ async def seed_master(db: AsyncSession = Depends(get_db)):
     # UNIT 2
     # ---------------------------------------
     for f in ["A", "B", "C", "D", "E"]:
-        add("Unit-2", f"feeder_{f.lower()}", f"Unit-2 : Feeder{f} Totalizer")
+        add("Unit-2", f"feeder_{f.lower()}", f"Feeder2{f} Totalizer")
 
     add("Unit-2", "ldo_flow", "Unit-2 : LDO FLOW")
     add("Unit-2", "dm7", "Unit-2 : DM7 Water")
@@ -71,6 +71,8 @@ async def seed_master(db: AsyncSession = Depends(get_db)):
     # ENERGY-METER (New category)
     # ---------------------------------------
     energy_meter_items = [
+        ("Energy-Meter", "unit1_gen", "Unit-1 Generation"),
+        ("Energy-Meter", "unit2_gen", "Unit-2 Generation"),
         ("Energy-Meter", "1lsr01_ic1", "1LSR01 I/C-1"),
         ("Energy-Meter", "1lsr02_ic1", "1LSR02 I/C-1"),
         ("Energy-Meter", "2lsr01_ic1", "2LSR01 I/C-1"),
@@ -86,8 +88,10 @@ async def seed_master(db: AsyncSession = Depends(get_db)):
         ("Energy-Meter", "2lsr01_ic2_tie", "2LSR01 I/C-2 (TIE)"),
         ("Energy-Meter", "2lsr02_ic2_tie", "2LSR02 I/C-2 (TIE)"),
 
-        ("Energy-Meter", "unit1_gen", "Unit-1 Generation"),
-        ("Energy-Meter", "unit2_gen", "Unit-2 Generation"),
+        
+        ("Energy-Meter", "SST_10", "SST_10"),
+        ("Energy-Meter", "UST_15", "UST_15"),
+        ("Energy-Meter", "UST_25", "UST-25"),
     ]
 
     for unit, name, disp in energy_meter_items:
