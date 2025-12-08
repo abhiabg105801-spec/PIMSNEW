@@ -55,7 +55,6 @@ export default function TotalizerEntryPage({ auth }) {
   const canEdit = (field) => permissionMap[field]?.can_edit ?? true;
 
   /* ----------------- Master & Readings ----------------- */
-  // master grouped by unit
   const [totalizersByUnit, setTotalizersByUnit] = useState({
     "Unit-1": [],
     "Unit-2": [],
@@ -63,20 +62,24 @@ export default function TotalizerEntryPage({ auth }) {
     "Energy-Meter": [],
   });
 
-  // keyed by totalizer id: { today, adjust, yesterday, difference, display_name, name, unit, _orig }
   const [readingsForm, setReadingsForm] = useState({});
 
   /* ----------------- Adjust Popup ----------------- */
   const [showAdjustPopup, setShowAdjustPopup] = useState(false);
-  const [adjustPopupRecord, setAdjustPopupRecord] = useState(null); // { id, name, yesterday, today, adjust }
+  const [adjustPopupRecord, setAdjustPopupRecord] = useState(null);
 
   /* ----------------- KPI states ----------------- */
   const [kpiLoading, setKpiLoading] = useState(false);
-  // cached generation values from backend for station KPIs (unit1_generation, unit2_generation)
   const [generationCache, setGenerationCache] = useState({}); // { date: { unit1_generation, unit2_generation } }
 
+  /* ----------------- Shutdown KPI state (new) ----------------- */
+  // contains read-only automatically loaded shutdown KPIs per unit & date
+  const [shutdownKPIs, setShutdownKPIs] = useState({
+    "Unit-1": { running_hour: null, plant_availability_percent: null, planned_outage_hour: null, planned_outage_percent: null, strategic_outage_hour: null },
+    "Unit-2": { running_hour: null, plant_availability_percent: null, planned_outage_hour: null, planned_outage_percent: null, strategic_outage_hour: null },
+  });
+
   /* ----------------- Manual KPI state ----------------- */
-  // manual KPIs per plant. keys match your requested names.
   const [manualKPI, setManualKPI] = useState({
     "Unit-1": { stack_emission: "" },
     "Unit-2": { stack_emission: "" },
@@ -129,18 +132,14 @@ export default function TotalizerEntryPage({ auth }) {
 
   /* =============================================================
      LOAD MASTER TOTALIZERS
-     - when master loaded we also initialize readingsForm entries and
-       immediately load today's/yesterday's readings for that unit
      ============================================================= */
   const loadMasterForUnit = useCallback(
     async (unit) => {
       try {
         const r = await api.get("/totalizers/list", { params: { unit } });
         const items = r.data || [];
-        // set master map
         setTotalizersByUnit((prev) => ({ ...prev, [unit]: items }));
 
-        // initialize readingsForm entries (if not present)
         setReadingsForm((prev) => {
           const updated = { ...prev };
           items.forEach((t) => {
@@ -148,16 +147,15 @@ export default function TotalizerEntryPage({ auth }) {
               updated[t.id] = {
                 today: "",
                 adjust: 0,
-                yesterday: "—", // show dash when no yesterday
+                yesterday: "—",
                 difference: "—",
                 display_name: t.display_name,
                 name: t.name,
-                unit: t.unit || unit, // fallback to unit param
+                unit: t.unit || unit,
                 totalizer_id: t.id,
                 _orig: { today: "", adjust: 0 },
               };
             } else {
-              // preserve existing values but ensure display fields are up-to-date
               updated[t.id].display_name = t.display_name;
               updated[t.id].name = t.name;
               updated[t.id].unit = t.unit || unit;
@@ -166,7 +164,6 @@ export default function TotalizerEntryPage({ auth }) {
           return updated;
         });
 
-        // load today's and yesterday's readings for this unit (pass items so we don't depend on state)
         await loadTodayReadings(reportDate, unit, items);
         await loadYesterday(reportDate, unit, items);
       } catch (e) {
@@ -186,7 +183,6 @@ export default function TotalizerEntryPage({ auth }) {
 
   /* =============================================================
      LOAD TODAY'S READINGS
-     - accepts optional items param (master items) so we don't rely on stale state
      ============================================================= */
   const loadTodayReadings = useCallback(
     async (forDate, unit, itemsParam = null) => {
@@ -219,12 +215,10 @@ export default function TotalizerEntryPage({ auth }) {
               rec.adjust = rowMap[t.id].adjust;
               rec._orig = { today: rec.today, adjust: rec.adjust };
             } else {
-              // If not found, keep previously saved _orig (so switching tabs doesn't overwrite)
               rec.today = rec._orig?.today ?? "";
               rec.adjust = rec._orig?.adjust ?? 0;
             }
 
-            // recalc difference — only when yesterday numeric
             if (rec.yesterday === "—" || rec.today === "" || rec.today === null) rec.difference = "—";
             else {
               const adj = canAdjust ? Number(rec.adjust || 0) : 0;
@@ -244,8 +238,6 @@ export default function TotalizerEntryPage({ auth }) {
 
   /* =============================================================
      LOAD YESTERDAY'S READINGS
-     - accepts optional items param
-     - if a totalizer has no yesterday row, we set yesterday = "—" and difference = "—"
      ============================================================= */
   const loadYesterday = useCallback(
     async (forDate, unit, itemsParam = null) => {
@@ -281,7 +273,6 @@ export default function TotalizerEntryPage({ auth }) {
           return updated;
         });
       } catch (e) {
-        // fallback: mark all as dash
         setReadingsForm((prev) => {
           const updated = { ...prev };
           const items = itemsParam || (totalizersByUnit[unit] || []);
@@ -299,7 +290,6 @@ export default function TotalizerEntryPage({ auth }) {
 
   /* =============================================================
      Load station KPIs (to pick up unit generation values)
-     We'll cache by date so we don't fetch repeatedly.
      ============================================================= */
   const ensureGenerationForDate = useCallback(
     async (dateStr) => {
@@ -308,7 +298,6 @@ export default function TotalizerEntryPage({ auth }) {
         const r = await api.get("/totalizers/kpi/get", {
           params: { date: dateStr, kpi_type: "energy", plant_name: "Station" },
         });
-        // transform to map
         const out = {};
         (r.data?.kpis || []).forEach((k) => {
           out[k.name] = k.value;
@@ -325,9 +314,6 @@ export default function TotalizerEntryPage({ auth }) {
 
   /* =============================================================
      Load manual KPI for active tab
-     - kpi_type = "manual"
-     - plant_name = activeTab
-     - we store simple name->value mapping into manualKPI[activeTab]
      ============================================================= */
   const loadManualKPIForActiveTab = useCallback(async () => {
     try {
@@ -344,40 +330,97 @@ export default function TotalizerEntryPage({ auth }) {
     }
   }, [api, activeTab, reportDate]);
 
+  /* =============================================================
+     NEW: Load shutdown KPIs for a unit & date
+     Endpoint assumed: GET /api/shutdowns/kpi/{unit}/{date}
+     ============================================================= */
+  const loadShutdownKPIsForUnitDate = useCallback(
+    async (unitKey, dateStr) => {
+      setKpiLoading(true);
+      try {
+        const res = await api.get(`/shutdowns/kpi/${encodeURIComponent(unitKey)}/${encodeURIComponent(dateStr)}`);
+        if (res.status === 200 && res.data) {
+          setShutdownKPIs((prev) => ({ ...prev, [unitKey]: { ...prev[unitKey], ...res.data } }));
+        } else {
+          // set defaults if 404 or empty
+          setShutdownKPIs((prev) => ({
+            ...prev,
+            [unitKey]: { running_hour: 24, plant_availability_percent: 100, planned_outage_hour: 0, planned_outage_percent: 0, strategic_outage_hour: 0 },
+          }));
+        }
+      } catch (err) {
+        // On error set sensible defaults (no shutdowns)
+        setShutdownKPIs((prev) => ({
+          ...prev,
+          [unitKey]: { running_hour: 24, plant_availability_percent: 100, planned_outage_hour: 0, planned_outage_percent: 0, strategic_outage_hour: 0 },
+        }));
+      } finally {
+        setKpiLoading(false);
+      }
+    },
+    [api]
+  );
+
   useEffect(() => {
-    // when date or tab changes, reload today's and yesterday's readings for that tab
+    // When the active tab or date changes, reload data + shutdown KPIs
     (async () => {
       const items = totalizersByUnit[activeTab] || [];
       await loadTodayReadings(reportDate, activeTab, items);
       await loadYesterday(reportDate, activeTab, items);
       await ensureGenerationForDate(reportDate);
-
-      // load manual KPI for activeTab
       await loadManualKPIForActiveTab();
+
+      if (activeTab === "Unit-1" || activeTab === "Unit-2") {
+        await loadShutdownKPIsForUnitDate(activeTab, reportDate);
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reportDate, activeTab]);
+  }, [reportDate, activeTab, totalizersByUnit]);
 
-  // When reportDate changes we also clear non-persisted input noise but preserve _orig
   useEffect(() => {
-    setReadingsForm((prev) => {
-      const upd = { ...prev };
-      Object.keys(upd).forEach((id) => {
-        upd[id] = {
-          ...upd[id],
-          today: upd[id]._orig?.today ?? upd[id].today ?? "",
-          adjust: upd[id]._orig?.adjust ?? upd[id].adjust ?? 0,
-          difference: upd[id]._orig?.today && upd[id].yesterday && upd[id].yesterday !== "—"
-            ? (Number(upd[id]._orig.today) - Number(upd[id].yesterday || 0) + Number(upd[id]._orig.adjust || 0)).toFixed(3)
-            : upd[id].difference ?? "—",
-        };
-      });
-      return upd;
-    });
-  }, [reportDate]);
+    if (!message) return;
+    const timer = setTimeout(() => setMessage(""), 4000);
+    return () => clearTimeout(timer);
+  }, [message]);
+
+  useEffect(() => {
+    setMessage("");
+  }, [activeTab]);
 
   /* =============================================================
-     Input update handler
+     Refresh prev totalizer helper
+     ============================================================= */
+  const refreshPrevTotalizer = useCallback(async (unitKey) => {
+    try {
+      const d = new Date(reportDate);
+      d.setDate(d.getDate() - 1);
+      const prevDate = d.toISOString().slice(0, 10);
+
+      const prev = await api.get(`/totalizers/readings`, { params: { date: prevDate } });
+      const prevRows = prev.data || [];
+      const prevMap = {};
+      prevRows.forEach((r) => (prevMap[r.totalizer_id] = Number(r.reading_value || 0)));
+
+      setReadingsForm((s) => {
+        const updated = { ...s };
+        (totalizersByUnit[unitKey] || []).forEach((t) => {
+          if (!updated[t.id]) return;
+          updated[t.id].yesterday = prevMap[t.id] !== undefined ? prevMap[t.id] : "—";
+          if (updated[t.id].yesterday === "—" || updated[t.id].today === "" || updated[t.id].today === null) updated[t.id].difference = "—";
+          else {
+            const adj = canAdjust ? Number(updated[t.id].adjust || 0) : 0;
+            updated[t.id].difference = Number(updated[t.id].today - updated[t.id].yesterday + adj).toFixed(3);
+          }
+        });
+        return updated;
+      });
+    } catch {
+      // ignore
+    }
+  }, [api, reportDate, totalizersByUnit, canAdjust]);
+
+  /* =============================================================
+     Auto calculations, rendering helpers, KPI compute etc (unchanged)
      ============================================================= */
   const updateField = (id, field, value) => {
     setReadingsForm((prev) => {
@@ -394,11 +437,6 @@ export default function TotalizerEntryPage({ auth }) {
     });
   };
 
-  /* =============================================================
-     getDiff helper — returns difference value (number) for given totalizer name within a unit
-     - name: master.name
-     - unitFilter: optional
-     ============================================================= */
   const getDiff = (name, unitFilter = null) => {
     const unitToUse = unitFilter || activeTab;
     const rec = Object.values(readingsForm).find((r) => r.name === name && (r.unit || "").toString() === unitToUse);
@@ -407,9 +445,6 @@ export default function TotalizerEntryPage({ auth }) {
     return Number(rec.difference) || 0;
   };
 
-  /* =============================================================
-     ENERGY KPI computation (frontend)
-     ============================================================= */
   const EM = {
     u1_lsr01_ic1: "1lsr01_ic1",
     u1_lsr02_ic1: "1lsr02_ic1",
@@ -452,7 +487,6 @@ export default function TotalizerEntryPage({ auth }) {
     const unit1_aux_consumption = unit1_unit_aux_mwh + (total_station_aux + total_station_tie) / 2;
     const unit2_aux_consumption = unit2_unit_aux_mwh + (total_station_aux + total_station_tie) / 2;
 
-    // generation: try cache first (from station KPI), otherwise attempt to read Energy-Meter difference
     const genCache = generationCache[reportDate] || {};
     const unit1_gen = genCache.unit1_generation ?? getDiff(EM.unit1_gen, "Energy-Meter");
     const unit2_gen = genCache.unit2_generation ?? getDiff(EM.unit2_gen, "Energy-Meter");
@@ -477,15 +511,13 @@ export default function TotalizerEntryPage({ auth }) {
   const energyKPI = useMemo(() => (activeTab === "Energy-Meter" ? computeEnergyKPIObject() : null), [readingsForm, activeTab, generationCache, reportDate]);
 
   /* =============================================================
-     Unit KPI compute & save (async) - same rules as before
+     Unit KPI compute & save (unchanged)
      ============================================================= */
   const computeUnitKPI = useCallback(
     async (unitName) => {
-      // ensure we have generation numbers from station KPI cache
       const gen = await ensureGenerationForDate(reportDate);
       const unitGen = gen[unitName === "Unit-1" ? "unit1_generation" : "unit2_generation"] ?? 0;
 
-      // feeders names are same but must be filtered by unit (we rely on getDiff(name, unit))
       const feederA = getDiff("feeder_a", unitName);
       const feederB = getDiff("feeder_b", unitName);
       const feederC = getDiff("feeder_c", unitName);
@@ -509,11 +541,9 @@ export default function TotalizerEntryPage({ auth }) {
         { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_dm_water_consumption`, value: Number(dmWater.toFixed(3)), unit: "m3" },
         { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_steam_generation`, value: Number(steam.toFixed(3)), unit: "kg" },
         { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_specific_dm_percent`, value: specificDM, unit: "%" },
-        // store generation as well for reference
         { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_generation`, value: Number(unitGen.toFixed(3)), unit: "MWh" },
       ];
 
-      // save each KPI via backend upsert
       try {
         await api.post("/totalizers/kpi/store", {
           date: reportDate,
@@ -531,11 +561,7 @@ export default function TotalizerEntryPage({ auth }) {
   );
 
   /* =============================================================
-     Submit flow: sends /totalizers/submit, then:
-       - snapshots _orig
-       - if activeTab is Unit-1 or Unit-2 -> compute & auto-save unit KPI
-       - if activeTab is Energy-Meter -> compute and save station KPIs (existing logic)
-       - additionally: save manual KPI inputs for current activeTab (kpi_type: "manual")
+     Submit flow (unchanged)
      ============================================================= */
   const [showConfirmPopup, setShowConfirmPopup] = useState(false);
   const [confirmList, setConfirmList] = useState([]);
@@ -563,7 +589,6 @@ export default function TotalizerEntryPage({ auth }) {
       return;
     }
 
-    // Non-admin cannot modify existing values
     if (!isAdmin && !isHOD) {
       for (const ch of changed) {
         const rec = readingsForm[ch.id];
@@ -578,10 +603,8 @@ export default function TotalizerEntryPage({ auth }) {
     setShowConfirmPopup(true);
   };
 
-  // helper: check whether manual KPI was changed compared to backend/original
   const hasManualKPIChange = () => {
     const currentManuals = manualKPI[activeTab] || {};
-    // If any manual value is non-empty, consider changed (we don't have an orig for manual; user must Save)
     return Object.values(currentManuals).some((v) => v !== "" && v !== null && v !== undefined);
   };
 
@@ -608,10 +631,8 @@ export default function TotalizerEntryPage({ auth }) {
           .filter(Boolean),
       };
 
-      // save totalizer readings
       await api.post("/totalizers/submit", payload);
 
-      // snapshot back (mark as originally saved)
       setReadingsForm((prev) => {
         const updated = { ...prev };
         items.forEach((t) => {
@@ -625,14 +646,12 @@ export default function TotalizerEntryPage({ auth }) {
 
       setMessage("✅ Saved successfully");
 
-      // Auto-save KPIs for Unit-1 or Unit-2
       if (activeTab === "Unit-1" || activeTab === "Unit-2") {
         const res = await computeUnitKPI(activeTab);
         if (res.success) setMessage((m) => (m ? m + " • KPIs saved" : "✅ KPIs saved"));
         else setMessage((m) => (m ? m + " • KPI save failed" : "❌ KPI save failed"));
       }
 
-      // If Energy-Meter tab, compute & save station KPIs as before (use computeEnergyKPIObject)
       if (activeTab === "Energy-Meter") {
         const ek = computeEnergyKPIObject();
         const kpisArr = [
@@ -654,7 +673,6 @@ export default function TotalizerEntryPage({ auth }) {
             plant_name: "Station",
             kpis: kpisArr,
           });
-          // refresh cached generation
           await ensureGenerationForDate(reportDate);
           setMessage((m) => (m ? m + " • Station KPI saved" : "✅ Station KPI saved"));
         } catch (err) {
@@ -663,7 +681,6 @@ export default function TotalizerEntryPage({ auth }) {
         }
       }
 
-      // Save manual KPI values for the active tab (if provided)
       const manualForTab = manualKPI[activeTab] || {};
       const manualKpisPayload = [];
       Object.keys(manualForTab).forEach((kname) => {
@@ -686,7 +703,6 @@ export default function TotalizerEntryPage({ auth }) {
             kpis: manualKpisPayload,
           });
           setMessage((m) => (m ? m + " • Manual KPI saved" : "✅ Manual KPI saved"));
-          // reload manual KPIs so UI reflects upserted values (and they become stable)
           await loadManualKPIForActiveTab();
         } catch (err) {
           console.error("Manual KPI save failed", err);
@@ -694,9 +710,12 @@ export default function TotalizerEntryPage({ auth }) {
         }
       }
 
-      // Refresh yesterday (and KPI cache) after submit
       await loadYesterday(reportDate, activeTab, totalizersByUnit[activeTab]);
       await ensureGenerationForDate(reportDate);
+      // Refresh shutdown KPIs after save (in case duration was entered in shutdowns)
+      if (activeTab === "Unit-1" || activeTab === "Unit-2") {
+        await loadShutdownKPIsForUnitDate(activeTab, reportDate);
+      }
     } catch (e) {
       console.error(e);
       const det = e?.response?.data?.detail || "Error saving";
@@ -707,7 +726,7 @@ export default function TotalizerEntryPage({ auth }) {
   };
 
   /* =============================================================
-     Reset Form (clears current inputs for active tab)
+     Reset Form, Seed Master, Adjust popup (unchanged)
      ============================================================= */
   const handleResetForm = () => {
     const items = totalizersByUnit[activeTab] || [];
@@ -724,9 +743,6 @@ export default function TotalizerEntryPage({ auth }) {
     setMessage("⚠️ Current inputs have been reset.");
   };
 
-  /* =============================================================
-     Seed Master (Admin only)
-     ============================================================= */
   const seedMaster = async () => {
     if (!isAdmin) return setMessage("❌ Only admin can seed!");
     if (!window.confirm("Seed master? Run only ONCE.")) return;
@@ -742,10 +758,6 @@ export default function TotalizerEntryPage({ auth }) {
     }
   };
 
-  /* =============================================================
-     Adjust popup
-     - double click card to open (only for adjust-capable users)
-     ============================================================= */
   const openAdjustPopup = (t) => {
     if (!canAdjust || !canEdit(t.name)) return;
     const rec = readingsForm[t.id];
@@ -772,10 +784,6 @@ export default function TotalizerEntryPage({ auth }) {
     setShowAdjustPopup(false);
   };
 
-  /* =============================================================
-     render card (compact), double-click opens adjust popup
-     - using small paddings to make 5-per-row visually compact
-     ============================================================= */
   const renderCard = (t) => {
     const rec = readingsForm[t.id];
     if (!rec) return null;
@@ -814,9 +822,7 @@ export default function TotalizerEntryPage({ auth }) {
               return { ...prev, [t.id]: r };
             });
           }}
-          className={`w-full p-1 mt-1 rounded border text-sm ${
-            readOnly ? "bg-gray-100 text-gray-600" : "bg-white focus:ring-1 focus:ring-orange-400"
-          }`}
+          className={`w-full p-1 mt-1 rounded border text-sm ${readOnly ? "bg-gray-100 text-gray-600" : "bg-white focus:ring-1 focus:ring-orange-400"}`}
         />
 
         <div className="mt-1 text-sm">
@@ -827,11 +833,10 @@ export default function TotalizerEntryPage({ auth }) {
   };
 
   /* =============================================================
-     UI JSX
+     UI JSX (modified to show Shutdown KPIs)
      ============================================================= */
   const tabs = ["Unit-1", "Unit-2", "Station", "Energy-Meter"];
 
-  // Unit KPIs computed locally (for display) — compute from current readings (and cached generation)
   const localUnit1KPI = useMemo(() => {
     const feederA = getDiff("feeder_a", "Unit-1");
     const feederB = getDiff("feeder_b", "Unit-1");
@@ -867,9 +872,9 @@ export default function TotalizerEntryPage({ auth }) {
   }, [readingsForm, generationCache, reportDate]);
 
   return (
-    <div className="max-w-7xl mx-auto p-4">
+    <div className="max-w-7xl mx-auto p-0">
       {/* TOP BAR */}
-      <div className="flex items-center justify-between mb-4 gap-4">
+      <div className="flex items-center justify-between mb-1 gap-4">
         <div className="flex gap-2">
           {tabs.map((t) => {
             const active = t === activeTab;
@@ -971,6 +976,44 @@ export default function TotalizerEntryPage({ auth }) {
 
           <div className="h-px bg-gray-100" />
 
+          {/* NEW: Shutdown KPIs block for Unit-1 / Unit-2 */}
+          {(activeTab === "Unit-1" || activeTab === "Unit-2") && (
+            <>
+              <div className="text-xs text-gray-500">Shutdown KPIs (Auto)</div>
+              <div className="p-2 rounded-md bg-white border mt-2">
+                <div className="flex justify-between text-sm"><div>Running Hour</div>
+                  <div className="font-semibold">
+                    {shutdownKPIs[activeTab]?.running_hour === null ? "—" : Number(shutdownKPIs[activeTab].running_hour).toFixed(2)}
+                  </div>
+                </div>
+
+                <div className="flex justify-between text-sm"><div>Availability (%)</div>
+                  <div className="font-semibold">
+                    {shutdownKPIs[activeTab]?.plant_availability_percent === null ? "—" : Number(shutdownKPIs[activeTab].plant_availability_percent).toFixed(2) + "%"}
+                  </div>
+                </div>
+
+                <div className="flex justify-between text-sm"><div>Planned Out (hr)</div>
+                  <div className="font-semibold">
+                    {shutdownKPIs[activeTab]?.planned_outage_hour === null ? "—" : Number(shutdownKPIs[activeTab].planned_outage_hour).toFixed(2)}
+                  </div>
+                </div>
+
+                <div className="flex justify-between text-sm"><div>Planned Out (%)</div>
+                  <div className="font-semibold">
+                    {shutdownKPIs[activeTab]?.planned_outage_percent === null ? "—" : Number(shutdownKPIs[activeTab].planned_outage_percent).toFixed(2) + "%"}
+                  </div>
+                </div>
+
+                <div className="flex justify-between text-sm"><div>Strategic Out (hr)</div>
+                  <div className="font-semibold">
+                    {shutdownKPIs[activeTab]?.strategic_outage_hour === null ? "—" : Number(shutdownKPIs[activeTab].strategic_outage_hour).toFixed(2)}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
           {/* Energy-Meter live KPIs */}
           {activeTab === "Energy-Meter" && energyKPI && (
             <>
@@ -987,33 +1030,28 @@ export default function TotalizerEntryPage({ auth }) {
             </>
           )}
 
-          {/* Unit KPIs grouped with colors */}
+          {/* Unit KPIs grouped */}
           {(activeTab === "Unit-1" || activeTab === "Unit-2") && (
             <>
               <div className="text-xs text-gray-500">Calculated KPIs</div>
-
-              {/* coal group */}
               <div className="p-2 rounded-md" style={{ background: "#FFF7E6" }}>
                 <div className="text-xs text-gray-700 font-medium">COAL</div>
                 <div className="flex justify-between text-sm"><div>Consumption</div><div className="font-semibold">{(activeTab === "Unit-1" ? localUnit1KPI.coal : localUnit2KPI.coal).toFixed(3)}</div></div>
                 <div className="flex justify-between text-sm"><div>Specific Coal</div><div className="font-semibold">{(activeTab === "Unit-1" ? localUnit1KPI.specificCoal : localUnit2KPI.specificCoal).toFixed(6)}</div></div>
               </div>
 
-              {/* LDO group */}
               <div className="p-2 rounded-md" style={{ background: "#FFF1E6" }}>
                 <div className="text-xs text-gray-700 font-medium">LDO</div>
                 <div className="flex justify-between text-sm"><div>Consumption</div><div className="font-semibold">{(activeTab === "Unit-1" ? localUnit1KPI.ldo : localUnit2KPI.ldo).toFixed(3)}</div></div>
                 <div className="flex justify-between text-sm"><div>Specific Oil</div><div className="font-semibold">{(activeTab === "Unit-1" ? localUnit1KPI.specificOil : localUnit2KPI.specificOil).toFixed(6)}</div></div>
               </div>
 
-              {/* DM group */}
               <div className="p-2 rounded-md" style={{ background: "#E6FBFF" }}>
                 <div className="text-xs text-gray-700 font-medium">DM WATER</div>
                 <div className="flex justify-between text-sm"><div>DM Water</div><div className="font-semibold">{(activeTab === "Unit-1" ? localUnit1KPI.dm : localUnit2KPI.dm).toFixed(3)}</div></div>
                 <div className="flex justify-between text-sm"><div>Specific DM %</div><div className="font-semibold">{(activeTab === "Unit-1" ? localUnit1KPI.specificDM : localUnit2KPI.specificDM).toFixed(3)}%</div></div>
               </div>
 
-              {/* Generation group */}
               <div className="p-2 rounded-md" style={{ background: "#E6EDFF" }}>
                 <div className="text-xs text-gray-700 font-medium">GENERATION</div>
                 <div className="flex justify-between text-sm"><div>Generation</div><div className="font-semibold">{(activeTab === "Unit-1" ? localUnit1KPI.gen : localUnit2KPI.gen).toFixed(3)}</div></div>
@@ -1021,7 +1059,6 @@ export default function TotalizerEntryPage({ auth }) {
             </>
           )}
 
-          {/* Station fallback when no KPIs */}
           {activeTab === "Station" && <div className="text-sm text-gray-500">Station KPIs shown on Energy-Meter save</div>}
         </div>
       </div>

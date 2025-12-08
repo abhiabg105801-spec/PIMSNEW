@@ -1,564 +1,430 @@
 // PlantShutdownPage.jsx
-// Full refactored with Tab Layout (T2), Sectioned Form (F3), Zebra Table (T2), JSL Theme
-
-// NOTE: Replace this entire file into your project.
-
-import React, { useState, useEffect, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import axios from "axios";
-import { format, subDays } from "date-fns";
 
-/* -------------------------------------------------------------------------- */
-/*                               helper fields                                */
-/* -------------------------------------------------------------------------- */
-
-const FormField = ({ label, id, type = "text", value, onChange, required = false, ...props }) => (
+/* ---------------------- Small UI components ---------------------- */
+const TextInput = ({ label, name, value, onChange, type = "text", required = false }) => (
   <div>
-    <label htmlFor={id} className="block text-xs font-medium text-gray-700 mb-1">
-      {label}
-      {required && <span className="text-red-500">*</span>}
+    <label className="text-xs font-medium text-gray-700">
+      {label} {required && <span className="text-red-500">*</span>}
     </label>
     <input
-      type={type}
-      id={id}
-      name={id}
+      name={name}
       value={value}
       onChange={onChange}
-      required={required}
-      className="block w-full border rounded-md p-1.5 border-gray-300 shadow-sm focus:border-[#E06A1B] focus:ring-[#E06A1B] sm:text-sm transition"
-      {...props}
+      type={type}
+      className="w-full border p-2 rounded mt-1"
     />
   </div>
 );
 
-const SelectField = ({ label, id, value, onChange, required = false, children, ...props }) => (
+const TextArea = ({ label, name, value, onChange, rows = 3 }) => (
   <div>
-    <label htmlFor={id} className="block text-xs font-medium text-gray-700 mb-1">
-      {label}
-      {required && <span className="text-red-500">*</span>}
-    </label>
-    <select
-      id={id}
-      name={id}
+    <label className="text-xs font-medium text-gray-700">{label}</label>
+    <textarea
+      name={name}
+      rows={rows}
       value={value}
       onChange={onChange}
-      required={required}
-      className="block w-full border rounded-md p-1.5 border-gray-300 shadow-sm focus:border-[#E06A1B] focus:ring-[#E06A1B] sm:text-sm transition"
-      {...props}
-    >
+      className="w-full border p-2 rounded mt-1"
+    />
+  </div>
+);
+
+const SelectInput = ({ label, name, value, onChange, children, required = false }) => (
+  <div>
+    <label className="text-xs font-medium text-gray-700">{label} {required && <span className="text-red-500">*</span>}</label>
+    <select name={name} value={value} onChange={onChange} className="w-full border p-2 rounded mt-1">
       {children}
     </select>
   </div>
 );
 
-const TextAreaField = ({ label, id, value, onChange, required = false, rows = 3, ...props }) => (
-  <div>
-    <label htmlFor={id} className="block text-xs font-medium text-gray-700 mb-1">
-      {label}
-      {required && <span className="text-red-500">*</span>}
-    </label>
-    <textarea
-      id={id}
-      name={id}
-      value={value}
-      onChange={onChange}
-      required={required}
-      rows={rows}
-      className="block w-full border rounded-md p-1.5 border-gray-300 shadow-sm focus:border-[#E06A1B] focus:ring-[#E06A1B] sm:text-sm transition"
-      {...props}
-    />
-  </div>
-);
-
-/* -------------------------------------------------------------------------- */
-/*                             initial form state                              */
-/* -------------------------------------------------------------------------- */
-
-const initialShutdownState = {
-  unit: "",
-  datetime_from: "",
-  datetime_to: "",
-  duration: "",
-  reason: "",
-  responsible_agency: "",
-  notification_no: "",
+/* ---------------------- Modal ---------------------- */
+const Modal = ({ open, onClose, children }) => {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl p-6 relative">
+        <button onClick={onClose} className="absolute right-3 top-3 text-gray-500 hover:text-black">✕</button>
+        {children}
+      </div>
+    </div>
+  );
 };
 
-const formatDateTimeForTable = (datetimeString) => {
-  if (!datetimeString) return "";
-  try {
-    const d = new Date(datetimeString);
-    return d.toLocaleString("en-GB", {
-      year: "2-digit",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    });
-  } catch (e) {
-    return datetimeString;
-  }
-};
-
-/* -------------------------------------------------------------------------- */
-/*                              main component                                 */
-/* -------------------------------------------------------------------------- */
-
+/* ---------------------- Main Component ---------------------- */
 export default function PlantShutdownPage({ auth }) {
-  const [activeTab, setActiveTab] = useState("form"); // form | history
-
-  const [formData, setFormData] = useState(initialShutdownState);
-  const [rcaFile, setRcaFile] = useState(null);
-  const [message, setMessage] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const fileInputRef = useRef(null);
-
-  const [shutdownLogs, setShutdownLogs] = useState([]);
-  const [loadingLogs, setLoadingLogs] = useState(false);
-  const [logError, setLogError] = useState("");
-
-  const [editingId, setEditingId] = useState(null);
-
-  const today = new Date();
-  const [startDate, setStartDate] = useState(format(subDays(today, 6), "yyyy-MM-dd"));
-  const [endDate, setEndDate] = useState(format(today, "yyyy-MM-dd"));
-  const [unitFilter, setUnitFilter] = useState("");
-
-  const API_URL = "http://localhost:8080/api";
+  const API_BASE = "http://localhost:8080/api/shutdowns";
   const headers = { Authorization: auth };
 
-  /* ----------------------------- fetch logs ----------------------------- */
-  const fetchShutdownLogs = async () => {
-    setLoadingLogs(true);
-    setLogError("");
+  /* ---------- Shutdown form state (all fields) ---------- */
+  const initialShutdown = {
+    unit: "",
+    shutdown_type: "",
+    datetime_from: "",              // only 'From' in shutdown form
+    responsible_agency: "",
+    reason: "",
+    remarks: "",
+    shift_incharge: "",
+    pretrip_status: "",
+    first_cause: "",
+    action_taken: "",
+    restoration_sequence: "",
+    notification_no: "",
+  };
+  const [shutdownForm, setShutdownForm] = useState(initialShutdown);
+  const [editingShutdownId, setEditingShutdownId] = useState(null);
 
-    const params = {
-      start_date: startDate,
-      end_date: endDate,
-    };
-    if (unitFilter) params.unit = unitFilter;
+  /* file */
+  const fileRef = useRef(null);
+  const [rcaFile, setRcaFile] = useState(null);
 
+  /* ---------- Sync modal state (all sync fields) ---------- */
+  const initialSync = {
+    sync_datetime: "",
+    sync_shift_incharge: "",
+    oil_used_kl: "",
+    coal_t: "",
+    oil_stabilization_kl: "",
+    import_percent: "",
+    sync_notes: "",
+  };
+  const [syncForm, setSyncForm] = useState(initialSync);
+  const [syncTargetId, setSyncTargetId] = useState(null);
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+
+  /* ---------- Other state ---------- */
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+
+  /* ---------- Helpers ---------- */
+  const normalizeDT = (s) => {
+    if (!s) return s;
+    return s.length === 16 ? s + ":00" : s;
+  };
+  const fmt = (iso) => {
+    if (!iso) return "";
     try {
-      const res = await axios.get(`${API_URL}/shutdowns/`, { headers, params });
-      setShutdownLogs(res.data);
+      return new Date(iso).toLocaleString();
+    } catch {
+      return iso;
+    }
+  };
+
+  /* ---------- Fetch latest 5 ---------- */
+  const fetchLatest = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE}/latest`, { headers });
+      setHistory(res.data || []);
     } catch (err) {
-      setShutdownLogs([]);
-      if (err.response?.status !== 404) setLogError("Failed to fetch shutdown logs.");
+      console.error("fetchLatest err:", err);
+      setMessage("Failed to fetch latest shutdowns.");
+      setHistory([]);
     } finally {
-      setLoadingLogs(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchShutdownLogs();
-  }, [startDate, endDate, unitFilter]);
+    fetchLatest();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  /* ------------------------ Auto duration calc ------------------------- */
-  useEffect(() => {
-    const { datetime_from, datetime_to } = formData;
-    let calculated = "";
+  /* ---------- Shutdown handlers ---------- */
+  const onShutdownChange = (e) => {
+    const { name, value } = e.target;
+    setShutdownForm((s) => ({ ...s, [name]: value }));
+  };
 
-    if (datetime_from && datetime_to) {
-      try {
-        const s = new Date(datetime_from);
-        const e = new Date(datetime_to);
-        if (e > s) {
-          const diff = (e - s) / 60000; // mins
-          const days = Math.floor(diff / (60 * 24));
-          const hours = Math.floor((diff % (60 * 24)) / 60);
-          const minutes = Math.round(diff % 60);
-          if (days) calculated += `${days}d `;
-          if (hours) calculated += `${hours}h `;
-          calculated += `${minutes}m`;
-        } else {
-          calculated = "Invalid";
-        }
-      } catch {
-        calculated = "";
+  const onFileChange = (e) => {
+    setRcaFile(e.target.files?.[0] || null);
+  };
+
+  const resetShutdownForm = () => {
+    setShutdownForm(initialShutdown);
+    setEditingShutdownId(null);
+    setRcaFile(null);
+    if (fileRef.current) fileRef.current.value = "";
+  };
+
+  const submitShutdown = async (e) => {
+    e.preventDefault();
+    setMessage("");
+    // required
+    if (!shutdownForm.unit || !shutdownForm.datetime_from) {
+      setMessage("Unit and From (Date & Time) are required.");
+      return;
+    }
+
+    const fd = new FormData();
+    // append all shutdown fields (only send non-empty values)
+    Object.entries(shutdownForm).forEach(([k, v]) => {
+      if (v !== undefined && v !== null && v !== "") {
+        fd.append(k, k === "datetime_from" ? normalizeDT(v) : v);
+      }
+    });
+    if (rcaFile) fd.append("rca_file", rcaFile, rcaFile.name);
+
+    try {
+      if (editingShutdownId) {
+        await axios.put(`${API_BASE}/${editingShutdownId}`, fd, { headers });
+        setMessage("Shutdown updated.");
+      } else {
+        await axios.post(`${API_BASE}/`, fd, { headers });
+        setMessage("Shutdown created.");
+      }
+      resetShutdownForm();
+      fetchLatest();
+    } catch (err) {
+      console.error("submitShutdown err:", err);
+      if (err.response?.status === 422) {
+        const detail = err.response.data.detail;
+        if (Array.isArray(detail)) {
+          setMessage(detail.map(d => (d.loc ? `${d.loc.join(".")}: ${d.msg}` : d.msg)).join("; "));
+        } else setMessage(JSON.stringify(err.response.data));
+      } else {
+        setMessage(err.response?.data?.detail || "Failed to save shutdown.");
       }
     }
-
-    setFormData((p) => (p.duration !== calculated ? { ...p, duration: calculated } : p));
-  }, [formData.datetime_from, formData.datetime_to]);
-
-  /* ----------------------------- Handlers ------------------------------ */
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((s) => ({ ...s, [name]: value }));
   };
 
-  const handleStartEdit = (log) => {
-    setEditingId(log.id);
-    setFormData({
-      unit: log.unit,
-      datetime_from: log.datetime_from || "",
-      datetime_to: log.datetime_to || "",
-      duration: log.duration || "",
-      reason: log.reason || "",
-      responsible_agency: log.responsible_agency || "",
-      notification_no: log.notification_no || "",
+  const startEditShutdown = (rec) => {
+    setEditingShutdownId(rec.id);
+    setShutdownForm({
+      unit: rec.unit || "",
+      shutdown_type: rec.shutdown_type || "",
+      datetime_from: rec.datetime_from ? rec.datetime_from.slice(0, 16) : "",
+      responsible_agency: rec.responsible_agency || "",
+      reason: rec.reason || "",
+      remarks: rec.remarks || "",
+      shift_incharge: rec.shift_incharge || "",
+      pretrip_status: rec.pretrip_status || "",
+      first_cause: rec.first_cause || "",
+      action_taken: rec.action_taken || "",
+      restoration_sequence: rec.restoration_sequence || "",
+      notification_no: rec.notification_no || "",
     });
-    setMessage("");
-    setRcaFile(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
     window.scrollTo({ top: 0, behavior: "smooth" });
-    setActiveTab("form");
   };
 
-  const handleCancelEdit = () => {
-    setEditingId(null);
-    setFormData(initialShutdownState);
-    setRcaFile(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-    setMessage("");
+  /* ---------- Sync modal handlers ---------- */
+  const startAddSync = (rec) => {
+    setSyncTargetId(rec.id);
+    setSyncForm({
+      sync_datetime: rec.sync_datetime ? rec.sync_datetime.slice(0, 16) : "",
+      sync_shift_incharge: rec.sync_shift_incharge || rec.shift_incharge || "",
+      oil_used_kl: rec.oil_used_kl ?? "",
+      coal_t: rec.coal_t ?? "",
+      oil_stabilization_kl: rec.oil_stabilization_kl ?? "",
+      import_percent: rec.import_percent ?? "",
+      sync_notes: rec.sync_notes || "",
+    });
+    setSyncModalOpen(true);
   };
 
-  const handleSubmit = async (e) => {
+  const onSyncChange = (e) => {
+    const { name, value } = e.target;
+    setSyncForm((s) => ({ ...s, [name]: value }));
+  };
+
+  const resetSync = () => {
+    setSyncForm(initialSync);
+    setSyncTargetId(null);
+  };
+
+  const submitSync = async (e) => {
     e.preventDefault();
-    setSubmitting(true);
     setMessage("");
-
-    const form = new FormData();
-    Object.entries(formData).forEach(([k, v]) => form.append(k, v));
-    if (rcaFile) form.append("rca_file", rcaFile);
-
-    const isUpdating = editingId !== null;
-    const url = isUpdating
-      ? `${API_URL}/shutdowns/${editingId}`
-      : `${API_URL}/shutdowns/`;
-    const method = isUpdating ? "put" : "post";
-
-    try {
-      await axios({ method, url, data: form, headers });
-      setMessage(isUpdating ? "✅ Record updated" : "✅ Record saved");
-      handleCancelEdit();
-      fetchShutdownLogs();
-    } catch (err) {
-      let detail = err.response?.data?.detail || (isUpdating ? "Error updating" : "Error saving");
-      if (Array.isArray(detail)) detail = detail.map((d) => `${d.loc.pop()} - ${d.msg}`).join("; ");
-      setMessage(`❌ ${detail}`);
-    } finally {
-      setSubmitting(false);
+    if (!syncTargetId) {
+      setMessage("No shutdown selected for synchronisation.");
+      return;
     }
-  };
+    if (!syncForm.sync_datetime) {
+      setMessage("Sync Date & Time is required.");
+      return;
+    }
 
-  const handleDownloadPDF = async () => {
-    setMessage("Generating PDF...");
-    const params = { start_date: startDate, end_date: endDate };
-    if (unitFilter) params.unit = unitFilter;
-
-    try {
-      const response = await axios.get(`${API_URL}/shutdowns/export/pdf`, {
-        headers,
-        params,
-        responseType: "blob",
+    const fd = new FormData();
+    fd.append("sync_datetime", normalizeDT(syncForm.sync_datetime));
+    // append optional sync fields
+    ["sync_shift_incharge", "oil_used_kl", "coal_t", "oil_stabilization_kl", "import_percent", "sync_notes"]
+      .forEach(k => {
+        const v = syncForm[k];
+        if (v !== undefined && v !== null && v !== "") fd.append(k, v);
       });
 
-      const blob = new Blob([response.data], { type: "application/pdf" });
-      const link = document.createElement("a");
-      link.href = window.URL.createObjectURL(blob);
-      link.download = `Shutdown_Log_${startDate}_to_${endDate}.pdf`;
-      link.click();
-      window.URL.revokeObjectURL(link.href);
-      setMessage("");
+    try {
+      // Option A: separate endpoint
+      await axios.put(`${API_BASE}/${syncTargetId}/sync`, fd, { headers });
+      setMessage("Synchronisation saved.");
+      setSyncModalOpen(false);
+      resetSync();
+      fetchLatest();
     } catch (err) {
-      setMessage(`❌ PDF Download Failed`);
+      console.error("submitSync err:", err);
+      if (err.response?.status === 422) {
+        const detail = err.response.data.detail;
+        if (Array.isArray(detail)) {
+          setMessage(detail.map(d => (d.loc ? `${d.loc.join(".")}: ${d.msg}` : d.msg)).join("; "));
+        } else setMessage(JSON.stringify(err.response.data));
+      } else {
+        setMessage(err.response?.data?.detail || "Failed to save synchronisation.");
+      }
     }
   };
 
-  /* -------------------------------------------------------------------------- */
-  /*                                RENDER UI                                   */
-  /* -------------------------------------------------------------------------- */
-
+  /* ---------------------- JSX ---------------------- */
   return (
-    <div className="max-w-7xl mx-auto my-4 p-1 bg-white rounded-lg space-y-6">
-      {/* -------------------------- TABS -------------------------- */}
-      <div className="flex gap-2 mb-2">
-        <button
-          onClick={() => setActiveTab("form")}
-          className={`px-4 py-2 rounded-full font-semibold text-sm shadow transition
-            ${activeTab === "form" ? "bg-[#E06A1B] text-white" : "bg-gray-200 text-gray-700 hover:bg-gray-300"}`}
-        >
-          Log Shutdown
-        </button>
+    <div className="max-w-6xl mx-auto p-4 space-y-6">
+      <h1 className="text-2xl font-semibold text-[#E06A1B]">Shutdown & Synchronisation</h1>
 
-        <button
-          onClick={() => setActiveTab("history")}
-          className={`px-4 py-2 rounded-full font-semibold text-sm shadow transition
-            ${activeTab === "history" ? "bg-[#E06A1B] text-white" : "bg-gray-200 text-gray-700 hover:bg-gray-300"}`}
-        >
-          Shutdown History
-        </button>
-      </div>
-
-      {/* ----------------------- TAB: FORM ----------------------- */}
-      {activeTab === "form" && (
-        <div className="p-4 bg-white rounded-lg shadow border border-[#E06A1B]/30 space-y-4">
-          <h2 className="text-xl font-semibold text-center text-[#E06A1B]">
-            {editingId ? "Update Shutdown Event" : "Log Plant Shutdown Event"}
-          </h2>
-
-          {message && (
-            <div
-              className={`p-3 text-sm text-center rounded-md shadow-sm
-                ${message.startsWith("❌")
-                  ? "bg-red-50 text-red-700 border border-red-200"
-                  : "bg-orange-50 text-[#E06A1B] border border-[#E06A1B]/50"}`}
-            >
-              {message}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Section 1 */}
-            <div>
-              <h3 className="text-sm font-semibold text-gray-700 border-b pb-1 mb-2">
-                Shutdown Timing
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <FormField
-                  label="From (Date & Time)"
-                  id="datetime_from"
-                  type="datetime-local"
-                  value={formData.datetime_from}
-                  onChange={handleChange}
-                  required
-                />
-                <FormField
-                  label="To (Date & Time)"
-                  id="datetime_to"
-                  type="datetime-local"
-                  value={formData.datetime_to}
-                  onChange={handleChange}
-                />
-                <SelectField
-                  label="Unit"
-                  id="unit"
-                  value={formData.unit}
-                  onChange={handleChange}
-                  required
-                >
-                  <option value="">Select Unit</option>
-                  <option value="Unit-1">Unit-1</option>
-                  <option value="Unit-2">Unit-2</option>
-                </SelectField>
-                <FormField
-                  label="Duration"
-                  id="duration"
-                  type="text"
-                  value={formData.duration}
-                  readOnly
-                />
-              </div>
-            </div>
-
-            {/* Section 2 */}
-            <div>
-              <h3 className="text-sm font-semibold text-gray-700 border-b pb-1 mb-2">
-                Shutdown Details
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <TextAreaField
-                  label="Reason for Shutdown"
-                  id="reason"
-                  value={formData.reason}
-                  onChange={handleChange}
-                />
-                <FormField
-                  label="Responsible Agency"
-                  id="responsible_agency"
-                  value={formData.responsible_agency}
-                  onChange={handleChange}
-                />
-                <FormField
-                  label="Breakdown Notification No."
-                  id="notification_no"
-                  value={formData.notification_no}
-                  onChange={handleChange}
-                />
-              </div>
-            </div>
-
-            {/* Section 3 */}
-            <div>
-              <h3 className="text-sm font-semibold text-gray-700 border-b pb-1 mb-2">
-                Attachments
-              </h3>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">
-                  Upload RCA File (Optional)
-                </label>
-                <input
-                  type="file"
-                  id="rca_file"
-                  name="rca_file"
-                  ref={fileInputRef}
-                  onChange={(e) => setRcaFile(e.target.files?.[0] || null)}
-                  className="block w-full text-sm border border-gray-300 rounded-md cursor-pointer file:mr-4 file:py-1.5 file:px-4 file:rounded-md file:border-0 file:bg-orange-50 file:text-[#E06A1B] hover:file:bg-orange-100"
-                />
-                {rcaFile && <p className="text-xs text-gray-500 mt-1">Selected: {rcaFile.name}</p>}
-              </div>
-            </div>
-
-            {/* Buttons */}
-            <div className="flex gap-3 pt-1">
-              <button
-                type="submit"
-                className={`w-full py-2 px-4 rounded-md text-white font-semibold shadow-md transition
-                  ${submitting
-                    ? "bg-gray-400 cursor-not-allowed"
-                    : editingId
-                    ? "bg-yellow-500 hover:bg-yellow-600"
-                    : "bg-[#E06A1B] hover:bg-orange-600"}`}
-                disabled={submitting}
-              >
-                {submitting ? "Saving..." : editingId ? "Update Record" : "Save Record"}
-              </button>
-
-              {editingId && (
-                <button
-                  type="button"
-                  onClick={handleCancelEdit}
-                  className="py-2 px-4 rounded-md text-gray-700 font-semibold bg-gray-100 hover:bg-gray-200 border border-gray-300 shadow-sm"
-                >
-                  Cancel
-                </button>
-              )}
-            </div>
-          </form>
+      {/* message */}
+      {message && (
+        <div className="p-3 rounded bg-orange-50 text-[#E06A1B] border border-[#E06A1B]/30">
+          {message}
         </div>
       )}
 
-      {/* --------------------- TAB: HISTORY --------------------- */}
-      {activeTab === "history" && (
-        <div className="p-4 bg-white rounded-lg shadow border border-[#E06A1B]/30 space-y-4">
-          <h2 className="text-xl font-semibold text-center text-[#E06A1B]">
-            Shutdown History
-          </h2>
+      {/* Shutdown form */}
+      <section className="bg-white p-4 rounded shadow">
+        <h2 className="text-lg font-semibold mb-3">Shutdown Log (create / edit)</h2>
 
-          {/* Filters */}
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 p-3 border border-orange-100 rounded-md bg-orange-50 items-end">
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Start Date</label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="w-full border rounded-md p-1.5 border-gray-300 shadow-sm"
-              />
-            </div>
+        <form onSubmit={submitShutdown} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <SelectInput label="Unit" name="unit" value={shutdownForm.unit} onChange={onShutdownChange} required>
+              <option value="">Select Unit</option>
+              <option value="Unit-1">Unit-1</option>
+              <option value="Unit-2">Unit-2</option>
+            </SelectInput>
 
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">End Date</label>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                min={startDate}
-                className="w-full border rounded-md p-1.5 border-gray-300 shadow-sm"
-              />
-            </div>
+            <SelectInput
+  label="Shutdown Type"
+  name="shutdown_type"
+  value={shutdownForm.shutdown_type}
+  onChange={onShutdownChange}
+>
+  <option value="">Select Shutdown Type</option>
+  <option value="Forced Outage">Forced Outage</option>
+  <option value="Planned Outage">Planned Outage</option>
+  <option value="Strategic Outage">Strategic Outage</option>
+</SelectInput>
+            <TextInput label="From (Date & Time)" name="datetime_from" type="datetime-local" value={shutdownForm.datetime_from} onChange={onShutdownChange} required />
+          </div>
 
-            <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">Unit</label>
-              <select
-                value={unitFilter}
-                onChange={(e) => setUnitFilter(e.target.value)}
-                className="w-full border rounded-md p-1.5 border-gray-300 shadow-sm"
-              >
-                <option value="">All Units</option>
-                <option value="Unit-1">Unit-1</option>
-                <option value="Unit-2">Unit-2</option>
-              </select>
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <TextInput label="Responsible Agency" name="responsible_agency" value={shutdownForm.responsible_agency} onChange={onShutdownChange} />
+            <TextInput label="Breakdown Notification No." name="notification_no" value={shutdownForm.notification_no} onChange={onShutdownChange} />
+            <TextInput label="Name of Shift Incharge" name="shift_incharge" value={shutdownForm.shift_incharge} onChange={onShutdownChange} />
+          </div>
 
-            <button
-              onClick={handleDownloadPDF}
-              disabled={loadingLogs}
-              className="w-full bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-md text-sm font-medium transition disabled:bg-gray-400"
-            >
-              ⬇ Download PDF
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <TextInput label="Pre-trip Status" name="pretrip_status" value={shutdownForm.pretrip_status} onChange={onShutdownChange} />
+            <TextInput label="First Cause" name="first_cause" value={shutdownForm.first_cause} onChange={onShutdownChange} />
+            <TextInput label="Action Taken" name="action_taken" value={shutdownForm.action_taken} onChange={onShutdownChange} />
+          </div>
+
+          <TextArea label="Reason" name="reason" value={shutdownForm.reason} onChange={onShutdownChange} rows={3} />
+          <TextArea label="Remarks" name="remarks" value={shutdownForm.remarks} onChange={onShutdownChange} rows={2} />
+          <TextArea label="Restoration Sequence" name="restoration_sequence" value={shutdownForm.restoration_sequence} onChange={onShutdownChange} rows={2} />
+
+          <div>
+            <label className="text-xs font-medium">RCA File (optional)</label>
+            <input type="file" ref={fileRef} onChange={onFileChange} className="mt-1" />
+          </div>
+
+          <div className="flex gap-3">
+            <button type="submit" className="flex-1 bg-[#E06A1B] text-white py-2 rounded">
+              {editingShutdownId ? "Update Shutdown" : "Save Shutdown"}
             </button>
+            <button type="button" onClick={resetShutdownForm} className="px-4 py-2 border rounded">Reset</button>
+          </div>
+        </form>
+      </section>
+
+      {/* Sync modal */}
+      <Modal open={syncModalOpen} onClose={() => setSyncModalOpen(false)}>
+        <h3 className="text-lg font-semibold text-[#E06A1B] mb-3">Synchronisation</h3>
+        <form onSubmit={submitSync} className="space-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <TextInput label="Sync Date & Time (To)" name="sync_datetime" type="datetime-local" value={syncForm.sync_datetime} onChange={onSyncChange} required />
+            <TextInput label="Shift Incharge (Sync)" name="sync_shift_incharge" value={syncForm.sync_shift_incharge} onChange={onSyncChange} />
           </div>
 
-          {/* Table */}
-          <div className="overflow-x-auto border border-orange-200 rounded-lg">
-            {loadingLogs && <p className="p-4 text-center text-orange-600">Loading logs...</p>}
-            {logError && <p className="p-4 text-center text-red-500">{logError}</p>}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <TextInput label="Oil (KL) Used" name="oil_used_kl" type="number" value={syncForm.oil_used_kl} onChange={onSyncChange} />
+            <TextInput label="Coal (T)" name="coal_t" type="number" value={syncForm.coal_t} onChange={onSyncChange} />
+            <TextInput label="Oil Stabilization (KL)" name="oil_stabilization_kl" type="number" value={syncForm.oil_stabilization_kl} onChange={onSyncChange} />
+          </div>
 
-            {!loadingLogs && !logError && shutdownLogs.length === 0 && (
-              <p className="p-4 text-center text-orange-600">No shutdown records found.</p>
-            )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <TextInput label="Import (%)" name="import_percent" type="number" value={syncForm.import_percent} onChange={onSyncChange} />
+            <TextInput label=" " name="__spacer" value="" onChange={() => {}} />
+          </div>
 
-            {!loadingLogs && !logError && shutdownLogs.length > 0 && (
-              <table className="w-full text-sm text-left border-collapse">
-                <thead className="bg-[#E06A1B] text-white uppercase text-xs">
-                  <tr>
-                    <th className="p-2.5 border-r border-white">From</th>
-                    <th className="p-2.5 border-r">To</th>
-                    <th className="p-2.5 border-r">Unit</th>
-                    <th className="p-2.5 border-r">Duration</th>
-                    <th className="p-2.5 border-r">Reason</th>
-                    <th className="p-2.5 border-r">Agency</th>
-                    <th className="p-2.5 border-r">Notif. No</th>
-                    <th className="p-2.5 border-r">RCA</th>
-                    <th className="p-2.5">Actions</th>
-                  </tr>
-                </thead>
+          <TextArea label="Sync Notes" name="sync_notes" value={syncForm.sync_notes} onChange={onSyncChange} rows={3} />
 
-                <tbody className="divide-y divide-orange-100">
-                  {shutdownLogs.map((log) => (
-                    <tr key={log.id} className="hover:bg-orange-50">
-                      <td className="p-2.5 border-r border-orange-200 whitespace-nowrap">
-                        {formatDateTimeForTable(log.datetime_from)}
-                      </td>
-                      <td className="p-2.5 border-r border-orange-200 whitespace-nowrap">
-                        {formatDateTimeForTable(log.datetime_to)}
-                      </td>
-                      <td className="p-2.5 border-r border-orange-200">{log.unit}</td>
-                      <td className="p-2.5 border-r border-orange-200">{log.duration}</td>
-                      <td
-                        className="p-2.5 border-r border-orange-200 min-w-[150px] max-w-[200px] truncate"
-                        title={log.reason}
-                      >
-                        {log.reason}
-                      </td>
-                      <td className="p-2.5 border-r border-orange-200">
-                        {log.responsible_agency}
-                      </td>
-                      <td className="p-2.5 border-r border-orange-200">
-                        {log.notification_no}
-                      </td>
-                      <td className="p-2.5 border-r border-orange-200 text-center">
-                        {log.rca_file_path ? (
-                          <a
-                            href={`http://143.143.1.5:8080/${log.rca_file_path}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[#E06A1B] hover:underline"
-                          >
-                            View
-                          </a>
-                        ) : (
-                          "No"
-                        )}
-                      </td>
-                      <td className="p-2.5 text-center">
-                        <button
-                          onClick={() => handleStartEdit(log)}
-                          className="text-[#E06A1B] hover:text-orange-800 hover:underline text-xs font-medium"
-                        >
-                          Edit
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+          <div className="flex gap-3">
+            <button type="submit" className="flex-1 bg-[#E06A1B] text-white py-2 rounded">Save Sync</button>
+            <button type="button" onClick={() => { setSyncModalOpen(false); resetSync(); }} className="px-4 py-2 border rounded">Cancel</button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* History (last 5) */}
+      <section className="bg-white p-4 rounded shadow">
+        <div className="flex justify-between items-center mb-3">
+          <h2 className="text-lg font-semibold">Last 5 Shutdowns</h2>
+          <div className="flex gap-2">
+            <button onClick={fetchLatest} className="px-3 py-1 bg-gray-100 rounded">Refresh</button>
           </div>
         </div>
-      )}
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm border-collapse">
+            <thead className="bg-[#E06A1B] text-white text-xs">
+              <tr>
+                <th className="p-2 border">From</th>
+                <th className="p-2 border">Unit</th>
+                <th className="p-2 border">Shutdown Type</th>
+                <th className="p2 border">Reason</th>
+                <th className="p-2 border">Duration</th>
+                <th className="p-2 border">Sync Status</th>
+                <th className="p-2 border">Actions</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={7} className="p-4 text-center">Loading...</td></tr>
+              ) : history.length === 0 ? (
+                <tr><td colSpan={7} className="p-4 text-center">No records found</td></tr>
+              ) : (
+                history.map((r) => (
+                  <tr key={r.id} className="hover:bg-orange-50">
+                    <td className="p-2 border">{fmt(r.datetime_from)}</td>
+                    <td className="p-2 border">{r.unit}</td>
+                    <td className="p-2 border">{r.shutdown_type || "-"}</td>
+                    <td className="p-2 border max-w-[220px] truncate" title={r.reason}>{r.reason || "-"}</td>
+                    <td className="p-2 border">{r.duration || (r.datetime_to ? "Calculating..." : "-")}</td>
+                    <td className="p-2 border">{r.datetime_to ? "Synced" : "Not Synced"}</td>
+                    <td className="p-2 border text-center">
+                      <div className="flex justify-center gap-2">
+                        <button onClick={() => startEditShutdown(r)} className="text-[#E06A1B] text-xs">Edit</button>
+                        <button onClick={() => startAddSync(r)} className="text-blue-600 text-xs">
+                          {r.datetime_to ? "Edit Sync" : "Add Sync"}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   );
 }

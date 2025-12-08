@@ -6,7 +6,9 @@ from starlette.concurrency import run_in_threadpool
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-
+from schemas.dm_plant import DMMultiMatrixCreate
+from crud.dm_plant import create_dm_matrix_entries, get_matrix_by_date_unit
+from fastapi import Body
 from datetime import datetime
 
 from database import get_db
@@ -33,6 +35,43 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
 
 router = APIRouter(prefix="/api/dm-plant", tags=["DM Plant"])
+
+
+
+
+
+# POST add-matrix
+@router.post("/add-matrix")
+async def add_dm_matrix(
+    payload: DMMultiMatrixCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserDB = Depends(require_role([5, 8]))
+):
+    # convert pydantic date -> python date is already a date object by schema
+    saved_rows = await create_dm_matrix_entries(db, payload.dict(), overwrite_date_unit=True)
+    return {
+        "status": "success",
+        "saved_count": len(saved_rows),
+        "unit": payload.unit,
+        "date": payload.date.isoformat()
+    }
+
+
+# GET matrix for date+unit -> frontend can prefill matrix when date/company selected
+@router.get("/matrix")
+async def get_dm_matrix(
+    date: str = Query(...),
+    unit: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user)
+):
+    try:
+        parsed_date = datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(400, "Invalid date format. Use YYYY-MM-DD")
+
+    matrix = await get_matrix_by_date_unit(db, parsed_date, unit)
+    return {"date": parsed_date.isoformat(), "unit": unit, "matrix": matrix}
 
 
 # ================================================================

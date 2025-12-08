@@ -3,11 +3,13 @@ from datetime import date, datetime, time
 from typing import Optional
 import enum
 
+
 from sqlalchemy import (
     Column, Integer, String, Float, Date, DateTime, Time,
     UniqueConstraint, Index, ForeignKey, Boolean,Text
 )
 from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
 from database import Base # Import Base from our new database.py
 
 # --- SQLAlchemy Models (Database Tables) ---
@@ -180,16 +182,90 @@ class StationYearlyAggregateDB(Base):
 
 class ShutdownRecordDB(Base):
     __tablename__ = "shutdown_log"
+
     id = Column(Integer, primary_key=True, index=True)
+
+    # ---------------- SHUTDOWN DETAILS ----------------
     unit = Column(String, index=True, nullable=False)
+    shutdown_type = Column(String, nullable=True)
+
     datetime_from = Column(DateTime, index=True, nullable=False)
-    datetime_to = Column(DateTime, index=True, nullable=True)
-    duration = Column(String, nullable=True) # To store "1h 30m", etc.
-    reason = Column(String, nullable=True)
+    datetime_to = Column(DateTime, nullable=True)
+    duration = Column(String, nullable=True)
+
     responsible_agency = Column(String, nullable=True)
-    notification_no = Column(String, nullable=True, index=True)
+    reason = Column(Text, nullable=True)
+    remarks = Column(Text, nullable=True)
+    shift_incharge = Column(String, nullable=True)
+    pretrip_status = Column(String, nullable=True)
+    first_cause = Column(String, nullable=True)
+    action_taken = Column(Text, nullable=True)
+    restoration_sequence = Column(Text, nullable=True)
+    notification_no = Column(String, nullable=True)
+
     rca_file_path = Column(String, nullable=True)
     uploaded_at = Column(DateTime, default=datetime.utcnow)
+
+    # ---------------- SYNCHRONISATION DETAILS ----------------
+    sync_datetime = Column(DateTime, nullable=True)
+    sync_shift_incharge = Column(String, nullable=True)
+    oil_used_kl = Column(Float, nullable=True)
+    coal_t = Column(Float, nullable=True)
+    oil_stabilization_kl = Column(Float, nullable=True)
+    import_percent = Column(Float, nullable=True)
+    sync_notes = Column(Text, nullable=True)
+
+
+# ==========================================================
+#  PYDANTIC SCHEMAS (API RESPONSE & VALIDATION)
+# ==========================================================
+
+class ShutdownRecordBase(BaseModel):
+    unit: str
+    shutdown_type: Optional[str] = None
+
+    datetime_from: datetime
+    datetime_to: Optional[datetime] = None
+    duration: Optional[str] = None
+
+    responsible_agency: Optional[str] = None
+    reason: Optional[str] = None
+    remarks: Optional[str] = None
+    shift_incharge: Optional[str] = None
+    pretrip_status: Optional[str] = None
+    first_cause: Optional[str] = None
+    action_taken: Optional[str] = None
+    restoration_sequence: Optional[str] = None
+    notification_no: Optional[str] = None
+
+    # sync fields
+    sync_datetime: Optional[datetime] = None
+    sync_shift_incharge: Optional[str] = None
+    oil_used_kl: Optional[float] = None
+    coal_t: Optional[float] = None
+    oil_stabilization_kl: Optional[float] = None
+    import_percent: Optional[float] = None
+    sync_notes: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+        from_attributes = True
+
+
+class ShutdownRecordCreate(ShutdownRecordBase):
+    """Used for creation – all fields allowed"""
+    pass
+
+
+class ShutdownRecord(ShutdownRecordBase):
+    id: int
+    rca_file_path: Optional[str] = None
+    uploaded_at: datetime
+
+    class Config:
+        orm_mode = True
+        from_attributes = True
+
 
 
 # --- Pydantic Models (API Request/Response) ---
@@ -246,26 +322,6 @@ class StationReport(BaseModel):
         str_strip_whitespace = True
 
 
-class ShutdownRecordCreate(BaseModel):
-    unit: str
-    datetime_from: datetime
-    datetime_to: Optional[datetime] = None
-    duration: Optional[str] = None
-    reason: Optional[str] = None
-    responsible_agency: Optional[str] = None
-    notification_no: Optional[str] = None
-
-    class Config:
-        from_attributes = True
-        str_strip_whitespace = True
-
-class ShutdownRecord(ShutdownRecordCreate):
-    id: int
-    rca_file_path: Optional[str] = None
-    uploaded_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 # ✅ ADDED: Pydantic Response Model for Unit Aggregates
@@ -322,6 +378,25 @@ class DMPlantEntryDB(Base):
     value = Column(Float, nullable=False)
     remarks = Column(String, nullable=True)
     uploaded_at = Column(DateTime, default=datetime.utcnow)
+
+class ChemicalParamEntryDB(Base):
+    __tablename__ = "chemical_param_entries"
+
+    id = Column(Integer, primary_key=True, index=True)
+    date = Column(Date, nullable=False, index=True)
+    time = Column(Time, nullable=False)
+    plant = Column(String, nullable=False)
+    broad_area = Column(String, nullable=True)
+    main_area = Column(String, nullable=True)               # unit like Unit-1, Unit-2, 14MW
+    main_collection_area = Column(String, nullable=True)    # e.g. 1A+1B+1D+1E
+    exact_collection_area = Column(String, nullable=True)   # e.g. Coal Feeder, CT Make Up
+
+    parameter = Column(String, nullable=False)
+    value = Column(Float, nullable=True)
+    remarks = Column(String, nullable=True)
+
+    # For CT blowdown specific fields we will store them as parameters too (ct_bd_opening_pct, ct_bd_status, ct_opening_time, ct_closing_time)
+    uploaded_at = Column(DateTime, default=datetime.utcnow, server_default=func.now())
 
 # ============================================================
 # ADDING USER / ROLE / PERMISSION MODELS

@@ -5,6 +5,120 @@ from sqlalchemy import select
 from datetime import datetime, time as dt_time
 
 from models import DMPlantEntryDB
+from models import ChemicalParamEntryDB
+
+
+from sqlalchemy import delete
+from typing import Dict, Any
+
+async def create_dm_matrix_entries(db: AsyncSession, matrix_payload: Dict[str, Any], overwrite_date_unit: bool = False):
+    """
+    Insert entries from a matrix payload into dm_plant_entries.
+
+    matrix_payload expected shape:
+    {
+      "date": date_obj,
+      "time": "HH:MM" or "HH:MM:SS" or datetime.time,
+      "unit": "Unit-1",
+      "matrix": {
+         "ph": {
+            "Condensate Water": 8.9,
+            "Feed Water": 9.1,
+            ...
+         },
+         "conductivity": { ... }
+      }
+    }
+
+    Behavior:
+      - If overwrite_date_unit is True: delete existing rows WHERE date == date AND unit == unit
+      - Insert new rows only for non-empty numeric values.
+    """
+
+    raw_time = matrix_payload.get("time")
+    if isinstance(raw_time, dt_time):
+        py_time = raw_time
+    else:
+        try:
+            py_time = datetime.strptime(raw_time, "%H:%M:%S").time()
+        except:
+            py_time = datetime.strptime(raw_time, "%H:%M").time()
+
+    target_date = matrix_payload.get("date")
+    unit = str(matrix_payload.get("unit", "")).strip()
+    matrix = matrix_payload.get("matrix", {})
+
+    # Overwrite strategy: delete previous entries for date + unit
+    if overwrite_date_unit:
+        del_stmt = delete(DMPlantEntryDB).where(
+            DMPlantEntryDB.date == target_date,
+            DMPlantEntryDB.unit == unit
+        )
+        await db.execute(del_stmt)
+        await db.commit()  # commit the deletion before inserting
+
+    new_rows = []
+    for parameter, sections in matrix.items():
+        param_key = str(parameter).strip()
+        if not isinstance(sections, dict):
+            continue
+        for section_name, value in sections.items():
+            if value is None or value == "":
+                continue
+            # try convert to float, skip invalid
+            try:
+                numeric_value = float(value)
+            except Exception:
+                continue
+
+            row = DMPlantEntryDB(
+                date=target_date,
+                time=py_time,
+                unit=unit,
+                section=str(section_name).strip(),
+                parameter=param_key,
+                value=numeric_value,
+                remarks=None,
+            )
+            db.add(row)
+            new_rows.append(row)
+
+    if new_rows:
+        await db.commit()
+        for r in new_rows:
+            await db.refresh(r)
+
+    return new_rows
+
+
+async def get_matrix_by_date_unit(db: AsyncSession, date_obj, unit: str):
+    """
+    Return matrix shaped data for a given date and unit:
+    {
+       "ph": {"Condensate Water": 8.9, "Feed Water": 9.1, ...},
+       "conductivity": { ... }
+    }
+    """
+    if isinstance(date_obj, str):
+        date_obj = datetime.strptime(date_obj, "%Y-%m-%d").date()
+
+    stmt = select(DMPlantEntryDB).where(
+        DMPlantEntryDB.date == date_obj,
+        DMPlantEntryDB.unit == unit
+    )
+    res = (await db.execute(stmt)).scalars().all()
+
+    matrix = {}
+    for e in res:
+        p = str(e.parameter).strip()
+        s = str(e.section).strip()
+        try:
+            v = float(e.value)
+        except Exception:
+            continue
+        matrix.setdefault(p, {})[s] = v
+
+    return matrix
 
 
 # -------------------------------------------------------------
@@ -140,3 +254,5 @@ async def get_raw_entries(db: AsyncSession, date, unit, section, parameter):
         }
         for r in rows
     ]
+
+

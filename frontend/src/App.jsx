@@ -25,7 +25,7 @@ import FloatingMessageBox from "./components/FloatingMessageBox";
 import TotalizerEntry from "./pages/TotalizerEntry";
 
 // ⭐ NEW IMPORT — Add DM Plant Page
-import DMPlantPage from "./pages/DMPlantPage";
+import DMPlantPage from "./pages/dmplanttabs";
 
 function decodeJWT(token) {
   try {
@@ -89,7 +89,7 @@ function Layout({ authHeader, onLogout }) {
  
 
   {/* MAIN HEADER PANEL */}
-  <header className="relative flex items-center px-10 h-16 bg-white">
+  <header className="relative flex items-center px-6 h-13 bg-white">
 
     {/* LEFT — JSL LOGO */}
     <div className="flex items-center">
@@ -120,12 +120,12 @@ function Layout({ authHeader, onLogout }) {
 
 
         {/* ------------------ NAVIGATION ------------------ */}
-        <nav className="h-9 bg-[#F5F5F5] border-t border-[#D0D0D0]">
-          <div className="max-w-7xl mx-auto flex items-center h-full gap-10 px-10">
+        <nav className="h-7 bg-[#F5F5F5] border-t border-[#D0D0D0]">
+          <div className="max-w-7xl mx-auto flex items-center h-full gap-6 px-5">
 
             {/* ----- Generic NavLink Style ----- */}
             {[
-              { to: "/entry", label: "Data Entry" },
+              { to: "/TotalizerEntry", label: "125MW" },
               ...(roleId === 5 || roleId === 8 || roleId === 3|| roleId === 7|| roleId === 1|| roleId === 2
                 ? [{ to: "/dm-plant", label: "DM Plant" }]
                 : []),
@@ -235,22 +235,7 @@ function Layout({ authHeader, onLogout }) {
             >
               Logic 
             </NavLink>
-            <NavLink
-              to="/TotalizerEntry"
-              className={({ isActive }) =>
-                `
-
-                  relative px-3 h-full flex items-center text-sm font-semibold uppercase tracking-wider
-                  ${isActive
-                    ? "text-[#E06A1B] after:w-full"
-                    : "text-[#555] hover:text-[#E06A1B] hover:after:w-full"}
-                  after:absolute after:bottom-0 after:left-0 after:h-[3px]
-                  after:bg-[#E06A1B] after:transition-all after:duration-300 after:w-0
-                `
-              }
-            >
-              Operation
-            </NavLink>
+           
             {/* ------------------ Admin Panel ------------------ */}
             {username === "admin" && (
               <NavLink

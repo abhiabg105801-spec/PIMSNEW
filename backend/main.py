@@ -87,11 +87,15 @@ app.include_router(logic_router)
 app.include_router(fuel_inventory.router)
 from routers import totalizers
 app.include_router(totalizers.router, prefix="/api/totalizers", tags=["Totalizers"])
+from routers import chemical
+app.include_router(chemical.router)
+from routers.shutdowns import router as shutdown_router
+app.include_router(shutdown_router)
 
 
 
 
-app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
+
 
 @app.get("/")
 def read_root():
@@ -551,212 +555,7 @@ async def add_or_update_station_report(report: models.StationReport, db: AsyncSe
 # ---------------------------
 # SHUTDOWN LOGS
 # ---------------------------
-@app.post("/api/shutdowns/", response_model=models.ShutdownRecord, status_code=201, dependencies=[Depends(get_current_user)])
-async def create_shutdown_record(
-    unit: str = Form(...),
-    datetime_from: datetime = Form(...),
-    datetime_to: Optional[str] = Form(None),
-    duration: Optional[str] = Form(None),
-    reason: Optional[str] = Form(None),
-    responsible_agency: Optional[str] = Form(None),
-    notification_no: Optional[str] = Form(None),
-    rca_file: Optional[UploadFile] = File(None),
-    db: AsyncSession = Depends(get_db),
-    current_user: models.UserDB = Depends(get_current_user)
-):
-    if current_user.role_id == 6:
-        raise HTTPException(status_code=403, detail="Viewer cannot create shutdown records.")
 
-    parsed_datetime_to = None
-    if datetime_to:
-        try:
-            parsed_datetime_to = datetime.fromisoformat(datetime_to)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid format for 'To (Date & Time)'.")
-
-    parsed_duration = duration if duration else None
-
-    file_path_in_db = None
-    if rca_file:
-        if not rca_file.filename:
-            raise HTTPException(status_code=400, detail="Uploaded file missing filename.")
-        original_filename = rca_file.filename
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe_basename = "".join(c if c.isalnum() or c in ['.', '-'] else '_' for c in Path(original_filename).stem)
-        safe_suffix = Path(original_filename).suffix
-        unique_filename = f"{timestamp}_{safe_basename}{safe_suffix}"
-        destination_path = UPLOAD_DIR / unique_filename
-        try:
-            with destination_path.open("wb") as buffer:
-                shutil.copyfileobj(rca_file.file, buffer)
-            file_path_in_db = str(destination_path)
-        except Exception as e:
-            print(f"Error saving file: {e}")
-            raise HTTPException(status_code=500, detail=f"Could not save uploaded file: {original_filename}")
-        finally:
-            await rca_file.close()
-
-    db_record = models.ShutdownRecordDB(
-        unit=unit,
-        datetime_from=datetime_from,
-        datetime_to=parsed_datetime_to,
-        duration=parsed_duration,
-        reason=reason,
-        responsible_agency=responsible_agency,
-        notification_no=notification_no,
-        rca_file_path=file_path_in_db
-    )
-    db.add(db_record)
-    try:
-        await db.commit()
-        await db.refresh(db_record)
-        return db_record
-    except IntegrityError:
-        await db.rollback()
-        raise HTTPException(status_code=400, detail="Duplicate shutdown entry detected.")
-    except Exception as e:
-        await db.rollback()
-        print(f"Error saving shutdown record: {e}")
-        raise HTTPException(status_code=500, detail="Could not save shutdown record to database.")
-
-@app.get("/api/shutdowns/", response_model=List[models.ShutdownRecord], dependencies=[Depends(get_current_user)])
-async def get_shutdown_records(start_date: Optional[date] = Query(None), end_date: Optional[date] = Query(None), unit: Optional[str] = Query(None), db: AsyncSession = Depends(get_db)):
-    query = select(models.ShutdownRecordDB).order_by(models.ShutdownRecordDB.datetime_from.desc())
-    if start_date:
-        start_datetime = datetime.combine(start_date, time.min)
-        query = query.where(models.ShutdownRecordDB.datetime_from >= start_datetime)
-    if end_date:
-        end_datetime = datetime.combine(end_date, time.max)
-        query = query.where(models.ShutdownRecordDB.datetime_from <= end_datetime)
-    if unit:
-        query = query.where(models.ShutdownRecordDB.unit == unit)
-    res = await db.execute(query)
-    records = res.scalars().all()
-    if not records:
-        raise HTTPException(status_code=404, detail="No shutdown records found.")
-    return records
-
-@app.put("/api/shutdowns/{shutdown_id}", response_model=models.ShutdownRecord, dependencies=[Depends(get_current_user)])
-async def update_shutdown_record(
-    shutdown_id: int,
-    unit: str = Form(...),
-    datetime_from: datetime = Form(...),
-    datetime_to: Optional[str] = Form(None),
-    duration: Optional[str] = Form(None),
-    reason: Optional[str] = Form(None),
-    responsible_agency: Optional[str] = Form(None),
-    notification_no: Optional[str] = Form(None),
-    rca_file: Optional[UploadFile] = File(None),
-    db: AsyncSession = Depends(get_db),
-    current_user: models.UserDB = Depends(get_current_user)
-):
-    if current_user.role_id == 6:
-        raise HTTPException(status_code=403, detail="Viewer cannot update shutdown records.")
-
-    res = await db.execute(select(models.ShutdownRecordDB).where(models.ShutdownRecordDB.id == shutdown_id))
-    db_record = res.scalars().first()
-    if not db_record:
-        raise HTTPException(status_code=404, detail="Shutdown record not found")
-
-    parsed_datetime_to = None
-    if datetime_to:
-        try:
-            parsed_datetime_to = datetime.fromisoformat(datetime_to)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid format for 'To (Date & Time)'.")
-
-    parsed_duration = duration if duration else None
-
-    file_path_in_db = db_record.rca_file_path
-    if rca_file:
-        if not rca_file.filename:
-            raise HTTPException(status_code=400, detail="Uploaded file is missing a filename.")
-        original_filename = rca_file.filename
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe_basename = "".join(c if c.isalnum() or c in ['.', '-'] else '_' for c in Path(original_filename).stem)
-        safe_suffix = Path(original_filename).suffix
-        unique_filename = f"{timestamp}_{safe_basename}{safe_suffix}"
-        destination_path = UPLOAD_DIR / unique_filename
-        try:
-            with destination_path.open("wb") as buffer:
-                shutil.copyfileobj(rca_file.file, buffer)
-            file_path_in_db = str(destination_path)
-        except Exception as e:
-            print(f"Error saving file: {e}")
-            raise HTTPException(status_code=500, detail=f"Could not save uploaded file: {original_filename}")
-        finally:
-            await rca_file.close()
-
-    db_record.unit = unit
-    db_record.datetime_from = datetime_from
-    db_record.datetime_to = parsed_datetime_to
-    db_record.duration = parsed_duration
-    db_record.reason = reason
-    db_record.responsible_agency = responsible_agency
-    db_record.notification_no = notification_no
-    db_record.rca_file_path = file_path_in_db
-
-    try:
-        await db.commit()
-        await db.refresh(db_record)
-        return db_record
-    except Exception as e:
-        await db.rollback()
-        print(f"Error updating shutdown record: {e}")
-        raise HTTPException(status_code=500, detail="Could not update shutdown record.")
-
-@app.get("/api/shutdowns/export/pdf", dependencies=[Depends(get_current_user)])
-async def export_shutdown_pdf(start_date: Optional[date] = Query(None), end_date: Optional[date] = Query(None), unit: Optional[str] = Query(None), db: AsyncSession = Depends(get_db)):
-    query = select(models.ShutdownRecordDB).order_by(models.ShutdownRecordDB.datetime_from.asc())
-    if start_date:
-        start_datetime = datetime.combine(start_date, time.min)
-        query = query.where(models.ShutdownRecordDB.datetime_from >= start_datetime)
-    if end_date:
-        end_datetime = datetime.combine(end_date, time.max)
-        query = query.where(models.ShutdownRecordDB.datetime_from <= end_datetime)
-    if unit:
-        query = query.where(models.ShutdownRecordDB.unit == unit)
-    res = await db.execute(query)
-    records = res.scalars().all()
-    if not records:
-        raise HTTPException(status_code=404, detail="No shutdown data found for the selected range.")
-
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=0.5*inch, rightMargin=0.5*inch, topMargin=0.5*inch, bottomMargin=0.5*inch)
-    styles = getSampleStyleSheet()
-    story = []
-
-    title_str = "Plant Shutdown Log"
-    date_range_str = ""
-    # build date_range_str...
-    if unit:
-        title_str += f" for {unit}{date_range_str}"
-    story.append(Paragraph(title_str, styles['h1']))
-    story.append(Spacer(1, 0.2*inch))
-
-    table_data = [["From (Date/Time)", "To (Date/Time)", "Unit", "Duration", "Reason", "Agency", "Notif. No.", "RCA File"]]
-    for record in records:
-        from_str = record.datetime_from.strftime('%d-%m-%y %H:%M')
-        to_str = record.datetime_to.strftime('%d-%m-%y %H:%M') if record.datetime_to else ""
-        table_data.append([from_str, to_str, record.unit, record.duration or "", record.reason or "", record.responsible_agency or "", record.notification_no or "", "Yes" if record.rca_file_path else "No"])
-
-    table = Table(table_data, colWidths=[1.2*inch, 1.2*inch, 0.6*inch, 0.7*inch, 2.2*inch, 1.0*inch, 0.8*inch, 0.7*inch])
-    style = TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.black),
-        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('ALIGN', (4,1), (4,-1), 'LEFT'),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0,0), (-1,-1), 8),
-        ('GRID', (0,0), (-1,-1), 1, colors.black),
-    ])
-    table.setStyle(style)
-    story.append(table)
-    doc.build(story)
-    buffer.seek(0)
-    filename = f"shutdown_log.pdf"
-    return StreamingResponse(buffer, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={filename}"})
 
 # ---------------------------
 # AGGREGATION & EXPORT (Unit-level)
