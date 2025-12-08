@@ -203,6 +203,12 @@ class ShutdownRecordDB(Base):
     restoration_sequence = Column(Text, nullable=True)
     notification_no = Column(String, nullable=True)
 
+    # NEW FIELD 1: WHY-WHY CHECKBOX
+    why_why_done = Column(Boolean, default=False)
+
+    # NEW FIELD 2: WHEN WHY-WHY WAS DONE
+    why_why_done_at = Column(DateTime, nullable=True)
+
     rca_file_path = Column(String, nullable=True)
     uploaded_at = Column(DateTime, default=datetime.utcnow)
 
@@ -238,7 +244,10 @@ class ShutdownRecordBase(BaseModel):
     restoration_sequence: Optional[str] = None
     notification_no: Optional[str] = None
 
-    # sync fields
+    # NEW FIELDS
+    why_why_done: Optional[bool] = False
+    why_why_done_at: Optional[datetime] = None
+
     sync_datetime: Optional[datetime] = None
     sync_shift_incharge: Optional[str] = None
     oil_used_kl: Optional[float] = None
@@ -265,6 +274,7 @@ class ShutdownRecord(ShutdownRecordBase):
     class Config:
         orm_mode = True
         from_attributes = True
+
 
 
 

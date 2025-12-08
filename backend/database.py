@@ -2,34 +2,50 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.pool import NullPool
 
-# ✅ 1. Define the SQLite database URL
-# This will create a file named "pims.db" in your backend directory.
+# ✅ 1. SQLite Database URL
 DATABASE_URL = "sqlite+aiosqlite:///./pims1.db"
 
-# ✅ 2. Create the async engine for SQLite
-# connect_args={"check_same_thread": False} is needed for SQLite to be accessed by FastAPI's threads.
+# ✅ 2. Async Engine
 engine = create_async_engine(
-    DATABASE_URL, 
-    echo=True, # echo=True logs SQL
+    DATABASE_URL,
+    echo=True,
     poolclass=NullPool,
-    connect_args={"check_same_thread": False} 
+    connect_args={"check_same_thread": False}
 )
 
-# Create a configured "Session" class
+# ============================================================
+# 🔥 MAIN SESSION MAKERS
+# ============================================================
+
+# Used by FastAPI endpoints (already used in your project)
 AsyncSessionLocal = sessionmaker(
-    bind=engine, class_=AsyncSession, expire_on_commit=False
+    bind=engine,
+    class_=AsyncSession,
+    expire_on_commit=False
 )
 
-# Base class for our models to inherit from
+# NEW session maker — used for scheduler / background jobs
+async_session_maker = AsyncSessionLocal
+
+# ============================================================
+# Base class
+# ============================================================
+
 Base = declarative_base()
 
-# Dependency to get DB session in path operations
+# ============================================================
+# FastAPI dependency
+# ============================================================
+
 async def get_db() -> AsyncSession:
     async with AsyncSessionLocal() as session:
         yield session
 
-# Function to create tables (optional, call once at startup or use Alembic)
+# ============================================================
+# Create tables (optional)
+# ============================================================
+
 async def create_tables():
-     async with engine.begin() as conn:
-         # await conn.run_sync(Base.metadata.drop_all) # Use drop_all cautiously
-         await conn.run_sync(Base.metadata.create_all)
+    async with engine.begin() as conn:
+        # await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)

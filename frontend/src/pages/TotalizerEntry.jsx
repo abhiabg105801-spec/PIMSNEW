@@ -80,16 +80,35 @@ export default function TotalizerEntryPage({ auth }) {
   });
 
   /* ----------------- Manual KPI state ----------------- */
+  // Extended manual KPI fields requested by you. These will render as individual cards next to totalizer cards.
   const [manualKPI, setManualKPI] = useState({
     "Unit-1": { stack_emission: "" },
     "Unit-2": { stack_emission: "" },
-    Station: { clarifier_level: "" },
+    Station: {
+      clarifier_level: "",
+      ro_running_hour: "",
+      ro_production_cum: "",
+      stn_net_export_exbus: "",
+      coal_indonesian_percent: "",
+      coal_southafrica_percent: "",
+      coal_domestic_percent: "",
+    },
     "Energy-Meter": {},
   });
+
   const manualUnits = {
     "Unit-1": { stack_emission: "mg/Nm3" },
     "Unit-2": { stack_emission: "mg/Nm3" },
-    Station: { clarifier_level: "%" },
+    Station: {
+      clarifier_level: "%",
+      ro_running_hour: "hr",
+      ro_production_cum: "m3",
+      stn_net_export_exbus: "MWh",
+      coal_indonesian_percent: "%",
+      coal_southafrica_percent: "%",
+      coal_domestic_percent: "%",
+    },
+    "Energy-Meter": {},
   };
 
   /* misc */
@@ -420,7 +439,7 @@ export default function TotalizerEntryPage({ auth }) {
   }, [api, reportDate, totalizersByUnit, canAdjust]);
 
   /* =============================================================
-     Auto calculations, rendering helpers, KPI compute etc (unchanged)
+     Auto calculations, rendering helpers, KPI compute etc
      ============================================================= */
   const updateField = (id, field, value) => {
     setReadingsForm((prev) => {
@@ -465,7 +484,9 @@ export default function TotalizerEntryPage({ auth }) {
     unit2_gen: "unit2_gen",
   };
 
-  const computeEnergyKPIObject = () => {
+  /* ------------------ Energy KPI compute (extended) ------------------ */
+  const computeEnergyKPIObject = useCallback(() => {
+    // aux calculation (unchanged)
     const unit1_unit_aux_mwh = getDiff(EM.u1_lsr01_ic1, "Energy-Meter") + getDiff(EM.u1_lsr02_ic1, "Energy-Meter");
     const unit2_unit_aux_mwh = getDiff(EM.u2_lsr01_ic1, "Energy-Meter") + getDiff(EM.u2_lsr02_ic1, "Energy-Meter");
 
@@ -487,9 +508,15 @@ export default function TotalizerEntryPage({ auth }) {
     const unit1_aux_consumption = unit1_unit_aux_mwh + (total_station_aux + total_station_tie) / 2;
     const unit2_aux_consumption = unit2_unit_aux_mwh + (total_station_aux + total_station_tie) / 2;
 
+    // generation values (cache or reading)
     const genCache = generationCache[reportDate] || {};
     const unit1_gen = genCache.unit1_generation ?? getDiff(EM.unit1_gen, "Energy-Meter");
     const unit2_gen = genCache.unit2_generation ?? getDiff(EM.unit2_gen, "Energy-Meter");
+
+    // PLF calculations (denominator 3000 as requested)
+    const unit1_plf = unit1_gen > 0 ? (unit1_gen / 3000) * 100 : 0;
+    const unit2_plf = unit2_gen > 0 ? (unit2_gen / 3000) * 100 : 0;
+    const station_plf = (unit1_gen + unit2_gen) > 0 ? ((unit1_gen + unit2_gen) / 3000) * 100 : 0;
 
     const unit1_aux_percent = unit1_gen > 0 ? (unit1_aux_consumption / unit1_gen) * 100 : 0;
     const unit2_aux_percent = unit2_gen > 0 ? (unit2_aux_consumption / unit2_gen) * 100 : 0;
@@ -505,13 +532,23 @@ export default function TotalizerEntryPage({ auth }) {
       unit1_aux_percent: Number(unit1_aux_percent.toFixed(3)),
       unit2_aux_consumption_mwh: Number(unit2_aux_consumption.toFixed(3)),
       unit2_aux_percent: Number(unit2_aux_percent.toFixed(3)),
+      unit1_plf: Number(unit1_plf.toFixed(3)),
+      unit2_plf: Number(unit2_plf.toFixed(3)),
+      station_plf: Number(station_plf.toFixed(3)),
     };
-  };
+  }, [generationCache, reportDate, readingsForm]); // include readingsForm for getDiff safety
 
-  const energyKPI = useMemo(() => (activeTab === "Energy-Meter" ? computeEnergyKPIObject() : null), [readingsForm, activeTab, generationCache, reportDate]);
+  const energyKPI = useMemo(() => {
+    try {
+      return activeTab === "Energy-Meter" ? computeEnergyKPIObject() : null;
+    } catch (e) {
+      console.error("computeEnergyKPIObject error:", e);
+      return null;
+    }
+  }, [computeEnergyKPIObject, activeTab, readingsForm, generationCache, reportDate]);
 
   /* =============================================================
-     Unit KPI compute & save (unchanged)
+     Unit KPI compute & save (extended with steam, specific steam, PLF)
      ============================================================= */
   const computeUnitKPI = useCallback(
     async (unitName) => {
@@ -527,11 +564,13 @@ export default function TotalizerEntryPage({ auth }) {
 
       const ldoConsumption = getDiff("ldo_flow", unitName);
       const dmWater = getDiff("dm7", unitName) + getDiff("dm11", unitName);
-      const steam = getDiff("main_steam", unitName);
+      const steamConsumption = getDiff("main_steam", unitName); // NEW: steam consumption diff
 
       const specificCoal = unitGen > 0 ? Number((coalConsumption / unitGen).toFixed(6)) : 0;
       const specificOil = unitGen > 0 ? Number((ldoConsumption / unitGen).toFixed(6)) : 0;
-      const specificDM = steam > 0 ? Number(((dmWater / steam) * 100).toFixed(3)) : 0;
+      const specificDM = steamConsumption > 0 ? Number(((dmWater / steamConsumption) * 100).toFixed(3)) : 0;
+      const specificSteam = unitGen > 0 ? Number((steamConsumption / unitGen).toFixed(6)) : 0; // NEW
+      const plf = unitGen > 0 ? Number(((unitGen / 3000) * 100).toFixed(3)) : 0; // NEW
 
       const payloadKPIs = [
         { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_coal_consumption`, value: Number(coalConsumption.toFixed(3)), unit: "ton" },
@@ -539,9 +578,11 @@ export default function TotalizerEntryPage({ auth }) {
         { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_ldo_consumption`, value: Number(ldoConsumption.toFixed(3)), unit: "L" },
         { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_specific_oil`, value: specificOil, unit: "L/MWh" },
         { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_dm_water_consumption`, value: Number(dmWater.toFixed(3)), unit: "m3" },
-        { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_steam_generation`, value: Number(steam.toFixed(3)), unit: "kg" },
+        { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_steam_consumption`, value: Number(steamConsumption.toFixed(3)), unit: "kg" },
+        { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_specific_steam`, value: specificSteam, unit: "kg/MWh" },
         { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_specific_dm_percent`, value: specificDM, unit: "%" },
         { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_generation`, value: Number(unitGen.toFixed(3)), unit: "MWh" },
+        { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_plf_percent`, value: plf, unit: "%" }, // NEW
       ];
 
       try {
@@ -561,7 +602,7 @@ export default function TotalizerEntryPage({ auth }) {
   );
 
   /* =============================================================
-     Submit flow (unchanged)
+     Submit flow (unchanged except we now store extended KPIs & station KPIs)
      ============================================================= */
   const [showConfirmPopup, setShowConfirmPopup] = useState(false);
   const [confirmList, setConfirmList] = useState([]);
@@ -646,14 +687,17 @@ export default function TotalizerEntryPage({ auth }) {
 
       setMessage("✅ Saved successfully");
 
+      // Unit KPIs
       if (activeTab === "Unit-1" || activeTab === "Unit-2") {
         const res = await computeUnitKPI(activeTab);
         if (res.success) setMessage((m) => (m ? m + " • KPIs saved" : "✅ KPIs saved"));
         else setMessage((m) => (m ? m + " • KPI save failed" : "❌ KPI save failed"));
       }
 
+      // Energy-Meter (Station) KPIs - extended to include PLF and station-level water KPIs
       if (activeTab === "Energy-Meter") {
         const ek = computeEnergyKPIObject();
+        // station KPIs to be stored
         const kpisArr = [
           { name: "unit1_generation", value: ek.unit1_generation, unit: "MWh" },
           { name: "unit2_generation", value: ek.unit2_generation, unit: "MWh" },
@@ -665,7 +709,27 @@ export default function TotalizerEntryPage({ auth }) {
           { name: "unit1_aux_percent", value: ek.unit1_aux_percent, unit: "%" },
           { name: "unit2_aux_consumption_mwh", value: ek.unit2_aux_consumption_mwh, unit: "MWh" },
           { name: "unit2_aux_percent", value: ek.unit2_aux_percent, unit: "%" },
+          // PLF's
+          { name: "unit1_plf_percent", value: ek.unit1_plf, unit: "%" },
+          { name: "unit2_plf_percent", value: ek.unit2_plf, unit: "%" },
+          { name: "station_plf_percent", value: ek.station_plf, unit: "%" },
         ];
+
+        // Also compute Station water KPIs (raw water, DM totals)
+        // raw water totalizer name: 'raw_water' (Station)
+        const total_raw_water = getDiff("raw_water", "Station");
+        const avg_raw_per_hr = Number((total_raw_water / 24.0).toFixed(3));
+        const total_dm_u1 = getDiff("dm7", "Unit-1") + getDiff("dm11", "Unit-1");
+        const total_dm_u2 = getDiff("dm7", "Unit-2") + getDiff("dm11", "Unit-2");
+        const total_dm_all = Number((total_dm_u1 + total_dm_u2).toFixed(3));
+        const sum_unit_gen = ek.unit1_generation + ek.unit2_generation;
+        const sp_raw_l_per_kwh = sum_unit_gen > 0 ? Number(((total_raw_water * 1000) / sum_unit_gen).toFixed(3)) : 0; // liters / kWh
+
+        kpisArr.push({ name: "total_raw_water_used_m3", value: Number(total_raw_water.toFixed(3)), unit: "m3" });
+        kpisArr.push({ name: "avg_raw_water_m3_per_hr", value: avg_raw_per_hr, unit: "m3/hr" });
+        kpisArr.push({ name: "sp_raw_water_l_per_kwh", value: sp_raw_l_per_kwh, unit: "L/kWh" });
+        kpisArr.push({ name: "total_dm_water_used_m3", value: total_dm_all, unit: "m3" });
+
         try {
           await api.post("/totalizers/kpi/store", {
             date: reportDate,
@@ -681,6 +745,7 @@ export default function TotalizerEntryPage({ auth }) {
         }
       }
 
+      // Save manual KPIs (same as before)
       const manualForTab = manualKPI[activeTab] || {};
       const manualKpisPayload = [];
       Object.keys(manualForTab).forEach((kname) => {
@@ -784,6 +849,7 @@ export default function TotalizerEntryPage({ auth }) {
     setShowAdjustPopup(false);
   };
 
+  /* ---------------- Render totalizer card ---------------- */
   const renderCard = (t) => {
     const rec = readingsForm[t.id];
     if (!rec) return null;
@@ -832,6 +898,22 @@ export default function TotalizerEntryPage({ auth }) {
     );
   };
 
+  /* ---------------- Render manual KPI card (same size as totalizer cards) ---------------- */
+  const renderManualCard = (kname, val, unitLabel, onChange) => {
+    return (
+      <div key={`m_${kname}`} className="p-2 border rounded-lg bg-zinc-50 shadow-sm">
+        <div className="font-medium text-sm truncate">{kname.replace(/_/g, " ")}</div>
+        <div className="text-xs text-gray-500 mt-1">{unitLabel || ""}</div>
+        <input
+          type="number"
+          value={val === "" || val === null || val === undefined ? "" : val}
+          onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))}
+          className="w-full p-1 mt-2 rounded border text-sm bg-white focus:ring-1 focus:ring-orange-400"
+        />
+      </div>
+    );
+  };
+
   /* =============================================================
      UI JSX (modified to show Shutdown KPIs)
      ============================================================= */
@@ -851,7 +933,9 @@ export default function TotalizerEntryPage({ auth }) {
     const specificCoal = gen > 0 ? Number((coal / gen).toFixed(6)) : 0;
     const specificOil = gen > 0 ? Number((ldo / gen).toFixed(6)) : 0;
     const specificDM = steam > 0 ? Number(((dm / steam) * 100).toFixed(3)) : 0;
-    return { coal, specificCoal, ldo, specificOil, dm, steam, specificDM, gen };
+    const specificSteam = gen > 0 ? Number((steam / gen).toFixed(6)) : 0;
+    const plf = gen > 0 ? Number(((gen / 3000) * 100).toFixed(3)) : 0;
+    return { coal, specificCoal, ldo, specificOil, dm, steam, specificDM, gen, specificSteam, plf };
   }, [readingsForm, generationCache, reportDate]);
 
   const localUnit2KPI = useMemo(() => {
@@ -868,9 +952,28 @@ export default function TotalizerEntryPage({ auth }) {
     const specificCoal = gen > 0 ? Number((coal / gen).toFixed(6)) : 0;
     const specificOil = gen > 0 ? Number((ldo / gen).toFixed(6)) : 0;
     const specificDM = steam > 0 ? Number(((dm / steam) * 100).toFixed(3)) : 0;
-    return { coal, specificCoal, ldo, specificOil, dm, steam, specificDM, gen };
+    const specificSteam = gen > 0 ? Number((steam / gen).toFixed(6)) : 0;
+    const plf = gen > 0 ? Number(((gen / 3000) * 100).toFixed(3)) : 0;
+    return { coal, specificCoal, ldo, specificOil, dm, steam, specificDM, gen, specificSteam, plf };
   }, [readingsForm, generationCache, reportDate]);
 
+  /* =================== Station KPIs helper (reads totalizers) =================== */
+  const stationKPIsLocal = useMemo(() => {
+    const total_raw_water = getDiff("raw_water", "Station");
+    const avg_raw_per_hr = Number((total_raw_water / 24.0).toFixed(3));
+    const u1_dm = getDiff("dm7", "Unit-1") + getDiff("dm11", "Unit-1");
+    const u2_dm = getDiff("dm7", "Unit-2") + getDiff("dm11", "Unit-2");
+    const total_dm = Number((u1_dm + u2_dm).toFixed(3));
+    const gen1 = (generationCache[reportDate] || {}).unit1_generation ?? getDiff("unit1_gen", "Energy-Meter");
+    const gen2 = (generationCache[reportDate] || {}).unit2_generation ?? getDiff("unit2_gen", "Energy-Meter");
+    const sum_gen = gen1 + gen2;
+    const sp_raw_l_per_kwh = sum_gen > 0 ? Number(((total_raw_water * 1000) / sum_gen).toFixed(3)) : 0;
+    return { total_raw_water, avg_raw_per_hr, total_dm, sp_raw_l_per_kwh, gen1, gen2, sum_gen };
+  }, [readingsForm, generationCache, reportDate]);
+
+  /* =============================================================
+     JSX
+     ============================================================= */
   return (
     <div className="max-w-7xl mx-auto p-0">
       {/* TOP BAR */}
@@ -898,7 +1001,7 @@ export default function TotalizerEntryPage({ auth }) {
 
       {/* MAIN */}
       <div className="flex gap-6">
-        {/* left: totalizer cards + manual KPI */}
+        {/* left: totalizer cards + manual KPI (now inside same grid) */}
         <div className="flex-1 bg-white border rounded-xl p-4 shadow">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-semibold text-gray-600">{activeTab} Totalizer Entry</h2>
@@ -906,56 +1009,14 @@ export default function TotalizerEntryPage({ auth }) {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+            {/* totalizer cards */}
             {(totalizersByUnit[activeTab] || []).map((t) => renderCard(t))}
-          </div>
 
-          {/* Manual KPI inputs (per activeTab) */}
-          <div className="mt-4">
-            {(activeTab === "Unit-1" || activeTab === "Unit-2" || activeTab === "Station") && (
-              <div className="mt-4 p-3 border rounded-lg bg-white">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-semibold">Manual KPIs ({activeTab})</div>
-                  <div className="text-xs text-gray-500">Enter manual measurements</div>
-                </div>
-
-                <div className="mt-3 space-y-3">
-                  {activeTab === "Unit-1" && (
-                    <div>
-                      <label className="block text-xs text-gray-600">Stack Emission ({manualUnits["Unit-1"].stack_emission})</label>
-                      <input
-                        type="number"
-                        value={manualKPI["Unit-1"]?.stack_emission ?? ""}
-                        onChange={(e) => setManualKPI((prev) => ({ ...prev, "Unit-1": { ...(prev["Unit-1"] || {}), stack_emission: e.target.value === "" ? "" : Number(e.target.value) } }))}
-                        className="w-full p-2 border rounded mt-1"
-                      />
-                    </div>
-                  )}
-
-                  {activeTab === "Unit-2" && (
-                    <div>
-                      <label className="block text-xs text-gray-600">Stack Emission ({manualUnits["Unit-2"].stack_emission})</label>
-                      <input
-                        type="number"
-                        value={manualKPI["Unit-2"]?.stack_emission ?? ""}
-                        onChange={(e) => setManualKPI((prev) => ({ ...prev, "Unit-2": { ...(prev["Unit-2"] || {}), stack_emission: e.target.value === "" ? "" : Number(e.target.value) } }))}
-                        className="w-full p-2 border rounded mt-1"
-                      />
-                    </div>
-                  )}
-
-                  {activeTab === "Station" && (
-                    <div>
-                      <label className="block text-xs text-gray-600">Clarifier Level ({manualUnits["Station"].clarifier_level})</label>
-                      <input
-                        type="number"
-                        value={manualKPI["Station"]?.clarifier_level ?? ""}
-                        onChange={(e) => setManualKPI((prev) => ({ ...prev, "Station": { ...(prev["Station"] || {}), clarifier_level: e.target.value === "" ? "" : Number(e.target.value) } }))}
-                        className="w-full p-2 border rounded mt-1"
-                      />
-                    </div>
-                  )}
-                </div>
-              </div>
+            {/* manual KPI cards (placed inside same grid & same style) */}
+            {Object.entries(manualKPI[activeTab] || {}).map(([kname, val]) =>
+              renderManualCard(kname, val, manualUnits[activeTab]?.[kname] || "", (v) =>
+                setManualKPI((prev) => ({ ...prev, [activeTab]: { ...(prev[activeTab] || {}), [kname]: v } }))
+              )
             )}
           </div>
 
@@ -1014,26 +1075,13 @@ export default function TotalizerEntryPage({ auth }) {
             </>
           )}
 
-          {/* Energy-Meter live KPIs */}
-          {activeTab === "Energy-Meter" && energyKPI && (
-            <>
-              <div className="text-xs text-gray-500">Energy-Meter (Live)</div>
-              <div className="grid grid-cols-1 gap-2 mt-2 text-sm">
-                <div className="flex justify-between"><div>U1 Gen</div><div className="font-semibold">{energyKPI.unit1_generation.toFixed(3)}</div></div>
-                <div className="flex justify-between"><div>U2 Gen</div><div className="font-semibold">{energyKPI.unit2_generation.toFixed(3)}</div></div>
-                <div className="flex justify-between"><div>U1 Aux</div><div className="font-semibold">{energyKPI.unit1_unit_aux_mwh.toFixed(3)}</div></div>
-                <div className="flex justify-between"><div>U2 Aux</div><div className="font-semibold">{energyKPI.unit2_unit_aux_mwh.toFixed(3)}</div></div>
-                <div className="flex justify-between"><div>Total Aux</div><div className="font-semibold">{energyKPI.total_station_aux_mwh.toFixed(3)}</div></div>
-                <div className="flex justify-between"><div>U1 Aux %</div><div className="font-semibold">{energyKPI.unit1_aux_percent.toFixed(2)}%</div></div>
-                <div className="flex justify-between"><div>U2 Aux %</div><div className="font-semibold">{energyKPI.unit2_aux_percent.toFixed(2)}%</div></div>
-              </div>
-            </>
-          )}
+          
 
-          {/* Unit KPIs grouped */}
+          {/* Unit KPIs grouped (extended to show steam & PLF) */}
           {(activeTab === "Unit-1" || activeTab === "Unit-2") && (
             <>
               <div className="text-xs text-gray-500">Calculated KPIs</div>
+
               <div className="p-2 rounded-md" style={{ background: "#FFF7E6" }}>
                 <div className="text-xs text-gray-700 font-medium">COAL</div>
                 <div className="flex justify-between text-sm"><div>Consumption</div><div className="font-semibold">{(activeTab === "Unit-1" ? localUnit1KPI.coal : localUnit2KPI.coal).toFixed(3)}</div></div>
@@ -1052,14 +1100,57 @@ export default function TotalizerEntryPage({ auth }) {
                 <div className="flex justify-between text-sm"><div>Specific DM %</div><div className="font-semibold">{(activeTab === "Unit-1" ? localUnit1KPI.specificDM : localUnit2KPI.specificDM).toFixed(3)}%</div></div>
               </div>
 
+              <div className="p-2 rounded-md" style={{ background: "#FFF7F0" }}>
+                <div className="text-xs text-gray-700 font-medium">STEAM</div>
+                <div className="flex justify-between text-sm"><div>Steam Cons.</div><div className="font-semibold">{(activeTab === "Unit-1" ? localUnit1KPI.steam : localUnit2KPI.steam).toFixed(3)}</div></div>
+                <div className="flex justify-between text-sm"><div>Specific Steam</div><div className="font-semibold">{(activeTab === "Unit-1" ? localUnit1KPI.specificSteam : localUnit2KPI.specificSteam).toFixed(6)}</div></div>
+              </div>
+
               <div className="p-2 rounded-md" style={{ background: "#E6EDFF" }}>
                 <div className="text-xs text-gray-700 font-medium">GENERATION</div>
                 <div className="flex justify-between text-sm"><div>Generation</div><div className="font-semibold">{(activeTab === "Unit-1" ? localUnit1KPI.gen : localUnit2KPI.gen).toFixed(3)}</div></div>
+                <div className="flex justify-between text-sm"><div>PLF</div><div className="font-semibold">{(activeTab === "Unit-1" ? localUnit1KPI.plf : localUnit2KPI.plf).toFixed(3)}%</div></div>
               </div>
             </>
           )}
 
-          {activeTab === "Station" && <div className="text-sm text-gray-500">Station KPIs shown on Energy-Meter save</div>}
+
+          {/* Energy-Meter live KPIs (extended) */}
+          {activeTab === "Energy-Meter" && energyKPI && (
+            <>
+              <div className="text-xs text-gray-500">Energy-Meter (Live)</div>
+              <div className="grid grid-cols-1 gap-2 mt-2 text-sm">
+                <div className="flex justify-between"><div>U1 Gen</div><div className="font-semibold">{energyKPI.unit1_generation.toFixed(3)}</div></div>
+                <div className="flex justify-between"><div>U2 Gen</div><div className="font-semibold">{energyKPI.unit2_generation.toFixed(3)}</div></div>
+                <div className="flex justify-between"><div>U1 Aux</div><div className="font-semibold">{energyKPI.unit1_unit_aux_mwh.toFixed(3)}</div></div>
+                <div className="flex justify-between"><div>U2 Aux</div><div className="font-semibold">{energyKPI.unit2_unit_aux_mwh.toFixed(3)}</div></div>
+                <div className="flex justify-between"><div>Total Aux</div><div className="font-semibold">{energyKPI.total_station_aux_mwh.toFixed(3)}</div></div>
+                <div className="flex justify-between"><div>U1 Aux %</div><div className="font-semibold">{energyKPI.unit1_aux_percent.toFixed(2)}%</div></div>
+                <div className="flex justify-between"><div>U2 Aux %</div><div className="font-semibold">{energyKPI.unit2_aux_percent.toFixed(2)}%</div></div>
+
+                <div className="h-px my-1 bg-gray-100" />
+
+                <div className="flex justify-between"><div>U1 PLF</div><div className="font-semibold">{energyKPI.unit1_plf.toFixed(2)}%</div></div>
+                <div className="flex justify-between"><div>U2 PLF</div><div className="font-semibold">{energyKPI.unit2_plf.toFixed(2)}%</div></div>
+                <div className="flex justify-between"><div>Plant PLF</div><div className="font-semibold">{energyKPI.station_plf.toFixed(2)}%</div></div>
+              </div>
+            </>
+          )}
+
+          {/* Station KPIs (new) */}
+          {activeTab === "Station" && (
+            <>
+              <div className="text-xs text-gray-500">Station KPIs</div>
+              <div className="p-2 rounded-md bg-white border mt-2 text-sm">
+                <div className="flex justify-between"><div>Total Raw Water (m3)</div><div className="font-semibold">{stationKPIsLocal.total_raw_water.toFixed(3)}</div></div>
+                <div className="flex justify-between"><div>Avg Raw Water (m3/hr)</div><div className="font-semibold">{stationKPIsLocal.avg_raw_per_hr.toFixed(3)}</div></div>
+                <div className="flex justify-between"><div>Sp. Raw Water (L/kWh)</div><div className="font-semibold">{stationKPIsLocal.sp_raw_l_per_kwh.toFixed(3)}</div></div>
+                <div className="flex justify-between"><div>Total DM Water (m3)</div><div className="font-semibold">{stationKPIsLocal.total_dm.toFixed(3)}</div></div>
+                <div className="flex justify-between"><div>U1 Gen</div><div className="font-semibold">{stationKPIsLocal.gen1.toFixed(3)}</div></div>
+                <div className="flex justify-between"><div>U2 Gen</div><div className="font-semibold">{stationKPIsLocal.gen2.toFixed(3)}</div></div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 

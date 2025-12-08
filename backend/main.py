@@ -66,6 +66,7 @@ app = FastAPI(title="PIMS System Backend - JWT + RBAC")
 
 
 
+
 origins = [
     "http://localhost:4940",
     "http://localhost:5173",
@@ -932,3 +933,18 @@ async def export_pdf(report_date: date, db: AsyncSession = Depends(get_db)):
     doc.build(story)
     buffer.seek(0)
     return StreamingResponse(buffer, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=report_{report_date}.pdf"})
+
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from database import AsyncSessionLocal
+from routers.shutdowns import check_auto_notifications
+
+scheduler = AsyncIOScheduler()
+
+async def scheduled_check():
+    async with AsyncSessionLocal() as session:
+        await check_auto_notifications(session)
+
+scheduler.add_job(scheduled_check, "interval", minutes=5)   # 1 min for testing
+scheduler.start()
+
