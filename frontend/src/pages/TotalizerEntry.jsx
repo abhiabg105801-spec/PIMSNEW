@@ -2,9 +2,12 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import axios from "axios";
 
+// --- Theme & size tweaks for compact UI ---
+// Primary: Orange, neutrals gray/white
+
 const API_URL = "http://localhost:8080/api";
 
-/* ----------------------- Auth helpers ----------------------- */
+/* ---------------- Auth helpers ---------------- */
 const normalizeAuthHeader = (auth) => {
   if (!auth) return localStorage.getItem("authToken") || "";
   return auth.startsWith("Bearer ") ? auth : `Bearer ${auth}`;
@@ -18,12 +21,13 @@ const getTokenPayload = (authHeader) => {
     return null;
   }
 };
+
 const Spinner = ({ size = 14 }) => (
   <div style={{ width: size, height: size }} className="inline-block animate-spin border-2 border-t-transparent rounded-full border-current" />
 );
 
 /* =============================================================
-   MAIN PAGE
+   MAIN
    ============================================================= */
 export default function TotalizerEntryPage({ auth }) {
   const authHeader = useMemo(() => normalizeAuthHeader(auth), [auth]);
@@ -62,6 +66,7 @@ export default function TotalizerEntryPage({ auth }) {
     "Energy-Meter": [],
   });
 
+  // readingsForm keyed by totalizer id
   const [readingsForm, setReadingsForm] = useState({});
 
   /* ----------------- Adjust Popup ----------------- */
@@ -72,15 +77,13 @@ export default function TotalizerEntryPage({ auth }) {
   const [kpiLoading, setKpiLoading] = useState(false);
   const [generationCache, setGenerationCache] = useState({}); // { date: { unit1_generation, unit2_generation } }
 
-  /* ----------------- Shutdown KPI state (new) ----------------- */
-  // contains read-only automatically loaded shutdown KPIs per unit & date
+  /* ----------------- Shutdown KPI state ----------------- */
   const [shutdownKPIs, setShutdownKPIs] = useState({
     "Unit-1": { running_hour: null, plant_availability_percent: null, planned_outage_hour: null, planned_outage_percent: null, strategic_outage_hour: null },
     "Unit-2": { running_hour: null, plant_availability_percent: null, planned_outage_hour: null, planned_outage_percent: null, strategic_outage_hour: null },
   });
 
   /* ----------------- Manual KPI state ----------------- */
-  // Extended manual KPI fields requested by you. These will render as individual cards next to totalizer cards.
   const [manualKPI, setManualKPI] = useState({
     "Unit-1": { stack_emission: "" },
     "Unit-2": { stack_emission: "" },
@@ -116,7 +119,7 @@ export default function TotalizerEntryPage({ auth }) {
   useEffect(() => () => (mountedRef.current = false), []);
 
   /* =============================================================
-     LOAD AUTH USER
+     LOAD AUTH USER & PERMISSIONS
      ============================================================= */
   useEffect(() => {
     const payload = getTokenPayload(authHeader);
@@ -132,9 +135,6 @@ export default function TotalizerEntryPage({ auth }) {
       .catch(() => {});
   }, [api, authHeader]);
 
-  /* =============================================================
-     LOAD PERMISSIONS
-     ============================================================= */
   useEffect(() => {
     async function loadPerm() {
       try {
@@ -152,57 +152,6 @@ export default function TotalizerEntryPage({ auth }) {
   /* =============================================================
      LOAD MASTER TOTALIZERS
      ============================================================= */
-  const loadMasterForUnit = useCallback(
-    async (unit) => {
-      try {
-        const r = await api.get("/totalizers/list", { params: { unit } });
-        const items = r.data || [];
-        setTotalizersByUnit((prev) => ({ ...prev, [unit]: items }));
-
-        setReadingsForm((prev) => {
-          const updated = { ...prev };
-          items.forEach((t) => {
-            if (!updated[t.id]) {
-              updated[t.id] = {
-                today: "",
-                adjust: 0,
-                yesterday: "—",
-                difference: "—",
-                display_name: t.display_name,
-                name: t.name,
-                unit: t.unit || unit,
-                totalizer_id: t.id,
-                _orig: { today: "", adjust: 0 },
-              };
-            } else {
-              updated[t.id].display_name = t.display_name;
-              updated[t.id].name = t.name;
-              updated[t.id].unit = t.unit || unit;
-            }
-          });
-          return updated;
-        });
-
-        await loadTodayReadings(reportDate, unit, items);
-        await loadYesterday(reportDate, unit, items);
-      } catch (e) {
-        console.error("loadMasterForUnit error:", e);
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [api, reportDate]
-  );
-
-  useEffect(() => {
-    loadMasterForUnit("Unit-1");
-    loadMasterForUnit("Unit-2");
-    loadMasterForUnit("Station");
-    loadMasterForUnit("Energy-Meter");
-  }, [loadMasterForUnit]);
-
-  /* =============================================================
-     LOAD TODAY'S READINGS
-     ============================================================= */
   const loadTodayReadings = useCallback(
     async (forDate, unit, itemsParam = null) => {
       try {
@@ -217,6 +166,7 @@ export default function TotalizerEntryPage({ auth }) {
           const updated = { ...prev };
           const items = itemsParam || (totalizersByUnit[unit] || []);
           items.forEach((t) => {
+            // Ensure existence
             const rec = updated[t.id] || {
               today: "",
               adjust: 0,
@@ -234,7 +184,7 @@ export default function TotalizerEntryPage({ auth }) {
               rec.adjust = rowMap[t.id].adjust;
               rec._orig = { today: rec.today, adjust: rec.adjust };
             } else {
-              rec.today = rec._orig?.today ?? "";
+              rec.today = "";
               rec.adjust = rec._orig?.adjust ?? 0;
             }
 
@@ -255,9 +205,6 @@ export default function TotalizerEntryPage({ auth }) {
     [api, totalizersByUnit, canAdjust]
   );
 
-  /* =============================================================
-     LOAD YESTERDAY'S READINGS
-     ============================================================= */
   const loadYesterday = useCallback(
     async (forDate, unit, itemsParam = null) => {
       try {
@@ -307,8 +254,56 @@ export default function TotalizerEntryPage({ auth }) {
     [api, totalizersByUnit, canAdjust]
   );
 
+  const loadMasterForUnit = useCallback(
+    async (unit) => {
+      try {
+        const r = await api.get("/totalizers/list", { params: { unit } });
+        const items = r.data || [];
+        setTotalizersByUnit((prev) => ({ ...prev, [unit]: items }));
+
+        setReadingsForm((prev) => {
+          const updated = { ...prev };
+          items.forEach((t) => {
+            if (!updated[t.id]) {
+              updated[t.id] = {
+                today: "",
+                adjust: 0,
+                yesterday: "—",
+                difference: "—",
+                display_name: t.display_name,
+                name: t.name,
+                unit: t.unit || unit,
+                totalizer_id: t.id,
+                _orig: { today: "", adjust: 0 },
+              };
+            } else {
+              updated[t.id].display_name = t.display_name;
+              updated[t.id].name = t.name;
+              updated[t.id].unit = t.unit || unit;
+            }
+          });
+          return updated;
+        });
+
+        await loadTodayReadings(reportDate, unit, items);
+        await loadYesterday(reportDate, unit, items);
+      } catch (e) {
+        console.error("loadMasterForUnit error:", e);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [api, reportDate]
+  );
+
+  useEffect(() => {
+    loadMasterForUnit("Unit-1");
+    loadMasterForUnit("Unit-2");
+    loadMasterForUnit("Station");
+    loadMasterForUnit("Energy-Meter");
+  }, [loadMasterForUnit]);
+
   /* =============================================================
-     Load station KPIs (to pick up unit generation values)
+     Load KPIs / Generation cache / manual KPI
      ============================================================= */
   const ensureGenerationForDate = useCallback(
     async (dateStr) => {
@@ -331,9 +326,6 @@ export default function TotalizerEntryPage({ auth }) {
     [api, generationCache]
   );
 
-  /* =============================================================
-     Load manual KPI for active tab
-     ============================================================= */
   const loadManualKPIForActiveTab = useCallback(async () => {
     try {
       const r = await api.get("/totalizers/kpi/get", {
@@ -349,10 +341,6 @@ export default function TotalizerEntryPage({ auth }) {
     }
   }, [api, activeTab, reportDate]);
 
-  /* =============================================================
-     NEW: Load shutdown KPIs for a unit & date
-     Endpoint assumed: GET /api/shutdowns/kpi/{unit}/{date}
-     ============================================================= */
   const loadShutdownKPIsForUnitDate = useCallback(
     async (unitKey, dateStr) => {
       setKpiLoading(true);
@@ -361,14 +349,12 @@ export default function TotalizerEntryPage({ auth }) {
         if (res.status === 200 && res.data) {
           setShutdownKPIs((prev) => ({ ...prev, [unitKey]: { ...prev[unitKey], ...res.data } }));
         } else {
-          // set defaults if 404 or empty
           setShutdownKPIs((prev) => ({
             ...prev,
             [unitKey]: { running_hour: 24, plant_availability_percent: 100, planned_outage_hour: 0, planned_outage_percent: 0, strategic_outage_hour: 0 },
           }));
         }
       } catch (err) {
-        // On error set sensible defaults (no shutdowns)
         setShutdownKPIs((prev) => ({
           ...prev,
           [unitKey]: { running_hour: 24, plant_availability_percent: 100, planned_outage_hour: 0, planned_outage_percent: 0, strategic_outage_hour: 0 },
@@ -381,14 +367,12 @@ export default function TotalizerEntryPage({ auth }) {
   );
 
   useEffect(() => {
-    // When the active tab or date changes, reload data + shutdown KPIs
     (async () => {
       const items = totalizersByUnit[activeTab] || [];
       await loadTodayReadings(reportDate, activeTab, items);
       await loadYesterday(reportDate, activeTab, items);
       await ensureGenerationForDate(reportDate);
       await loadManualKPIForActiveTab();
-
       if (activeTab === "Unit-1" || activeTab === "Unit-2") {
         await loadShutdownKPIsForUnitDate(activeTab, reportDate);
       }
@@ -404,42 +388,10 @@ export default function TotalizerEntryPage({ auth }) {
 
   useEffect(() => {
     setMessage("");
-  }, [activeTab]);
+  }, [activeTab, reportDate]);
 
   /* =============================================================
-     Refresh prev totalizer helper
-     ============================================================= */
-  const refreshPrevTotalizer = useCallback(async (unitKey) => {
-    try {
-      const d = new Date(reportDate);
-      d.setDate(d.getDate() - 1);
-      const prevDate = d.toISOString().slice(0, 10);
-
-      const prev = await api.get(`/totalizers/readings`, { params: { date: prevDate } });
-      const prevRows = prev.data || [];
-      const prevMap = {};
-      prevRows.forEach((r) => (prevMap[r.totalizer_id] = Number(r.reading_value || 0)));
-
-      setReadingsForm((s) => {
-        const updated = { ...s };
-        (totalizersByUnit[unitKey] || []).forEach((t) => {
-          if (!updated[t.id]) return;
-          updated[t.id].yesterday = prevMap[t.id] !== undefined ? prevMap[t.id] : "—";
-          if (updated[t.id].yesterday === "—" || updated[t.id].today === "" || updated[t.id].today === null) updated[t.id].difference = "—";
-          else {
-            const adj = canAdjust ? Number(updated[t.id].adjust || 0) : 0;
-            updated[t.id].difference = Number(updated[t.id].today - updated[t.id].yesterday + adj).toFixed(3);
-          }
-        });
-        return updated;
-      });
-    } catch {
-      // ignore
-    }
-  }, [api, reportDate, totalizersByUnit, canAdjust]);
-
-  /* =============================================================
-     Auto calculations, rendering helpers, KPI compute etc
+     Utility helpers & KPI compute
      ============================================================= */
   const updateField = (id, field, value) => {
     setReadingsForm((prev) => {
@@ -454,6 +406,13 @@ export default function TotalizerEntryPage({ auth }) {
 
       return { ...prev, [id]: rec };
     });
+  };
+
+  const updateManualField = (unit, field, value) => {
+    setManualKPI((prev) => ({
+      ...prev,
+      [unit]: { ...prev[unit], [field]: value === "" ? "" : Number(value) },
+    }));
   };
 
   const getDiff = (name, unitFilter = null) => {
@@ -484,9 +443,7 @@ export default function TotalizerEntryPage({ auth }) {
     unit2_gen: "unit2_gen",
   };
 
-  /* ------------------ Energy KPI compute (extended) ------------------ */
   const computeEnergyKPIObject = useCallback(() => {
-    // aux calculation (unchanged)
     const unit1_unit_aux_mwh = getDiff(EM.u1_lsr01_ic1, "Energy-Meter") + getDiff(EM.u1_lsr02_ic1, "Energy-Meter");
     const unit2_unit_aux_mwh = getDiff(EM.u2_lsr01_ic1, "Energy-Meter") + getDiff(EM.u2_lsr02_ic1, "Energy-Meter");
 
@@ -508,12 +465,10 @@ export default function TotalizerEntryPage({ auth }) {
     const unit1_aux_consumption = unit1_unit_aux_mwh + (total_station_aux + total_station_tie) / 2;
     const unit2_aux_consumption = unit2_unit_aux_mwh + (total_station_aux + total_station_tie) / 2;
 
-    // generation values (cache or reading)
     const genCache = generationCache[reportDate] || {};
     const unit1_gen = genCache.unit1_generation ?? getDiff(EM.unit1_gen, "Energy-Meter");
     const unit2_gen = genCache.unit2_generation ?? getDiff(EM.unit2_gen, "Energy-Meter");
 
-    // PLF calculations (denominator 3000 as requested)
     const unit1_plf = unit1_gen > 0 ? (unit1_gen / 3000) * 100 : 0;
     const unit2_plf = unit2_gen > 0 ? (unit2_gen / 3000) * 100 : 0;
     const station_plf = (unit1_gen + unit2_gen) > 0 ? ((unit1_gen + unit2_gen) / 3000) * 100 : 0;
@@ -536,7 +491,7 @@ export default function TotalizerEntryPage({ auth }) {
       unit2_plf: Number(unit2_plf.toFixed(3)),
       station_plf: Number(station_plf.toFixed(3)),
     };
-  }, [generationCache, reportDate, readingsForm]); // include readingsForm for getDiff safety
+  }, [generationCache, reportDate, readingsForm]);
 
   const energyKPI = useMemo(() => {
     try {
@@ -548,7 +503,7 @@ export default function TotalizerEntryPage({ auth }) {
   }, [computeEnergyKPIObject, activeTab, readingsForm, generationCache, reportDate]);
 
   /* =============================================================
-     Unit KPI compute & save (extended with steam, specific steam, PLF)
+     Unit KPI compute & save
      ============================================================= */
   const computeUnitKPI = useCallback(
     async (unitName) => {
@@ -564,13 +519,13 @@ export default function TotalizerEntryPage({ auth }) {
 
       const ldoConsumption = getDiff("ldo_flow", unitName);
       const dmWater = getDiff("dm7", unitName) + getDiff("dm11", unitName);
-      const steamConsumption = getDiff("main_steam", unitName); // NEW: steam consumption diff
+      const steamConsumption = getDiff("main_steam", unitName);
 
       const specificCoal = unitGen > 0 ? Number((coalConsumption / unitGen).toFixed(6)) : 0;
       const specificOil = unitGen > 0 ? Number((ldoConsumption / unitGen).toFixed(6)) : 0;
       const specificDM = steamConsumption > 0 ? Number(((dmWater / steamConsumption) * 100).toFixed(3)) : 0;
-      const specificSteam = unitGen > 0 ? Number((steamConsumption / unitGen).toFixed(6)) : 0; // NEW
-      const plf = unitGen > 0 ? Number(((unitGen / 3000) * 100).toFixed(3)) : 0; // NEW
+      const specificSteam = unitGen > 0 ? Number((steamConsumption / unitGen).toFixed(6)) : 0;
+      const plf = unitGen > 0 ? Number(((unitGen / 3000) * 100).toFixed(3)) : 0;
 
       const payloadKPIs = [
         { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_coal_consumption`, value: Number(coalConsumption.toFixed(3)), unit: "ton" },
@@ -582,7 +537,7 @@ export default function TotalizerEntryPage({ auth }) {
         { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_specific_steam`, value: specificSteam, unit: "kg/MWh" },
         { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_specific_dm_percent`, value: specificDM, unit: "%" },
         { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_generation`, value: Number(unitGen.toFixed(3)), unit: "MWh" },
-        { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_plf_percent`, value: plf, unit: "%" }, // NEW
+        { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_plf_percent`, value: plf, unit: "%" },
       ];
 
       try {
@@ -602,7 +557,7 @@ export default function TotalizerEntryPage({ auth }) {
   );
 
   /* =============================================================
-     Submit flow (unchanged except we now store extended KPIs & station KPIs)
+     Submit flow
      ============================================================= */
   const [showConfirmPopup, setShowConfirmPopup] = useState(false);
   const [confirmList, setConfirmList] = useState([]);
@@ -694,10 +649,9 @@ export default function TotalizerEntryPage({ auth }) {
         else setMessage((m) => (m ? m + " • KPI save failed" : "❌ KPI save failed"));
       }
 
-      // Energy-Meter (Station) KPIs - extended to include PLF and station-level water KPIs
+      // Energy-Meter (Station) KPIs
       if (activeTab === "Energy-Meter") {
         const ek = computeEnergyKPIObject();
-        // station KPIs to be stored
         const kpisArr = [
           { name: "unit1_generation", value: ek.unit1_generation, unit: "MWh" },
           { name: "unit2_generation", value: ek.unit2_generation, unit: "MWh" },
@@ -709,21 +663,19 @@ export default function TotalizerEntryPage({ auth }) {
           { name: "unit1_aux_percent", value: ek.unit1_aux_percent, unit: "%" },
           { name: "unit2_aux_consumption_mwh", value: ek.unit2_aux_consumption_mwh, unit: "MWh" },
           { name: "unit2_aux_percent", value: ek.unit2_aux_percent, unit: "%" },
-          // PLF's
           { name: "unit1_plf_percent", value: ek.unit1_plf, unit: "%" },
           { name: "unit2_plf_percent", value: ek.unit2_plf, unit: "%" },
           { name: "station_plf_percent", value: ek.station_plf, unit: "%" },
         ];
 
-        // Also compute Station water KPIs (raw water, DM totals)
-        // raw water totalizer name: 'raw_water' (Station)
+        // Station water KPIs
         const total_raw_water = getDiff("raw_water", "Station");
         const avg_raw_per_hr = Number((total_raw_water / 24.0).toFixed(3));
         const total_dm_u1 = getDiff("dm7", "Unit-1") + getDiff("dm11", "Unit-1");
         const total_dm_u2 = getDiff("dm7", "Unit-2") + getDiff("dm11", "Unit-2");
         const total_dm_all = Number((total_dm_u1 + total_dm_u2).toFixed(3));
         const sum_unit_gen = ek.unit1_generation + ek.unit2_generation;
-        const sp_raw_l_per_kwh = sum_unit_gen > 0 ? Number(((total_raw_water * 1000) / sum_unit_gen).toFixed(3)) : 0; // liters / kWh
+        const sp_raw_l_per_kwh = sum_unit_gen > 0 ? Number(((total_raw_water * 1000) / sum_unit_gen).toFixed(3)) : 0;
 
         kpisArr.push({ name: "total_raw_water_used_m3", value: Number(total_raw_water.toFixed(3)), unit: "m3" });
         kpisArr.push({ name: "avg_raw_water_m3_per_hr", value: avg_raw_per_hr, unit: "m3/hr" });
@@ -745,7 +697,7 @@ export default function TotalizerEntryPage({ auth }) {
         }
       }
 
-      // Save manual KPIs (same as before)
+      // Save manual KPIs
       const manualForTab = manualKPI[activeTab] || {};
       const manualKpisPayload = [];
       Object.keys(manualForTab).forEach((kname) => {
@@ -777,7 +729,6 @@ export default function TotalizerEntryPage({ auth }) {
 
       await loadYesterday(reportDate, activeTab, totalizersByUnit[activeTab]);
       await ensureGenerationForDate(reportDate);
-      // Refresh shutdown KPIs after save (in case duration was entered in shutdowns)
       if (activeTab === "Unit-1" || activeTab === "Unit-2") {
         await loadShutdownKPIsForUnitDate(activeTab, reportDate);
       }
@@ -791,7 +742,7 @@ export default function TotalizerEntryPage({ auth }) {
   };
 
   /* =============================================================
-     Reset Form, Seed Master, Adjust popup (unchanged)
+     Reset / Seed helpers
      ============================================================= */
   const handleResetForm = () => {
     const items = totalizersByUnit[activeTab] || [];
@@ -799,126 +750,77 @@ export default function TotalizerEntryPage({ auth }) {
       const updated = { ...prev };
       items.forEach((t) => {
         if (!updated[t.id]) return;
-        updated[t.id].today = "";
-        updated[t.id].adjust = 0;
-        updated[t.id].difference = "—";
+        updated[t.id].today = updated[t.id]._orig?.today ?? "";
+        updated[t.id].adjust = updated[t.id]._orig?.adjust ?? 0;
+        if (updated[t.id].yesterday === "—" || updated[t.id].today === "" || updated[t.id].today === null) updated[t.id].difference = "—";
+        else {
+          const adj = canAdjust ? Number(updated[t.id].adjust || 0) : 0;
+          updated[t.id].difference = Number(updated[t.id].today - updated[t.id].yesterday + adj).toFixed(3);
+        }
       });
       return updated;
     });
-    setMessage("⚠️ Current inputs have been reset.");
+    setManualKPI((prev) => ({ ...prev, [activeTab]: Object.fromEntries(Object.keys(prev[activeTab] || {}).map(k => [k, ""])) }));
+    setMessage("⚠️ Inputs reset.");
   };
 
-  const seedMaster = async () => {
-    if (!isAdmin) return setMessage("❌ Only admin can seed!");
-    if (!window.confirm("Seed master? Run only ONCE.")) return;
+  const handleSeedMaster = async () => {
+    setMessage("Loading previous day's closing readings...");
+    setSubmitting(true);
     try {
-      const r = await api.post("/totalizers/seed-master");
-      setMessage("✅ " + r.data.message);
-      await loadMasterForUnit("Unit-1");
-      await loadMasterForUnit("Unit-2");
-      await loadMasterForUnit("Station");
-      await loadMasterForUnit("Energy-Meter");
+      const d = new Date(reportDate);
+      d.setDate(d.getDate() - 1);
+      const y = d.toISOString().slice(0, 10);
+
+      const res = await api.get("/totalizers/readings", { params: { date: y } });
+      const rows = res.data || [];
+      const rowMap = {};
+      rows.forEach((r) => {
+        rowMap[r.totalizer_id] = Number(r.reading_value || 0);
+      });
+
+      setReadingsForm((prev) => {
+        const updated = { ...prev };
+        (totalizersByUnit[activeTab] || []).forEach((t) => {
+          const rec = updated[t.id];
+          if (!rec) return;
+
+          const prevValue = rowMap[t.id];
+
+          if (prevValue !== undefined && rec._orig.today === "") {
+            updated[t.id].today = prevValue;
+            updated[t.id].adjust = rec._orig.adjust ?? 0;
+            const adj = canAdjust ? Number(updated[t.id].adjust || 0) : 0;
+            updated[t.id].difference = Number(updated[t.id].today - (rec.yesterday === "—" ? 0 : rec.yesterday) + adj).toFixed(3);
+          }
+        });
+        return updated;
+      });
+      setMessage("ℹ️ Readings seeded from previous day.");
     } catch (e) {
-      setMessage("❌ Error seeding master");
+      setMessage("❌ Failed to seed readings.");
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const openAdjustPopup = (t) => {
-    if (!canAdjust || !canEdit(t.name)) return;
-    const rec = readingsForm[t.id];
-    setAdjustPopupRecord({
-      id: t.id,
-      name: t.display_name,
-      yesterday: rec?.yesterday ?? "—",
-      today: rec?.today ?? "",
-      adjust: rec?.adjust ?? 0,
-    });
+  const handleAdjustClick = (record) => {
+    setAdjustPopupRecord(record);
     setShowAdjustPopup(true);
   };
-  const saveAdjustPopup = () => {
+
+  const saveAdjust = () => {
+    if (!adjustPopupRecord) return;
     const { id, adjust } = adjustPopupRecord;
-    setReadingsForm((prev) => {
-      const rec = { ...prev[id] };
-      rec.adjust = Number(adjust || 0);
-
-      if (rec.yesterday === "—" || rec.today === "" || rec.today === null) rec.difference = "—";
-      else rec.difference = Number(rec.today - rec.yesterday + rec.adjust).toFixed(3);
-
-      return { ...prev, [id]: rec };
-    });
+    updateField(id, "adjust", adjust);
     setShowAdjustPopup(false);
-  };
-
-  /* ---------------- Render totalizer card ---------------- */
-  const renderCard = (t) => {
-    const rec = readingsForm[t.id];
-    if (!rec) return null;
-    const orig = rec._orig || { today: "", adjust: 0 };
-    const origExists = orig.today !== "";
-    const readOnly = !canEdit(t.name) || (!isAdmin && origExists);
-
-    return (
-      <div
-        key={t.id}
-        className="p-2 border rounded-lg bg-zinc-50 shadow-sm cursor-pointer"
-        onDoubleClick={() => openAdjustPopup(t)}
-        title={canAdjust && canEdit(t.name) ? "Double click to edit adjustment" : ""}
-      >
-        <div className="font-medium text-sm truncate">{t.display_name}</div>
-
-        <div className="text-xs text-gray-500 mt-1">
-          Yesterday: <span className="font-semibold">{rec.yesterday}</span>
-        </div>
-
-        <label className="block mt-2 text-xs font-semibold">Today's</label>
-        <input
-          type="number"
-          value={rec.today === "" ? "" : rec.today}
-          readOnly={readOnly}
-          onChange={(e) => {
-            const v = e.target.value === "" ? "" : Number(e.target.value);
-            setReadingsForm((prev) => {
-              const r = { ...prev[t.id] };
-              r.today = v;
-              if (r.yesterday === "—" || r.today === "" || r.today === null) r.difference = "—";
-              else {
-                const adj = canAdjust ? Number(r.adjust || 0) : 0;
-                r.difference = Number(r.today - r.yesterday + adj).toFixed(3);
-              }
-              return { ...prev, [t.id]: r };
-            });
-          }}
-          className={`w-full p-1 mt-1 rounded border text-sm ${readOnly ? "bg-gray-100 text-gray-600" : "bg-white focus:ring-1 focus:ring-orange-400"}`}
-        />
-
-        <div className="mt-1 text-sm">
-          <strong>Diff:</strong> <span className="font-semibold">{rec.difference}</span>
-        </div>
-      </div>
-    );
-  };
-
-  /* ---------------- Render manual KPI card (same size as totalizer cards) ---------------- */
-  const renderManualCard = (kname, val, unitLabel, onChange) => {
-    return (
-      <div key={`m_${kname}`} className="p-2 border rounded-lg bg-zinc-50 shadow-sm">
-        <div className="font-medium text-sm truncate">{kname.replace(/_/g, " ")}</div>
-        <div className="text-xs text-gray-500 mt-1">{unitLabel || ""}</div>
-        <input
-          type="number"
-          value={val === "" || val === null || val === undefined ? "" : val}
-          onChange={(e) => onChange(e.target.value === "" ? "" : Number(e.target.value))}
-          className="w-full p-1 mt-2 rounded border text-sm bg-white focus:ring-1 focus:ring-orange-400"
-        />
-      </div>
-    );
+    setAdjustPopupRecord(null);
   };
 
   /* =============================================================
-     UI JSX (modified to show Shutdown KPIs)
+     Render helpers
      ============================================================= */
-  const tabs = ["Unit-1", "Unit-2", "Station", "Energy-Meter"];
-
+  // local unit KPI calculations
   const localUnit1KPI = useMemo(() => {
     const feederA = getDiff("feeder_a", "Unit-1");
     const feederB = getDiff("feeder_b", "Unit-1");
@@ -957,7 +859,6 @@ export default function TotalizerEntryPage({ auth }) {
     return { coal, specificCoal, ldo, specificOil, dm, steam, specificDM, gen, specificSteam, plf };
   }, [readingsForm, generationCache, reportDate]);
 
-  /* =================== Station KPIs helper (reads totalizers) =================== */
   const stationKPIsLocal = useMemo(() => {
     const total_raw_water = getDiff("raw_water", "Station");
     const avg_raw_per_hr = Number((total_raw_water / 24.0).toFixed(3));
@@ -971,232 +872,314 @@ export default function TotalizerEntryPage({ auth }) {
     return { total_raw_water, avg_raw_per_hr, total_dm, sp_raw_l_per_kwh, gen1, gen2, sum_gen };
   }, [readingsForm, generationCache, reportDate]);
 
+  /* Left KPI Panel render */
+  const renderLeftKPIList = () => {
+    const compactRow = (label, value, unit = "") => (
+      <div key={label} className="flex justify-between items-center ">
+        <div className="text-xs text-gray-600 truncate">{label}</div>
+        <div className="text-sm font-semibold text-gray-800">{value} <span className="text-xs text-orange-500 ml-1">{unit}</span></div>
+      </div>
+    );
+
+    if (activeTab === "Unit-1" || activeTab === "Unit-2") {
+      const u = activeTab === "Unit-1" ? localUnit1KPI : localUnit2KPI;
+      const sKPI = shutdownKPIs[activeTab] || {};
+      return (
+        <div className="space-y-2">
+          <div className="text-sm font-semibold text-gray-700 mb-1">Unit KPIs</div>
+          {compactRow("Daily Generation", (u.gen || 0).toFixed(3), "MWh")}
+          {compactRow("PLF %", (u.plf || 0).toFixed(2), "%")}
+          {compactRow("Running Hour", sKPI.running_hour !== null ? Number(sKPI.running_hour).toFixed(2) : "—", "hr")}
+          {compactRow("Availability %", sKPI.plant_availability_percent !== null ? Number(sKPI.plant_availability_percent).toFixed(2) : "—", "%")}
+          {compactRow("Planned Out (hr)", sKPI.planned_outage_hour !== null ? Number(sKPI.planned_outage_hour).toFixed(2) : "—", "hr")}
+          {compactRow("Strategic Out (hr)", sKPI.strategic_outage_hour !== null ? Number(sKPI.strategic_outage_hour).toFixed(2) : "—", "hr")}
+          <div className="h-px bg-gray-100 my-2" />
+          <div className="text-sm font-semibold text-gray-700 mb-1">Fuel & Utilities</div>
+          {compactRow("Coal Cons.", (u.coal || 0).toFixed(3), "ton")}
+          {compactRow("Specific Coal", (u.specificCoal || 0).toFixed(6), "ton/MWh")}
+          {compactRow("LDO Cons.", (u.ldo || 0).toFixed(3), "L")}
+          {compactRow("Specific Oil", (u.specificOil || 0).toFixed(6), "L/MWh")}
+          {compactRow("Steam Cons.", (u.steam || 0).toFixed(3), "kg")}
+          {compactRow("Specific Steam", (u.specificSteam || 0).toFixed(6), "kg/MWh")}
+          {compactRow("DM Water", (u.dm || 0).toFixed(3), "m3")}
+          {compactRow("Sp. DM %", (u.specificDM || 0).toFixed(3), "%")}
+        </div>
+      );
+    }
+
+    if (activeTab === "Station") {
+      const s = stationKPIsLocal;
+      return (
+        <div className="space-y-2">
+          <div className="text-sm font-semibold text-gray-700 mb-1">Station KPIs</div>
+          {compactRow("Station PLF", ((s.gen1 + s.gen2) > 0 ? (((s.gen1 + s.gen2) / 3000) * 100).toFixed(2) : "0.00"), "%")}
+          {compactRow("Total Raw Water", (s.total_raw_water || 0).toFixed(3), "m3")}
+          {compactRow("Avg Raw Water/hr", (s.avg_raw_per_hr || 0).toFixed(3), "m3/hr")}
+          {compactRow("Total DM Water", (s.total_dm || 0).toFixed(3), "m3")}
+          {compactRow("Sp Raw Water (L/kWh)", (s.sp_raw_l_per_kwh || 0).toFixed(3), "L/kWh")}
+          {compactRow("U1 Gen", (s.gen1 || 0).toFixed(3), "MWh")}
+          {compactRow("U2 Gen", (s.gen2 || 0).toFixed(3), "MWh")}
+        </div>
+      );
+    }
+
+    if (activeTab === "Energy-Meter") {
+      const ek = energyKPI || {};
+      return (
+        <div className="space-y-2">
+          <div className="text-sm font-semibold text-gray-700 mb-1">Energy KPIs</div>
+          {compactRow("U1 Gen", (ek.unit1_generation || 0).toFixed(3), "MWh")}
+          {compactRow("U2 Gen", (ek.unit2_generation || 0).toFixed(3), "MWh")}
+          {compactRow("U1 PLF", (ek.unit1_plf || 0).toFixed(2), "%")}
+          {compactRow("U2 PLF", (ek.unit2_plf || 0).toFixed(2), "%")}
+          {compactRow("Station PLF", (ek.station_plf || 0).toFixed(2), "%")}
+          {compactRow("U1 Aux %", (ek.unit1_aux_percent || 0).toFixed(2), "%")}
+          {compactRow("U2 Aux %", (ek.unit2_aux_percent || 0).toFixed(2), "%")}
+          {compactRow("Total Station Aux", (ek.total_station_aux_mwh || 0).toFixed(3), "MWh")}
+          {compactRow("Tie Export", (ek.total_station_tie_mwh || 0).toFixed(3), "MWh")}
+        </div>
+      );
+    }
+
+    return null;
+  };
+
   /* =============================================================
-     JSX
+     Compact Table Render
      ============================================================= */
-  return (
-    <div className="max-w-7xl mx-auto p-0">
-      {/* TOP BAR */}
-      <div className="flex items-center justify-between mb-1 gap-4">
-        <div className="flex gap-2">
-          {tabs.map((t) => {
-            const active = t === activeTab;
+  const currentTotalizers = totalizersByUnit[activeTab] || [];
+
+  const renderTotalizerTable = () => (
+    <div className="overflow-auto rounded-md border border-gray-200">
+      <table className="min-w-full table-auto">
+        <thead className="bg-gray-50 text-xs text-gray-600">
+          <tr>
+            <th className="px-3 py-2 text-left w-48">Totalizer</th>
+            <th className="px-2 py-2 text-center w-16">Unit</th>
+            <th className="px-2 py-2 text-right w-28">Yesterday</th>
+            <th className="px-2 py-2 text-right w-32">Today</th>
+            {/* Removed Adj Column */}
+            <th className="px-2 py-2 text-right w-28">Diff</th>
+          </tr>
+        </thead>
+        <tbody className="text-sm">
+          {currentTotalizers.filter(t => canView(t.name)).map((t) => {
+            const rec = readingsForm[t.id];
+            if (!rec) return null;
+            const isEditable = canEdit(t.name);
+            const hasAdjustment = rec.adjust && rec.adjust !== 0;
+
             return (
-              <button
-                key={t}
-                onClick={() => setActiveTab(t)}
-                className={`px-4 py-1 rounded-full font-medium transition-all ${active ? "bg-gradient-to-r from-orange-500 to-amber-400 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
-              >
-                {t}
-              </button>
+              <tr key={t.id} className="odd:bg-white even:bg-gray-50">
+                <td className="px-3 py-2 text-sm text-gray-700">{t.display_name}</td>
+                <td className="px-2 py-2 text-center text-xs text-gray-500">{rec.unit}</td>
+                <td className="px-2 py-2 text-right font-mono text-xs text-gray-600">{rec.yesterday}</td>
+                <td className="px-2 py-1 text-right">
+                  <input
+                    type="number"
+                    step="0.001"
+                    value={rec.today === "" ? "" : rec.today}
+                    onChange={(e) => updateField(t.id, "today", e.target.value)}
+                    // Double click to open adjust popup
+                    onDoubleClick={() => canAdjust && handleAdjustClick({ id: t.id, adjust: rec.adjust || 0 })}
+                    readOnly={!isEditable}
+                    title={canAdjust ? "Double click to adjust" : ""}
+                    placeholder={isEditable ? "" : "N/A"}
+                    className={`w-28 text-right text-sm px-2 py-1 rounded border text-gray-800 ${isEditable ? "border-orange-200 focus:ring-1 focus:ring-orange-400" : "bg-gray-100 border-gray-200"}`}
+                  />
+                </td>
+                <td className="px-2 py-2 text-right font-mono text-sm text-gray-800 relative">
+                  {rec.difference}
+                  {hasAdjustment && (
+                    <span className="text-orange-500 font-bold ml-1 text-xs" title={`Adjustment: ${rec.adjust}`}>*</span>
+                  )}
+                </td>
+              </tr>
             );
           })}
-        </div>
+        </tbody>
+      </table>
+    </div>
+  );
 
-        <div className="flex items-center gap-3">
-          <label className="text-xs text-gray-500">Select Date</label>
-          <input type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} className="p-2 rounded border bg-white" />
-        </div>
-      </div>
+  /* Confirm popup */
+  const renderConfirmPopup = () => {
+    if (!showConfirmPopup) return null;
+    const changedManualKPIs = Object.entries(manualKPI[activeTab] || {}).filter(([k, v]) => v !== "" && v !== null && v !== undefined);
 
-      {/* MAIN */}
-      <div className="flex gap-6">
-        {/* left: totalizer cards + manual KPI (now inside same grid) */}
-        <div className="flex-1 bg-white border rounded-xl p-4 shadow">
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl p-4">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold text-gray-600">{activeTab} Totalizer Entry</h2>
-            {message && <div className={`px-3 py-1 rounded ${message.startsWith("❌") ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}>{message}</div>}
+            <h3 className="text-lg font-semibold text-orange-600">Confirm Submission</h3>
+            <button onClick={() => setShowConfirmPopup(false)} className="text-sm text-gray-500">Close</button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-            {/* totalizer cards */}
-            {(totalizersByUnit[activeTab] || []).map((t) => renderCard(t))}
+          <div className="max-h-64 overflow-auto border rounded p-2 bg-gray-50">
+            <div className="mb-2 text-sm text-gray-700">Date: <strong>{reportDate}</strong> — <strong>{activeTab}</strong></div>
 
-            {/* manual KPI cards (placed inside same grid & same style) */}
-            {Object.entries(manualKPI[activeTab] || {}).map(([kname, val]) =>
-              renderManualCard(kname, val, manualUnits[activeTab]?.[kname] || "", (v) =>
-                setManualKPI((prev) => ({ ...prev, [activeTab]: { ...(prev[activeTab] || {}), [kname]: v } }))
-              )
+            <div className="mb-2">
+              <div className="font-medium text-gray-800 text-sm mb-1">Totalizer Readings</div>
+              {confirmList.length > 0 ? (
+                <ul className="text-sm text-gray-600 list-disc ml-5 space-y-1">
+                  {confirmList.map((c, i) => <li key={i}><strong>{c.label}</strong>: {c.value}</li>)}
+                </ul>
+              ) : <div className="text-sm text-gray-500 italic">No totalizer changes</div>}
+            </div>
+
+            {changedManualKPIs.length > 0 && (
+              <div className="mt-3">
+                <div className="font-medium text-gray-800 text-sm mb-1">Manual KPIs</div>
+                <ul className="text-sm text-gray-600 list-disc ml-5 space-y-1">
+                  {changedManualKPIs.map(([key, value], idx) => (
+                    <li key={idx}>
+                      <strong>{key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</strong>: {value} {manualUnits[activeTab]?.[key] || ""}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </div>
 
-          <div className="mt-6 flex items-center gap-3">
-            <button onClick={handleSubmitClick} disabled={submitting} className="px-6 py-2 rounded-md text-white bg-orange-500 hover:bg-orange-600">
-              {submitting ? "Saving..." : "Save"}
+          <div className="mt-3 flex justify-end space-x-2">
+            <button onClick={() => setShowConfirmPopup(false)} className="px-3 py-1 rounded border text-sm">Cancel</button>
+            <button onClick={confirmSubmit} disabled={submitting} className="px-4 py-1 rounded bg-orange-600 text-white text-sm">
+              {submitting ? "Saving..." : "Confirm & Save"}
             </button>
-            <button onClick={handleResetForm} className="px-4 py-2 rounded-md border">Reset Form</button>
           </div>
         </div>
+      </div>
+    );
+  };
 
-        {/* right: KPIs column */}
-        <div className="w-72 bg-white border rounded-xl p-4 shadow flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-600">KPIs</h3>
+  /* Adjust popup */
+  const renderAdjustPopup = () => {
+    if (!showAdjustPopup || !adjustPopupRecord) return null;
+    const rec = readingsForm[adjustPopupRecord.id];
+    if (!rec) return null;
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="bg-white rounded-lg w-full max-w-md p-4">
+          <h4 className="text-lg font-semibold mb-3">Edit Adjustment - {rec.display_name}</h4>
+          <div className="mb-3">
+            <div className="text-xs text-gray-500">Today Reading</div>
+            <div className="font-mono text-sm text-gray-800">{rec.today === "" ? "—" : rec.today}</div>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500">Adjustment Value</label>
+            <input
+              type="number"
+              step="0.001"
+              value={adjustPopupRecord.adjust}
+              onChange={(e) => setAdjustPopupRecord((p) => ({ ...p, adjust: e.target.value === "" ? "" : Number(e.target.value) }))}
+              className="w-full px-2 py-1 border rounded mt-1 focus:border-orange-500 outline-none"
+              autoFocus
+            />
+          </div>
+          <div className="mt-4 flex justify-end space-x-2">
+            <button onClick={() => setShowAdjustPopup(false)} className="px-3 py-1 rounded border text-sm">Cancel</button>
+            <button onClick={saveAdjust} className="px-3 py-1 rounded bg-orange-600 text-white text-sm">Save</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  /* Compact top bar and layout */
+  return (
+    <div className="min-h-screen bg-gray-50 p-3">
+      {renderConfirmPopup()}
+      {renderAdjustPopup()}
+
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+            <svg className="w-6 h-6 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V9a2 2 0 012-2h2a2 2 0 012 2v10"></path></svg>
+            Totalizer Daily Entry
+          </h1>
+          <div className="text-xs text-gray-500">Date: <strong>{reportDate}</strong></div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <input type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} className="px-2 py-1 border rounded text-sm" />
+          <button onClick={handleSeedMaster} className="px-3 py-1 rounded bg-gray-200 text-sm">Seed</button>
+          <button onClick={handleResetForm} className="px-3 py-1 rounded border text-sm">Reset</button>
+          <button onClick={handleSubmitClick} className="px-3 py-1 rounded bg-orange-600 text-white text-sm">{submitting ? "Saving..." : "Submit"}</button>
+        </div>
+      </div>
+
+      {message && (
+        <div className={`p-2 mb-3 rounded text-sm ${message.startsWith("❌") ? "bg-red-100 text-red-700" : message.startsWith("✅") ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"}`}>
+          {message}
+        </div>
+      )}
+
+      {/* Tabs Navigation */}
+      <div className="flex border-b border-gray-200 mb-4 bg-white rounded-t-md px-2">
+        {["Unit-1", "Unit-2", "Station", "Energy-Meter"].map(tab => (
+            <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === tab 
+                    ? "border-orange-500 text-orange-600" 
+                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                }`}
+            >
+                {tab}
+            </button>
+        ))}
+      </div>
+
+      {/* Main layout: left KPI panel + right content */}
+      <div className="flex gap-4">
+        {/* Left KPI panel - compact list, fixed width */}
+        <aside className="w-64 bg-white border rounded p-3 shadow-sm sticky top-4 h-[calc(100vh-180px)] overflow-auto">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-700">KPIs</h3>
             {kpiLoading && <Spinner size={12} />}
           </div>
+          <div className="h-px bg-gray-100 mb-3" />
+          {renderLeftKPIList()}
+        </aside>
 
-          <div className="h-px bg-gray-100" />
+        {/* Right content - table + manual KPIs */}
+        <main className="flex-1">
+          <div className="bg-white border rounded p-3 shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-sm font-semibold text-gray-700">{activeTab} Readings</h2>
+              <div className="text-xs text-gray-500">{currentTotalizers.length} totalizers</div>
+            </div>
 
-          {/* NEW: Shutdown KPIs block for Unit-1 / Unit-2 */}
-          {(activeTab === "Unit-1" || activeTab === "Unit-2") && (
-            <>
-              <div className="text-xs text-gray-500">Shutdown KPIs (Auto)</div>
-              <div className="p-2 rounded-md bg-white border mt-2">
-                <div className="flex justify-between text-sm"><div>Running Hour</div>
-                  <div className="font-semibold">
-                    {shutdownKPIs[activeTab]?.running_hour === null ? "—" : Number(shutdownKPIs[activeTab].running_hour).toFixed(2)}
+            {/* table */}
+            <div className="mb-3">
+              {currentTotalizers.length > 0 ? renderTotalizerTable() : (
+                <div className="p-6 text-center text-gray-500 border border-dashed rounded">No totalizers found for {activeTab}</div>
+              )}
+            </div>
+
+            {/* Manual KPIs compact grid */}
+            <div className="mt-2">
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">Manual KPIs</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                {Object.entries(manualKPI[activeTab] || {}).map(([kname, val]) => (
+                  <div key={kname} className="p-2 border rounded text-sm bg-white">
+                    <div className="text-xs text-gray-600 mb-1">{kname.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} <span className="text-xs text-gray-400">({manualUnits[activeTab]?.[kname] || ""})</span></div>
+                    <input
+                      type="number"
+                      step="0.001"
+                      value={val === "" || val === null || val === undefined ? "" : val}
+                      onChange={(e) => updateManualField(activeTab, kname, e.target.value)}
+                      className="w-full px-2 py-1 text-sm border rounded focus:border-orange-500 outline-none"
+                    />
                   </div>
-                </div>
-
-                <div className="flex justify-between text-sm"><div>Availability (%)</div>
-                  <div className="font-semibold">
-                    {shutdownKPIs[activeTab]?.plant_availability_percent === null ? "—" : Number(shutdownKPIs[activeTab].plant_availability_percent).toFixed(2) + "%"}
-                  </div>
-                </div>
-
-                <div className="flex justify-between text-sm"><div>Planned Out (hr)</div>
-                  <div className="font-semibold">
-                    {shutdownKPIs[activeTab]?.planned_outage_hour === null ? "—" : Number(shutdownKPIs[activeTab].planned_outage_hour).toFixed(2)}
-                  </div>
-                </div>
-
-                <div className="flex justify-between text-sm"><div>Planned Out (%)</div>
-                  <div className="font-semibold">
-                    {shutdownKPIs[activeTab]?.planned_outage_percent === null ? "—" : Number(shutdownKPIs[activeTab].planned_outage_percent).toFixed(2) + "%"}
-                  </div>
-                </div>
-
-                <div className="flex justify-between text-sm"><div>Strategic Out (hr)</div>
-                  <div className="font-semibold">
-                    {shutdownKPIs[activeTab]?.strategic_outage_hour === null ? "—" : Number(shutdownKPIs[activeTab].strategic_outage_hour).toFixed(2)}
-                  </div>
-                </div>
+                ))}
               </div>
-            </>
-          )}
-
-          
-
-          {/* Unit KPIs grouped (extended to show steam & PLF) */}
-          {(activeTab === "Unit-1" || activeTab === "Unit-2") && (
-            <>
-              <div className="text-xs text-gray-500">Calculated KPIs</div>
-
-              <div className="p-2 rounded-md" style={{ background: "#FFF7E6" }}>
-                <div className="text-xs text-gray-700 font-medium">COAL</div>
-                <div className="flex justify-between text-sm"><div>Consumption</div><div className="font-semibold">{(activeTab === "Unit-1" ? localUnit1KPI.coal : localUnit2KPI.coal).toFixed(3)}</div></div>
-                <div className="flex justify-between text-sm"><div>Specific Coal</div><div className="font-semibold">{(activeTab === "Unit-1" ? localUnit1KPI.specificCoal : localUnit2KPI.specificCoal).toFixed(6)}</div></div>
-              </div>
-
-              <div className="p-2 rounded-md" style={{ background: "#FFF1E6" }}>
-                <div className="text-xs text-gray-700 font-medium">LDO</div>
-                <div className="flex justify-between text-sm"><div>Consumption</div><div className="font-semibold">{(activeTab === "Unit-1" ? localUnit1KPI.ldo : localUnit2KPI.ldo).toFixed(3)}</div></div>
-                <div className="flex justify-between text-sm"><div>Specific Oil</div><div className="font-semibold">{(activeTab === "Unit-1" ? localUnit1KPI.specificOil : localUnit2KPI.specificOil).toFixed(6)}</div></div>
-              </div>
-
-              <div className="p-2 rounded-md" style={{ background: "#E6FBFF" }}>
-                <div className="text-xs text-gray-700 font-medium">DM WATER</div>
-                <div className="flex justify-between text-sm"><div>DM Water</div><div className="font-semibold">{(activeTab === "Unit-1" ? localUnit1KPI.dm : localUnit2KPI.dm).toFixed(3)}</div></div>
-                <div className="flex justify-between text-sm"><div>Specific DM %</div><div className="font-semibold">{(activeTab === "Unit-1" ? localUnit1KPI.specificDM : localUnit2KPI.specificDM).toFixed(3)}%</div></div>
-              </div>
-
-              <div className="p-2 rounded-md" style={{ background: "#FFF7F0" }}>
-                <div className="text-xs text-gray-700 font-medium">STEAM</div>
-                <div className="flex justify-between text-sm"><div>Steam Cons.</div><div className="font-semibold">{(activeTab === "Unit-1" ? localUnit1KPI.steam : localUnit2KPI.steam).toFixed(3)}</div></div>
-                <div className="flex justify-between text-sm"><div>Specific Steam</div><div className="font-semibold">{(activeTab === "Unit-1" ? localUnit1KPI.specificSteam : localUnit2KPI.specificSteam).toFixed(6)}</div></div>
-              </div>
-
-              <div className="p-2 rounded-md" style={{ background: "#E6EDFF" }}>
-                <div className="text-xs text-gray-700 font-medium">GENERATION</div>
-                <div className="flex justify-between text-sm"><div>Generation</div><div className="font-semibold">{(activeTab === "Unit-1" ? localUnit1KPI.gen : localUnit2KPI.gen).toFixed(3)}</div></div>
-                <div className="flex justify-between text-sm"><div>PLF</div><div className="font-semibold">{(activeTab === "Unit-1" ? localUnit1KPI.plf : localUnit2KPI.plf).toFixed(3)}%</div></div>
-              </div>
-            </>
-          )}
-
-
-          {/* Energy-Meter live KPIs (extended) */}
-          {activeTab === "Energy-Meter" && energyKPI && (
-            <>
-              <div className="text-xs text-gray-500">Energy-Meter (Live)</div>
-              <div className="grid grid-cols-1 gap-2 mt-2 text-sm">
-                <div className="flex justify-between"><div>U1 Gen</div><div className="font-semibold">{energyKPI.unit1_generation.toFixed(3)}</div></div>
-                <div className="flex justify-between"><div>U2 Gen</div><div className="font-semibold">{energyKPI.unit2_generation.toFixed(3)}</div></div>
-                <div className="flex justify-between"><div>U1 Aux</div><div className="font-semibold">{energyKPI.unit1_unit_aux_mwh.toFixed(3)}</div></div>
-                <div className="flex justify-between"><div>U2 Aux</div><div className="font-semibold">{energyKPI.unit2_unit_aux_mwh.toFixed(3)}</div></div>
-                <div className="flex justify-between"><div>Total Aux</div><div className="font-semibold">{energyKPI.total_station_aux_mwh.toFixed(3)}</div></div>
-                <div className="flex justify-between"><div>U1 Aux %</div><div className="font-semibold">{energyKPI.unit1_aux_percent.toFixed(2)}%</div></div>
-                <div className="flex justify-between"><div>U2 Aux %</div><div className="font-semibold">{energyKPI.unit2_aux_percent.toFixed(2)}%</div></div>
-
-                <div className="h-px my-1 bg-gray-100" />
-
-                <div className="flex justify-between"><div>U1 PLF</div><div className="font-semibold">{energyKPI.unit1_plf.toFixed(2)}%</div></div>
-                <div className="flex justify-between"><div>U2 PLF</div><div className="font-semibold">{energyKPI.unit2_plf.toFixed(2)}%</div></div>
-                <div className="flex justify-between"><div>Plant PLF</div><div className="font-semibold">{energyKPI.station_plf.toFixed(2)}%</div></div>
-              </div>
-            </>
-          )}
-
-          {/* Station KPIs (new) */}
-          {activeTab === "Station" && (
-            <>
-              <div className="text-xs text-gray-500">Station KPIs</div>
-              <div className="p-2 rounded-md bg-white border mt-2 text-sm">
-                <div className="flex justify-between"><div>Total Raw Water (m3)</div><div className="font-semibold">{stationKPIsLocal.total_raw_water.toFixed(3)}</div></div>
-                <div className="flex justify-between"><div>Avg Raw Water (m3/hr)</div><div className="font-semibold">{stationKPIsLocal.avg_raw_per_hr.toFixed(3)}</div></div>
-                <div className="flex justify-between"><div>Sp. Raw Water (L/kWh)</div><div className="font-semibold">{stationKPIsLocal.sp_raw_l_per_kwh.toFixed(3)}</div></div>
-                <div className="flex justify-between"><div>Total DM Water (m3)</div><div className="font-semibold">{stationKPIsLocal.total_dm.toFixed(3)}</div></div>
-                <div className="flex justify-between"><div>U1 Gen</div><div className="font-semibold">{stationKPIsLocal.gen1.toFixed(3)}</div></div>
-                <div className="flex justify-between"><div>U2 Gen</div><div className="font-semibold">{stationKPIsLocal.gen2.toFixed(3)}</div></div>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* bottom seed */}
-      <div className="mt-6">
-        {isAdmin && <div className="flex justify-center"><button onClick={seedMaster} className="px-4 py-2 rounded bg-blue-600 text-white">Seed Master (Admin only)</button></div>}
-      </div>
-
-      {/* Confirm popup */}
-      {showConfirmPopup && (
-        <div className="fixed inset-0 bg-black/40 flex justify-center items-center z-50">
-          <div className="bg-white p-5 rounded-xl w-96 shadow">
-            <h3 className="text-lg font-semibold text-center text-orange-700 mb-3">Confirm Changes</h3>
-            {confirmList.map((c) => <div key={c.id} className="text-sm py-1"><strong>{c.label}</strong>: {c.value}</div>)}
-            <div className="flex justify-end gap-3 mt-4">
-              <button onClick={() => setShowConfirmPopup(false)} className="px-4 py-1 rounded bg-gray-300">Cancel</button>
-              <button onClick={confirmSubmit} className="px-4 py-1 rounded bg-orange-600 text-white">Confirm</button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Adjust popup */}
-      {showAdjustPopup && adjustPopupRecord && (
-        <div className="fixed inset-0 bg-black/40 flex justify-center items-center z-50">
-          <div className="bg-white p-5 rounded-xl w-80 shadow">
-            <h3 className="text-lg font-semibold text-center mb-3">Edit Adjustment</h3>
-
-            <div className="text-sm mb-2">
-              <div className="text-gray-700 font-semibold">{adjustPopupRecord.name}</div>
-              <div className="mt-2 text-gray-600 text-xs">Yesterday: <span className="font-bold">{adjustPopupRecord.yesterday}</span></div>
-              <div className="mt-1 text-gray-600 text-xs">Today: <span className="font-bold">{adjustPopupRecord.today === "" ? "—" : adjustPopupRecord.today}</span></div>
-            </div>
-
-            <div>
-              <label className="block text-xs text-gray-600">Adjustment value</label>
-              <input type="number" value={adjustPopupRecord.adjust} onChange={(e) => setAdjustPopupRecord((p) => ({ ...p, adjust: e.target.value === "" ? "" : Number(e.target.value) }))} className="w-full p-2 rounded border mt-1" />
-            </div>
-
-            <div className="flex justify-end gap-3 mt-4">
-              <button onClick={() => setShowAdjustPopup(false)} className="px-3 py-1 rounded bg-gray-200">Cancel</button>
-              <button onClick={saveAdjustPopup} className="px-3 py-1 rounded bg-emerald-600 text-white">Save</button>
-            </div>
-          </div>
-        </div>
-      )}
+        </main>
+      </div>
     </div>
   );
 }

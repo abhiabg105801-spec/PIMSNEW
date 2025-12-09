@@ -8,9 +8,9 @@ import {
   useLocation,
 } from "react-router-dom";
 
+// --- Page Imports ---
 import Login from "./pages/Login";
 import DataEntryPage from "./pages/DataEntryPage";
-import ReportViewer from "./pages/ReportViewer";
 import PlantShutdownPage from "./pages/PlantShutdownPage";
 import KpiChartsPage from "./pages/KpiChartsPage";
 import KpiRangeViewer from "./pages/KpiRangeViewer";
@@ -19,14 +19,12 @@ import UserMenu from "./components/UserMenu";
 import DMPlantReportPage from "./pages/DMPlantReportPage";
 import DesignDataPage from "./pages/DesignDataPage";
 import Reports from "./pages/Reports";
-import LogicDiagramPage from "./pages//LogicDiagramPage";
+import LogicDiagramPage from "./pages/LogicDiagramPage";
 import FloatingMessageBox from "./components/FloatingMessageBox";
-
 import TotalizerEntry from "./pages/TotalizerEntry";
-
-// ⭐ NEW IMPORT — Add DM Plant Page
 import DMPlantPage from "./pages/dmplanttabs";
 
+// --- Helper Functions ---
 function decodeJWT(token) {
   try {
     const base64 = token.split(".")[1];
@@ -36,6 +34,7 @@ function decodeJWT(token) {
   }
 }
 
+// --- Main App Component ---
 export default function App() {
   const [authHeader, setAuthHeader] = useState(null);
 
@@ -64,236 +63,171 @@ export default function App() {
   );
 }
 
+// --- Layout Component ---
 function Layout({ authHeader, onLogout }) {
   const decoded = decodeJWT(authHeader.replace("Bearer ", ""));
   const username = decoded?.sub || "User";
   const roleId = decoded?.role_id || null;
-
-  const [isOpen, setIsOpen] = useState(false);
-  const location = useLocation();
-
-  const highlightReports =
-    location.pathname === "/report" ||
-    location.pathname === "/kpi-data";
+  
+  // Define authorized roles for specific tabs
+  const dmPlantRoles = [1, 2, 3, 5, 7, 8];
 
   return (
-    <div className="min-h-screen flex flex-col bg-white">
+    <div className="min-h-screen flex flex-col bg-[#F8F9FA] font-sans text-slate-800">
+      
+      {/* ================= HEADER SECTION ================= */}
+      <div className="fixed top-0 left-0 right-0 z-50 shadow-md">
+        
+        {/* 1. TOP UTILITY BAR (Dark Industrial Look) */}
+        <div className="bg-slate-900 text-gray-300 h-6 flex items-center justify-between px-6 text-xs tracking-wider font-medium">
+          <div className="flex items-center gap-4">
+             <span>JINDAL STAINLESS LTD</span>
+             <span className="hidden sm:inline text-slate-600">|</span>
+             <span className="text-[#E06A1B] font-bold">SAFETY FIRST</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+              System Online
+            </span>
+            <span>{new Date().toLocaleDateString()}</span>
+          </div>
+        </div>
 
-      {/* ------------------ HEADER ------------------ */}
-      {/* ─────────────────────────────────────────────────────────── */}
-{/*        JSL – CORPORATE HEADER (FULLY BRANDED VERSION)       */}
-{/* ─────────────────────────────────────────────────────────── */}
-<div className="fixed top-0 left-0 right-0 z-40 bg-white shadow-[0_2px_10px_rgba(0,0,0,0.12)]">
+        {/* 2. BRANDING BAR (White) */}
+        <header className="bg-white h-12 flex items-center justify-between px-6 border-b border-gray-100 relative">
+          
+          {/* Logo Area */}
+          <div className="flex items-center gap-3">
+             {/* Replace src with your actual logo path */}
+            <img src="/jsl-logo.png" className="h-10 w-auto object-contain" alt="JSL Logo" />
+            <div className="hidden md:flex h-8 w-[1px] bg-gray-300 mx-2"></div>
+            <div className="flex flex-col leading-tight">
+              <span className="text-lg font-bold text-slate-800 tracking-tight">PIMS</span>
+              <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-widest">Plant Information Management System</span>
+            </div>
+          </div>
 
-  {/* TOP STEEL BAR */}
- 
+          {/* Center Title (Absolute Centered) */}
+          <div className="absolute left-1/2 -translate-x-1/2 hidden lg:block">
+            <span className="text-2xl font-bold tracking-wide text-slate-700">
+              <span className="text-[#E06A1B]">2×125 MW</span> CAPTIVE POWER PLANT
+            </span>
+          </div>
 
-  {/* MAIN HEADER PANEL */}
-  <header className="relative flex items-center px-6 h-13 bg-white">
+          {/* User Profile Area */}
+          <div>
+            <UserMenu username={username} onLogout={onLogout} />
+          </div>
+        </header>
 
-    {/* LEFT — JSL LOGO */}
-    <div className="flex items-center">
-      <img src="/jsl-logo.png" className="h-14 w-auto" alt="JSL Logo" />
+        {/* 3. NAVIGATION BAR (Gray) */}
+        <nav className="bg-[#EFEFEF] border-b border-[#D0D0D0] h-8 shadow-inner">
+          <div className="max-w-screen-2xl mx-auto px-4 h-full flex items-center gap-1 overflow-x-auto no-scrollbar">
+            
+            <NavItem to="/TotalizerEntry" label="125MW Ops" />
+            
+            {dmPlantRoles.includes(roleId) && (
+              <NavItem to="/dm-plant" label="DM Plant" />
+            )}
+            
+            <NavItem to="/reports" label="Reports" />
+            <NavItem to="/shutdowns" label="Shutdown Log" />
+            <NavItem to="/charts" label="KPI Analysis" />
+            
+            <div className="h-5 w-[1px] bg-gray-300 mx-2 hidden sm:block"></div>
+            
+            <NavItem to="/DesignDataPage" label="Design Data" />
+            <NavItem to="/LogicDiagramPage" label="Logic Diagrams" />
+
+            {roleId === 8 /* Admin */ && (
+              <>
+                <div className="flex-1"></div> {/* Spacer */}
+                <NavItem to="/admin" label="Admin Panel" isAdmin />
+              </>
+            )}
+
+          </div>
+        </nav>
+        
+        {/* Orange Accent Line */}
+        <div className="h-[3px] bg-gradient-to-r from-[#E06A1B] to-[#FF8C42] w-full"></div>
+      </div>
+
+      {/* ================= MAIN CONTENT ================= */}
+      <main className="flex-1 pt-[145px] pb-10 px-4 sm:px-6">
+        <div className="max-w-screen-2xl mx-auto bg-white min-h-[calc(100vh-180px)] rounded-lg shadow-sm border border-gray-200 overflow-hidden relative">
+          
+          {/* Page Routing */}
+          <div className="h-full">
+            <Routes>
+              <Route path="/" element={<Navigate to="/entry" />} />
+              <Route path="/entry" element={<DataEntryPage auth={authHeader} />} />
+              <Route path="/reports" element={<Reports auth={authHeader} />} />
+              <Route path="/shutdowns" element={<PlantShutdownPage auth={authHeader} />} />
+              <Route path="/charts" element={<KpiChartsPage auth={authHeader} />} />
+              <Route path="/kpi-data" element={<KpiRangeViewer auth={authHeader} />} />
+              <Route path="/admin" element={<AdminPanel auth={authHeader} />} />
+              
+              {/* DM Plant Routes */}
+              <Route path="/dm-plant" element={<DMPlantPage auth={authHeader} />} />
+              <Route path="/dm-plant-report" element={<DMPlantReportPage />} />
+              
+              {/* Technical Routes */}
+              <Route path="/DesignDataPage" element={<DesignDataPage auth={authHeader} />} />
+              <Route path="/LogicDiagramPage" element={<LogicDiagramPage auth={authHeader} />} />
+              <Route path="/TotalizerEntry" element={<TotalizerEntry auth={authHeader} />} />
+            </Routes>
+          </div>
+
+        </div>
+      </main>
+
+      {/* ================= FOOTER ================= */}
+      <footer className="bg-white border-t border-gray-200 py-4 mt-auto">
+        <div className="max-w-screen-2xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between text-xs text-gray-500">
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-slate-700">Jindal Stainless Limited</span>
+            <span>&copy; {new Date().getFullYear()}</span>
+          </div>
+          <div className="flex items-center gap-4 mt-2 md:mt-0">
+             <span>Version 1.0.0</span>
+             <span>|</span>
+             <a href="mailto:cppsupport@jsl.com" className="hover:text-[#E06A1B] transition-colors">Contact</a>
+          </div>
+        </div>
+      </footer>
+
+      {/* Global Utilities */}
+      <FloatingMessageBox auth={authHeader} />
     </div>
+  );
+}
 
-    {/* CENTER — TITLE */}
-    <div className="absolute left-1/2 -translate-x-1/2 flex flex-col items-center">
-      <span className="text-[32px] font-bold tracking-wide text-[#8D8D8D]">
-        <span className="text-[#E06A1B] font-extrabold">2×125 MW CPP –</span> PIMS
-      </span>
-    </div>
-
-    {/* RIGHT — USER MENU */}
-    <div className="ml-auto">
-      <UserMenu username={username} onLogout={onLogout} />
-    </div>
-
-  </header>
-
-  {/* BOTTOM CORPORATE ORANGE BAR[#E06A1B] */}
-  <div className="h-[4px] w-full bg-[#8D8D8D]"></div>
-
-  {/* SLIM SHADOW SEPARATOR FOR DEPTH */}
+// --- Sub-Component: Navigation Item ---
+// 
 
 
-
-
-
-        {/* ------------------ NAVIGATION ------------------ */}
-        <nav className="h-7 bg-[#F5F5F5] border-t border-[#D0D0D0]">
-          <div className="max-w-7xl mx-auto flex items-center h-full gap-6 px-5">
-
-            {/* ----- Generic NavLink Style ----- */}
-            {[
-              { to: "/TotalizerEntry", label: "125MW" },
-              ...(roleId === 5 || roleId === 8 || roleId === 3|| roleId === 7|| roleId === 1|| roleId === 2
-                ? [{ to: "/dm-plant", label: "DM Plant" }]
-                : []),
-            ].map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  `
-                    relative px-3 h-full flex items-center 
-                    text-sm font-semibold uppercase tracking-wider
-
-                    ${isActive
-                      ? "text-[#E06A1B] after:w-full"
-                      : "text-[#555] hover:text-[#E06A1B] hover:after:w-full"}
-
-                    after:absolute after:bottom-0 after:left-0 after:h-[3px]
-                    after:bg-[#E06A1B] after:transition-all after:duration-300 after:w-0
-                  `
-                }
-              >
-                {item.label}
-              </NavLink>
-            ))}
-
-            {/* ------------------ Reports Dropdown ------------------ */}
-             <NavLink
-      to="/reports"
+function NavItem({ to, label, isAdmin = false }) {
+  return (
+    <NavLink
+      to={to}
       className={({ isActive }) =>
         `
-          relative px-3 h-full flex items-center 
-          text-sm font-semibold uppercase tracking-wider
-
-          ${isActive
-            ? "text-[#E06A1B] after:w-full"
-            : "text-[#555] hover:text-[#E06A1B] hover:after:w-full"}
-
-          after:absolute after:bottom-0 after:left-0 after:h-[3px]
-          after:bg-[#E06A1B] after:transition-all after:duration-300 after:w-0
+          relative h-full px-4 flex items-center justify-center
+          text-xs font-bold uppercase tracking-wide transition-all duration-200 ease-in-out
+          whitespace-nowrap rounded-t-sm
+          
+          ${isAdmin 
+            ? "text-red-700 hover:bg-red-50 hover:text-red-800" 
+            : isActive
+              ? "text-[#E06A1B] bg-white border-t-2 border-t-[#E06A1B] shadow-sm"
+              : "text-slate-600 hover:text-[#E06A1B] hover:bg-white/60"
+          }
         `
       }
     >
-      Reports
+      {label}
     </NavLink>
-            {/* ------------------ Shutdown ------------------ */}
-            <NavLink
-              to="/shutdowns"
-              className={({ isActive }) =>
-                `
-                  relative px-3 h-full flex items-center text-sm font-semibold uppercase tracking-wider
-                  ${isActive
-                    ? "text-[#E06A1B] after:w-full"
-                    : "text-[#555] hover:text-[#E06A1B] hover:after:w-full"}
-                  after:absolute after:bottom-0 after:left-0 after:h-[3px]
-                  after:bg-[#E06A1B] after:transition-all after:duration-300 after:w-0
-                `
-              }
-            >
-              Shutdown Log
-            </NavLink>
-
-            {/* ------------------ KPI Charts ------------------ */}
-            <NavLink
-              to="/charts"
-              className={({ isActive }) =>
-                `
-                  relative px-3 h-full flex items-center text-sm font-semibold uppercase tracking-wider
-                  ${isActive
-                    ? "text-[#E06A1B] after:w-full"
-                    : "text-[#555] hover:text-[#E06A1B] hover:after:w-full"}
-                  after:absolute after:bottom-0 after:left-0 after:h-[3px]
-                  after:bg-[#E06A1B] after:transition-all after:duration-300 after:w-0
-                `
-              }
-            >
-              KPI Charts
-            </NavLink>
-            {/* ------------------  Design Data ------------------ */}
-            <NavLink
-              to="/DesignDataPage"
-              className={({ isActive }) =>
-                `
-                  relative px-3 h-full flex items-center text-sm font-semibold uppercase tracking-wider
-                  ${isActive
-                    ? "text-[#E06A1B] after:w-full"
-                    : "text-[#555] hover:text-[#E06A1B] hover:after:w-full"}
-                  after:absolute after:bottom-0 after:left-0 after:h-[3px]
-                  after:bg-[#E06A1B] after:transition-all after:duration-300 after:w-0
-                `
-              }
-            >
-              Design Data
-            </NavLink>
-             {/* ------------------  Logic Diagram ------------------ */}
-            <NavLink
-              to="/LogicDiagramPage"
-              className={({ isActive }) =>
-                `
-                  relative px-3 h-full flex items-center text-sm font-semibold uppercase tracking-wider
-                  ${isActive
-                    ? "text-[#E06A1B] after:w-full"
-                    : "text-[#555] hover:text-[#E06A1B] hover:after:w-full"}
-                  after:absolute after:bottom-0 after:left-0 after:h-[3px]
-                  after:bg-[#E06A1B] after:transition-all after:duration-300 after:w-0
-                `
-              }
-            >
-              Logic 
-            </NavLink>
-           
-            {/* ------------------ Admin Panel ------------------ */}
-            {username === "admin" && (
-              <NavLink
-                to="/admin"
-                className={({ isActive }) =>
-                  `
-                    relative px-3 h-full flex items-center text-sm font-semibold uppercase tracking-wider
-                    ${isActive
-                      ? "text-[#E06A1B] after:w-full"
-                      : "text-[#555] hover:text-[#E06A1B] hover:after:w-full"}
-                    after:absolute after:bottom-0 after:left-0 after:h-[3px]
-                    after:bg-[#E06A1B] after:transition-all after:duration-300 after:w-0
-                  `
-                }
-              >
-                Admin Panel
-              </NavLink>
-            )}
-          </div>
-        </nav>
-      </div>
-
-      {/* ------------------ PAGE CONTENT ------------------ */}
-      <main className="flex-1 bg-white pt-32 px-6 pb-6">
-        <Routes>
-          <Route path="/" element={<Navigate to="/entry" />} />
-          <Route path="/entry" element={<DataEntryPage auth={authHeader} />} />
-          <Route path="/reports" element={<Reports auth={authHeader} /> }  />
-          <Route path="/shutdowns" element={<PlantShutdownPage auth={authHeader} />} />
-          <Route path="/charts" element={<KpiChartsPage auth={authHeader} />} />
-          <Route path="/kpi-data" element={<KpiRangeViewer auth={authHeader} />} />
-          <Route path="/admin" element={<AdminPanel auth={authHeader} />} />
-
-          {/* DM PLANT */}
-          <Route path="/dm-plant" element={<DMPlantPage auth={authHeader} />} />
-          <Route path="/dm-plant-report" element={<DMPlantReportPage />} />
-          <Route path="/DesignDataPage" element={<DesignDataPage auth={authHeader} />} />
-          <Route path="/LogicDiagramPage" element={<LogicDiagramPage auth={authHeader} />} />
-          <Route
-  path="/TotalizerEntry"
-  element={<TotalizerEntry auth={authHeader} />}
-/>
-        </Routes>
-      </main>
-      <FloatingMessageBox auth={authHeader} />
-      <footer className="bg-[#F5F5F5] border-t border-gray-300 mt-6">
-  <div className="max-w-7xl mx-auto px-6 py-4 text-sm text-gray-600 flex flex-col md:flex-row items-center justify-between gap-2">
-    <span>© {new Date().getFullYear()} Jindal Stainless Ltd. All Rights Reserved.</span>
-    <span className="text-gray-500">
-      Contact: <a href="mailto:cppsupport@jsl.com" className="text-[#E06A1B] font-semibold hover:underline">
-        email
-      </a>
-    </span>
-  </div>
-  <div className="h-[4px] w-full bg-[#E06A1B]"></div>
-</footer>
-
-      
-    </div>
   );
 }
