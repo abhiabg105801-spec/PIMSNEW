@@ -12,6 +12,7 @@ const normalizeAuthHeader = (auth) => {
   if (!auth) return localStorage.getItem("authToken") || "";
   return auth.startsWith("Bearer ") ? auth : `Bearer ${auth}`;
 };
+
 const getTokenPayload = (authHeader) => {
   try {
     const token = authHeader.startsWith("Bearer ") ? authHeader.split(" ")[1] : authHeader;
@@ -42,13 +43,14 @@ export default function TotalizerEntryPage({ auth }) {
   );
 
   /* ----------------- UI State ----------------- */
-  const [reportDate, setReportDate] = useState(new Date().toISOString().slice(0, 10));
+  const [reportDate, setReportDate] = useState(new Date().toLocaleDateString("en-CA"));
   const [activeTab, setActiveTab] = useState("Unit-1");
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   /* ----------------- Auth State ----------------- */
   const [roleId, setRoleId] = useState(null);
+  const [userName, setUserName] = useState("Unknown"); // Store logged in user name
   const isAdmin = roleId === 8;
   const isHOD = roleId === 7;
   const canAdjust = isAdmin || isHOD;
@@ -68,6 +70,7 @@ export default function TotalizerEntryPage({ auth }) {
 
   // readingsForm keyed by totalizer id
   const [readingsForm, setReadingsForm] = useState({});
+  const [lastUpdatedInfo, setLastUpdatedInfo] = useState(null); // { at: '...', by: '...' }
 
   /* ----------------- Adjust Popup ----------------- */
   const [showAdjustPopup, setShowAdjustPopup] = useState(false);
@@ -75,7 +78,7 @@ export default function TotalizerEntryPage({ auth }) {
 
   /* ----------------- KPI states ----------------- */
   const [kpiLoading, setKpiLoading] = useState(false);
-  const [generationCache, setGenerationCache] = useState({}); // { date: { unit1_generation, unit2_generation } }
+  const [generationCache, setGenerationCache] = useState({}); 
 
   /* ----------------- Shutdown KPI state ----------------- */
   const [shutdownKPIs, setShutdownKPIs] = useState({
@@ -84,7 +87,8 @@ export default function TotalizerEntryPage({ auth }) {
   });
 
   /* ----------------- Manual KPI state ----------------- */
-  const [manualKPI, setManualKPI] = useState({
+  // Initial structure for manual KPIs
+  const initialManualKPI = {
     "Unit-1": { stack_emission: "" },
     "Unit-2": { stack_emission: "" },
     Station: {
@@ -97,7 +101,9 @@ export default function TotalizerEntryPage({ auth }) {
       coal_domestic_percent: "",
     },
     "Energy-Meter": {},
-  });
+  };
+
+  const [manualKPI, setManualKPI] = useState(JSON.parse(JSON.stringify(initialManualKPI)));
 
   const manualUnits = {
     "Unit-1": { stack_emission: "mg/Nm3" },
@@ -125,12 +131,15 @@ export default function TotalizerEntryPage({ auth }) {
     const payload = getTokenPayload(authHeader);
     if (payload) {
       setRoleId(payload.role_id);
+      // Assuming payload has 'sub' or 'name' for username
+      setUserName(payload.full_name || payload.sub || "User"); 
       return;
     }
     api
       .get("/auth/me")
       .then((r) => {
         if (r.data?.role_id) setRoleId(r.data.role_id);
+        if (r.data?.full_name) setUserName(r.data.full_name);
       })
       .catch(() => {});
   }, [api, authHeader]);
@@ -158,9 +167,23 @@ export default function TotalizerEntryPage({ auth }) {
         const res = await api.get("/totalizers/readings", { params: { date: forDate } });
         const rows = res.data || [];
         const rowMap = {};
+        
+        let lastUpdate = null; // Track last updated info
+
         rows.forEach((r) => {
-          rowMap[r.totalizer_id] = { today: Number(r.reading_value || 0), adjust: Number(r.adjust_value || 0) };
+          rowMap[r.totalizer_id] = { 
+            today: Number(r.reading_value || 0), 
+            adjust: Number(r.adjust_value || 0) 
+          };
+          // Check for created_at/updated_at/by metadata if available from API
+          // Assuming API might return 'updated_at' and 'updated_by' in the future or now.
+          // For now, let's just use the first record found to set page meta if available.
+          if(r.created_at && !lastUpdate) {
+             lastUpdate = { at: r.created_at, by: r.username || 'Unknown' }; 
+          }
         });
+
+        setLastUpdatedInfo(lastUpdate);
 
         setReadingsForm((prev) => {
           const updated = { ...prev };
@@ -210,7 +233,7 @@ export default function TotalizerEntryPage({ auth }) {
       try {
         const d = new Date(forDate);
         d.setDate(d.getDate() - 1);
-        const y = d.toISOString().slice(0, 10);
+        const y = d.toLocaleDateString("en-CA");
 
         const res = await api.get("/totalizers/readings", { params: { date: y } });
         const rows = res.data || [];
@@ -327,17 +350,26 @@ export default function TotalizerEntryPage({ auth }) {
   );
 
   const loadManualKPIForActiveTab = useCallback(async () => {
+    // Reset to empty structure first so we don't show stale data
+    const emptyState = JSON.parse(JSON.stringify(initialManualKPI[activeTab] || {}));
+    
     try {
       const r = await api.get("/totalizers/kpi/get", {
         params: { date: reportDate, kpi_type: "manual", plant_name: activeTab },
       });
-      const out = {};
+      
+      const fetchedKPIs = {};
       (r.data?.kpis || []).forEach((k) => {
-        out[k.name] = k.value;
+        fetchedKPIs[k.name] = k.value;
       });
-      setManualKPI((prev) => ({ ...prev, [activeTab]: { ...(prev[activeTab] || {}), ...out } }));
+
+      // Merge fetched data into empty state
+      const newState = { ...emptyState, ...fetchedKPIs };
+
+      setManualKPI((prev) => ({ ...prev, [activeTab]: newState }));
     } catch (e) {
-      // ignore if none
+      // If error (or 404), ensure the fields are blank for this date
+      setManualKPI((prev) => ({ ...prev, [activeTab]: emptyState }));
     }
   }, [api, activeTab, reportDate]);
 
@@ -391,8 +423,15 @@ export default function TotalizerEntryPage({ auth }) {
   }, [activeTab, reportDate]);
 
   /* =============================================================
-     Utility helpers & KPI compute
+     Utility helpers & Date Nav
      ============================================================= */
+  
+  const handleDateChange = (days) => {
+    const d = new Date(reportDate);
+    d.setDate(d.getDate() + days);
+    setReportDate(d.toLocaleDateString("en-CA"));
+  };
+
   const updateField = (id, field, value) => {
     setReadingsForm((prev) => {
       const rec = { ...prev[id] };
@@ -506,55 +545,66 @@ export default function TotalizerEntryPage({ auth }) {
      Unit KPI compute & save
      ============================================================= */
   const computeUnitKPI = useCallback(
-    async (unitName) => {
-      const gen = await ensureGenerationForDate(reportDate);
-      const unitGen = gen[unitName === "Unit-1" ? "unit1_generation" : "unit2_generation"] ?? 0;
+  async (unitName) => {
 
-      const feederA = getDiff("feeder_a", unitName);
-      const feederB = getDiff("feeder_b", unitName);
-      const feederC = getDiff("feeder_c", unitName);
-      const feederD = getDiff("feeder_d", unitName);
-      const feederE = getDiff("feeder_e", unitName);
-      const coalConsumption = feederA + feederB + feederC + feederD + feederE;
+    // Correct local variable name used for backend
+    const plant_key = unitName;  // "Unit-1" or "Unit-2"
 
-      const ldoConsumption = getDiff("ldo_flow", unitName);
-      const dmWater = getDiff("dm7", unitName) + getDiff("dm11", unitName);
-      const steamConsumption = getDiff("main_steam", unitName);
+    const gen = await ensureGenerationForDate(reportDate);
+    const unitGen =
+      gen[plant_key === "Unit-1" ? "unit1_generation" : "unit2_generation"] ?? 0;
 
-      const specificCoal = unitGen > 0 ? Number((coalConsumption / unitGen).toFixed(6)) : 0;
-      const specificOil = unitGen > 0 ? Number((ldoConsumption / unitGen).toFixed(6)) : 0;
-      const specificDM = steamConsumption > 0 ? Number(((dmWater / steamConsumption) * 100).toFixed(3)) : 0;
-      const specificSteam = unitGen > 0 ? Number((steamConsumption / unitGen).toFixed(6)) : 0;
-      const plf = unitGen > 0 ? Number(((unitGen / 3000) * 100).toFixed(3)) : 0;
+    // totalizer diffs
+    const feederA = getDiff("feeder_a", plant_key);
+    const feederB = getDiff("feeder_b", plant_key);
+    const feederC = getDiff("feeder_c", plant_key);
+    const feederD = getDiff("feeder_d", plant_key);
+    const feederE = getDiff("feeder_e", plant_key);
 
-      const payloadKPIs = [
-        { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_coal_consumption`, value: Number(coalConsumption.toFixed(3)), unit: "ton" },
-        { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_specific_coal`, value: specificCoal, unit: "ton/MWh" },
-        { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_ldo_consumption`, value: Number(ldoConsumption.toFixed(3)), unit: "L" },
-        { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_specific_oil`, value: specificOil, unit: "L/MWh" },
-        { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_dm_water_consumption`, value: Number(dmWater.toFixed(3)), unit: "m3" },
-        { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_steam_consumption`, value: Number(steamConsumption.toFixed(3)), unit: "kg" },
-        { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_specific_steam`, value: specificSteam, unit: "kg/MWh" },
-        { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_specific_dm_percent`, value: specificDM, unit: "%" },
-        { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_generation`, value: Number(unitGen.toFixed(3)), unit: "MWh" },
-        { name: `${unitName.toLowerCase().replace(/\s+/g, "")}_plf_percent`, value: plf, unit: "%" },
-      ];
+    const coalConsumption = feederA + feederB + feederC + feederD + feederE;
+    const ldoConsumption = getDiff("ldo_flow", plant_key);
+    const dmWater = getDiff("dm7", plant_key) + getDiff("dm11", plant_key);
+    const steamConsumption = getDiff("main_steam", plant_key);
 
-      try {
-        await api.post("/totalizers/kpi/store", {
-          date: reportDate,
-          kpi_type: "energy",
-          plant_name: unitName,
-          kpis: payloadKPIs,
-        });
-        return { success: true, payload: payloadKPIs };
-      } catch (err) {
-        console.error("Failed to save unit KPI:", err);
-        return { success: false, error: err };
-      }
-    },
-    [api, ensureGenerationForDate, reportDate]
-  );
+    // **Correct KPI naming for DB**
+    const payloadKPIs = [
+      { name: "coal_consumption", value: Number(coalConsumption.toFixed(3)), unit: "ton" },
+      { name: "specific_coal", value: unitGen > 0 ? Number((coalConsumption / unitGen).toFixed(6)) : 0, unit: "ton/MWh" },
+
+      { name: "oil_consumption", value: Number(ldoConsumption.toFixed(3)), unit: "L" },
+      { name: "specific_oil", value: unitGen > 0 ? Number((ldoConsumption / unitGen).toFixed(6)) : 0, unit: "L/MWh" },
+
+      { name: "dm_water", value: Number(dmWater.toFixed(3)), unit: "m3" },
+
+      { name: "steam_consumption", value: Number(steamConsumption.toFixed(3)), unit: "kg" },
+      { name: "specific_steam", value: unitGen > 0 ? Number((steamConsumption / unitGen).toFixed(6)) : 0, unit: "kg/MWh" },
+
+      { name: "specific_dm_percent", value: steamConsumption > 0 ? Number(((dmWater / steamConsumption) * 100).toFixed(3)) : 0, unit: "%" },
+
+      { name: "generation", value: Number(unitGen.toFixed(3)), unit: "MWh" },
+
+      { name: "plf_percent", value: unitGen > 0 ? Number(((unitGen / 3000) * 100).toFixed(3)) : 0, unit: "%" },
+    ];
+
+    try {
+      await api.post("/totalizers/kpi/store", {
+        date: reportDate,
+        kpi_type: "energy",
+        plant_name: plant_key,
+        kpis: payloadKPIs,
+        username: userName,
+      });
+
+      return { success: true };
+
+    } catch (err) {
+      console.error("Failed to save unit KPI:", err);
+      return { success: false };
+    }
+  },
+  [api, ensureGenerationForDate, reportDate, userName]
+);
+
 
   /* =============================================================
      Submit flow
@@ -605,141 +655,151 @@ export default function TotalizerEntryPage({ auth }) {
   };
 
   const confirmSubmit = async () => {
-    setShowConfirmPopup(false);
-    setSubmitting(true);
-    setMessage("");
+  setShowConfirmPopup(false);
+  setSubmitting(true);
+  setMessage("");
 
-    try {
-      const items = totalizersByUnit[activeTab] || [];
+  try {
+    const items = totalizersByUnit[activeTab] || [];
 
-      const payload = {
-        date: reportDate,
-        readings: items
-          .map((t) => {
-            const rec = readingsForm[t.id];
-            if (!rec || rec.today === "" || rec.today === null) return null;
-            return {
-              totalizer_id: t.id,
-              reading_value: Number(rec.today),
-              adjust_value: canAdjust ? Number(rec.adjust || 0) : 0,
-            };
-          })
-          .filter(Boolean),
-      };
+    // ---- 1) STORE TOTALIZER READINGS ----
+    const payload = {
+      date: reportDate,
+      username: userName,
+      readings: items
+        .map((t) => {
+          const rec = readingsForm[t.id];
+          if (!rec || rec.today === "" || rec.today === null) return null;
+          return {
+            totalizer_id: t.id,
+            reading_value: Number(rec.today),
+            adjust_value: canAdjust ? Number(rec.adjust || 0) : 0,
+          };
+        })
+        .filter(Boolean),
+    };
 
-      await api.post("/totalizers/submit", payload);
+    await api.post("/totalizers/submit", payload);
 
-      setReadingsForm((prev) => {
-        const updated = { ...prev };
-        items.forEach((t) => {
-          const rec = updated[t.id];
-          if (rec) {
-            rec._orig = { today: rec.today, adjust: rec.adjust };
-          }
-        });
-        return updated;
+    // update local _orig values
+    setReadingsForm((prev) => {
+      const updated = { ...prev };
+      items.forEach((t) => {
+        const rec = updated[t.id];
+        if (rec) rec._orig = { today: rec.today, adjust: rec.adjust };
       });
+      return updated;
+    });
 
-      setMessage("✅ Saved successfully");
+    setLastUpdatedInfo({ at: new Date().toISOString(), by: userName });
+    setMessage("✅ Readings saved");
 
-      // Unit KPIs
-      if (activeTab === "Unit-1" || activeTab === "Unit-2") {
-        const res = await computeUnitKPI(activeTab);
-        if (res.success) setMessage((m) => (m ? m + " • KPIs saved" : "✅ KPIs saved"));
-        else setMessage((m) => (m ? m + " • KPI save failed" : "❌ KPI save failed"));
+    // ---- 2) ALWAYS SAVE AUTO KPIs ----
+    if (activeTab === "Unit-1" || activeTab === "Unit-2") {
+      const res = await computeUnitKPI(activeTab);
+      if (res.success) {
+        setMessage((m) => (m ? m + " • Unit KPI saved" : "✅ Unit KPI saved"));
+      } else {
+        setMessage((m) => (m ? m + " • KPI error" : "❌ KPI error"));
       }
-
-      // Energy-Meter (Station) KPIs
-      if (activeTab === "Energy-Meter") {
-        const ek = computeEnergyKPIObject();
-        const kpisArr = [
-          { name: "unit1_generation", value: ek.unit1_generation, unit: "MWh" },
-          { name: "unit2_generation", value: ek.unit2_generation, unit: "MWh" },
-          { name: "unit1_unit_aux_mwh", value: ek.unit1_unit_aux_mwh, unit: "MWh" },
-          { name: "unit2_unit_aux_mwh", value: ek.unit2_unit_aux_mwh, unit: "MWh" },
-          { name: "total_station_aux_mwh", value: ek.total_station_aux_mwh, unit: "MWh" },
-          { name: "total_station_tie_mwh", value: ek.total_station_tie_mwh, unit: "MWh" },
-          { name: "unit1_aux_consumption_mwh", value: ek.unit1_aux_consumption_mwh, unit: "MWh" },
-          { name: "unit1_aux_percent", value: ek.unit1_aux_percent, unit: "%" },
-          { name: "unit2_aux_consumption_mwh", value: ek.unit2_aux_consumption_mwh, unit: "MWh" },
-          { name: "unit2_aux_percent", value: ek.unit2_aux_percent, unit: "%" },
-          { name: "unit1_plf_percent", value: ek.unit1_plf, unit: "%" },
-          { name: "unit2_plf_percent", value: ek.unit2_plf, unit: "%" },
-          { name: "station_plf_percent", value: ek.station_plf, unit: "%" },
-        ];
-
-        // Station water KPIs
-        const total_raw_water = getDiff("raw_water", "Station");
-        const avg_raw_per_hr = Number((total_raw_water / 24.0).toFixed(3));
-        const total_dm_u1 = getDiff("dm7", "Unit-1") + getDiff("dm11", "Unit-1");
-        const total_dm_u2 = getDiff("dm7", "Unit-2") + getDiff("dm11", "Unit-2");
-        const total_dm_all = Number((total_dm_u1 + total_dm_u2).toFixed(3));
-        const sum_unit_gen = ek.unit1_generation + ek.unit2_generation;
-        const sp_raw_l_per_kwh = sum_unit_gen > 0 ? Number(((total_raw_water * 1000) / sum_unit_gen).toFixed(3)) : 0;
-
-        kpisArr.push({ name: "total_raw_water_used_m3", value: Number(total_raw_water.toFixed(3)), unit: "m3" });
-        kpisArr.push({ name: "avg_raw_water_m3_per_hr", value: avg_raw_per_hr, unit: "m3/hr" });
-        kpisArr.push({ name: "sp_raw_water_l_per_kwh", value: sp_raw_l_per_kwh, unit: "L/kWh" });
-        kpisArr.push({ name: "total_dm_water_used_m3", value: total_dm_all, unit: "m3" });
-
-        try {
-          await api.post("/totalizers/kpi/store", {
-            date: reportDate,
-            kpi_type: "energy",
-            plant_name: "Station",
-            kpis: kpisArr,
-          });
-          await ensureGenerationForDate(reportDate);
-          setMessage((m) => (m ? m + " • Station KPI saved" : "✅ Station KPI saved"));
-        } catch (err) {
-          console.error("KPI store error", err);
-          setMessage((m) => (m ? m + " • KPI save failed" : "❌ KPI save failed"));
-        }
-      }
-
-      // Save manual KPIs
-      const manualForTab = manualKPI[activeTab] || {};
-      const manualKpisPayload = [];
-      Object.keys(manualForTab).forEach((kname) => {
-        const v = manualForTab[kname];
-        if (v !== "" && v !== null && v !== undefined) {
-          manualKpisPayload.push({
-            name: kname,
-            value: Number(v),
-            unit: manualUnits[activeTab]?.[kname] || null,
-          });
-        }
-      });
-
-      if (manualKpisPayload.length > 0) {
-        try {
-          await api.post("/totalizers/kpi/store", {
-            date: reportDate,
-            kpi_type: "manual",
-            plant_name: activeTab,
-            kpis: manualKpisPayload,
-          });
-          setMessage((m) => (m ? m + " • Manual KPI saved" : "✅ Manual KPI saved"));
-          await loadManualKPIForActiveTab();
-        } catch (err) {
-          console.error("Manual KPI save failed", err);
-          setMessage((m) => (m ? m + " • Manual KPI save failed" : "❌ Manual KPI save failed"));
-        }
-      }
-
-      await loadYesterday(reportDate, activeTab, totalizersByUnit[activeTab]);
-      await ensureGenerationForDate(reportDate);
-      if (activeTab === "Unit-1" || activeTab === "Unit-2") {
-        await loadShutdownKPIsForUnitDate(activeTab, reportDate);
-      }
-    } catch (e) {
-      console.error(e);
-      const det = e?.response?.data?.detail || "Error saving";
-      setMessage(`❌ ${det}`);
-    } finally {
-      setSubmitting(false);
     }
-  };
+
+    // ---- 3) ENERGY-METER → Station KPIs ----
+    if (activeTab === "Energy-Meter") {
+      const ek = computeEnergyKPIObject();
+
+      const kpisArr = [
+        { name: "unit1_generation", value: ek.unit1_generation, unit: "MWh" },
+        { name: "unit2_generation", value: ek.unit2_generation, unit: "MWh" },
+        { name: "unit1_unit_aux_mwh", value: ek.unit1_unit_aux_mwh, unit: "MWh" },
+        { name: "unit2_unit_aux_mwh", value: ek.unit2_unit_aux_mwh, unit: "MWh" },
+        { name: "total_station_aux_mwh", value: ek.total_station_aux_mwh, unit: "MWh" },
+        { name: "total_station_tie_mwh", value: ek.total_station_tie_mwh, unit: "MWh" },
+        { name: "unit1_aux_consumption_mwh", value: ek.unit1_aux_consumption_mwh, unit: "MWh" },
+        { name: "unit1_aux_percent", value: ek.unit1_aux_percent, unit: "%" },
+        { name: "unit2_aux_consumption_mwh", value: ek.unit2_aux_consumption_mwh, unit: "MWh" },
+        { name: "unit2_aux_percent", value: ek.unit2_aux_percent, unit: "%" },
+        { name: "unit1_plf_percent", value: ek.unit1_plf, unit: "%" },
+        { name: "unit2_plf_percent", value: ek.unit2_plf, unit: "%" },
+        { name: "station_plf_percent", value: ek.station_plf, unit: "%" }
+      ];
+
+      // Station raw water + DM KPIs
+      const total_raw_water = getDiff("raw_water", "Station");
+      const avg_raw_per_hr = Number((total_raw_water / 24).toFixed(3));
+      const total_dm =
+        getDiff("dm7", "Unit-1") + getDiff("dm11", "Unit-1") +
+        getDiff("dm7", "Unit-2") + getDiff("dm11", "Unit-2");
+      const sum_gen = ek.unit1_generation + ek.unit2_generation;
+      const sp_raw_l_per_kwh =
+        sum_gen > 0 ? Number(((total_raw_water * 1000) / sum_gen).toFixed(3)) : 0;
+
+      kpisArr.push({ name: "total_raw_water_used_m3", value: total_raw_water, unit: "m3" });
+      kpisArr.push({ name: "avg_raw_water_m3_per_hr", value: avg_raw_per_hr, unit: "m3/hr" });
+      kpisArr.push({ name: "sp_raw_water_l_per_kwh", value: sp_raw_l_per_kwh, unit: "L/kWh" });
+      kpisArr.push({ name: "total_dm_water_used_m3", value: Number(total_dm.toFixed(3)), unit: "m3" });
+
+      try {
+        await api.post("/totalizers/kpi/store", {
+          date: reportDate,
+          kpi_type: "energy",
+          plant_name: "Station",
+          kpis: kpisArr,
+          username: userName,
+        });
+        setMessage((m) => (m ? m + " • Station KPI saved" : "✅ Station KPI saved"));
+      } catch {
+        setMessage((m) => (m ? m + " • Station KPI error" : "❌ Station KPI error"));
+      }
+    }
+
+    // ---- 4) MANUAL KPIs ----
+    const manualForTab = manualKPI[activeTab] || {};
+    const manualKpisPayload = [];
+
+    Object.entries(manualForTab).forEach(([k, v]) => {
+      if (v !== "" && v !== null && v !== undefined) {
+        manualKpisPayload.push({
+          name: k,
+          value: Number(v),
+          unit: manualUnits[activeTab]?.[k] || null,
+        });
+      }
+    });
+
+    if (manualKpisPayload.length > 0) {
+      try {
+        await api.post("/totalizers/kpi/store", {
+          date: reportDate,
+          kpi_type: "manual",
+          plant_name: activeTab,
+          kpis: manualKpisPayload,
+          username: userName,
+        });
+
+        setMessage((m) => (m ? m + " • Manual KPI saved" : "✅ Manual KPI saved"));
+        await loadManualKPIForActiveTab();
+      } catch {
+        setMessage((m) => (m ? m + " • Manual KPI error" : "❌ Manual KPI error"));
+      }
+    }
+
+    // reload dependent things
+    await loadYesterday(reportDate, activeTab, totalizersByUnit[activeTab]);
+    await ensureGenerationForDate(reportDate);
+    if (activeTab === "Unit-1" || activeTab === "Unit-2") {
+      await loadShutdownKPIsForUnitDate(activeTab, reportDate);
+    }
+
+  } catch (err) {
+    console.error(err);
+    setMessage(`❌ ${err?.response?.data?.detail || "Save error"}`);
+  } finally {
+    setSubmitting(false);
+  }
+};
+
+
 
   /* =============================================================
      Reset / Seed helpers
@@ -770,7 +830,7 @@ export default function TotalizerEntryPage({ auth }) {
     try {
       const d = new Date(reportDate);
       d.setDate(d.getDate() - 1);
-      const y = d.toISOString().slice(0, 10);
+      const y = d.toLocaleDateString("en-CA");
 
       const res = await api.get("/totalizers/readings", { params: { date: y } });
       const rows = res.data || [];
@@ -872,12 +932,18 @@ export default function TotalizerEntryPage({ auth }) {
     return { total_raw_water, avg_raw_per_hr, total_dm, sp_raw_l_per_kwh, gen1, gen2, sum_gen };
   }, [readingsForm, generationCache, reportDate]);
 
-  /* Left KPI Panel render */
+  /* Left KPI Panel render - Increased width & Vertical Layout */
+  // ... existing imports and code ...
+
+  /* Left KPI Panel render - Single Row Layout */
   const renderLeftKPIList = () => {
-    const compactRow = (label, value, unit = "") => (
-      <div key={label} className="flex justify-between items-center ">
-        <div className="text-xs text-gray-600 truncate">{label}</div>
-        <div className="text-sm font-semibold text-gray-800">{value} <span className="text-xs text-orange-500 ml-1">{unit}</span></div>
+    // Horizontal Layout: Label on left, Value + Unit on right
+    const singleRow = (label, value, unit = "") => (
+      <div key={label} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0 hover:bg-gray-50 px-1 transition-colors rounded">
+        <div className="text-xs text-gray-600 font-medium">{label}</div>
+        <div className="text-sm font-bold text-gray-800">
+          {value} <span className="text-xs text-orange-500 font-normal ml-0.5">{unit}</span>
+        </div>
       </div>
     );
 
@@ -885,24 +951,24 @@ export default function TotalizerEntryPage({ auth }) {
       const u = activeTab === "Unit-1" ? localUnit1KPI : localUnit2KPI;
       const sKPI = shutdownKPIs[activeTab] || {};
       return (
-        <div className="space-y-2">
-          <div className="text-sm font-semibold text-gray-700 mb-1">Unit KPIs</div>
-          {compactRow("Daily Generation", (u.gen || 0).toFixed(3), "MWh")}
-          {compactRow("PLF %", (u.plf || 0).toFixed(2), "%")}
-          {compactRow("Running Hour", sKPI.running_hour !== null ? Number(sKPI.running_hour).toFixed(2) : "—", "hr")}
-          {compactRow("Availability %", sKPI.plant_availability_percent !== null ? Number(sKPI.plant_availability_percent).toFixed(2) : "—", "%")}
-          {compactRow("Planned Out (hr)", sKPI.planned_outage_hour !== null ? Number(sKPI.planned_outage_hour).toFixed(2) : "—", "hr")}
-          {compactRow("Strategic Out (hr)", sKPI.strategic_outage_hour !== null ? Number(sKPI.strategic_outage_hour).toFixed(2) : "—", "hr")}
-          <div className="h-px bg-gray-100 my-2" />
-          <div className="text-sm font-semibold text-gray-700 mb-1">Fuel & Utilities</div>
-          {compactRow("Coal Cons.", (u.coal || 0).toFixed(3), "ton")}
-          {compactRow("Specific Coal", (u.specificCoal || 0).toFixed(6), "ton/MWh")}
-          {compactRow("LDO Cons.", (u.ldo || 0).toFixed(3), "L")}
-          {compactRow("Specific Oil", (u.specificOil || 0).toFixed(6), "L/MWh")}
-          {compactRow("Steam Cons.", (u.steam || 0).toFixed(3), "kg")}
-          {compactRow("Specific Steam", (u.specificSteam || 0).toFixed(6), "kg/MWh")}
-          {compactRow("DM Water", (u.dm || 0).toFixed(3), "m3")}
-          {compactRow("Sp. DM %", (u.specificDM || 0).toFixed(3), "%")}
+        <div className="space-y-0.2">
+          <div className="text-xs font-bold text-gray-800 uppercase bg-gray-100 p-1 rounded mb-1">Unit Performance</div>
+          {singleRow("Daily Generation", (u.gen || 0).toFixed(3), "MWh")}
+          {singleRow("PLF", (u.plf || 0).toFixed(2), "%")}
+          {singleRow("Running Hour", sKPI.running_hour !== null ? Number(sKPI.running_hour).toFixed(2) : "—", "hr")}
+          {singleRow("Availability", sKPI.plant_availability_percent !== null ? Number(sKPI.plant_availability_percent).toFixed(2) : "—", "%")}
+          {singleRow("Planned Out", sKPI.planned_outage_hour !== null ? Number(sKPI.planned_outage_hour).toFixed(2) : "—", "hr")}
+          {singleRow("Strategic Out", sKPI.strategic_outage_hour !== null ? Number(sKPI.strategic_outage_hour).toFixed(2) : "—", "hr")}
+          
+          <div className="text-xs font-bold text-gray-800 uppercase bg-gray-100 p-2 rounded mb-1 mt-4">Fuel & Utilities</div>
+          {singleRow("Coal Cons.", (u.coal || 0).toFixed(3), "ton")}
+          {singleRow("Specific Coal", (u.specificCoal || 0).toFixed(6), "ton/MWh")}
+          {singleRow("LDO Cons.", (u.ldo || 0).toFixed(3), "L")}
+          {singleRow("Specific Oil", (u.specificOil || 0).toFixed(6), "L/MWh")}
+          {singleRow("Steam Cons.", (u.steam || 0).toFixed(3), "kg")}
+          {singleRow("Specific Steam", (u.specificSteam || 0).toFixed(6), "kg/MWh")}
+          {singleRow("DM Water", (u.dm || 0).toFixed(3), "m3")}
+          {singleRow("Sp. DM %", (u.specificDM || 0).toFixed(3), "%")}
         </div>
       );
     }
@@ -910,15 +976,15 @@ export default function TotalizerEntryPage({ auth }) {
     if (activeTab === "Station") {
       const s = stationKPIsLocal;
       return (
-        <div className="space-y-2">
-          <div className="text-sm font-semibold text-gray-700 mb-1">Station KPIs</div>
-          {compactRow("Station PLF", ((s.gen1 + s.gen2) > 0 ? (((s.gen1 + s.gen2) / 3000) * 100).toFixed(2) : "0.00"), "%")}
-          {compactRow("Total Raw Water", (s.total_raw_water || 0).toFixed(3), "m3")}
-          {compactRow("Avg Raw Water/hr", (s.avg_raw_per_hr || 0).toFixed(3), "m3/hr")}
-          {compactRow("Total DM Water", (s.total_dm || 0).toFixed(3), "m3")}
-          {compactRow("Sp Raw Water (L/kWh)", (s.sp_raw_l_per_kwh || 0).toFixed(3), "L/kWh")}
-          {compactRow("U1 Gen", (s.gen1 || 0).toFixed(3), "MWh")}
-          {compactRow("U2 Gen", (s.gen2 || 0).toFixed(3), "MWh")}
+        <div className="space-y-0.5">
+          <div className="text-xs font-bold text-gray-800 uppercase bg-gray-100 p-2 rounded mb-1">Station KPIs</div>
+          {singleRow("Station PLF", ((s.gen1 + s.gen2) > 0 ? (((s.gen1 + s.gen2) / 3000) * 100).toFixed(2) : "0.00"), "%")}
+          {singleRow("Total Raw Water", (s.total_raw_water || 0).toFixed(3), "m3")}
+          {singleRow("Avg Raw Water/hr", (s.avg_raw_per_hr || 0).toFixed(3), "m3/hr")}
+          {singleRow("Total DM Water", (s.total_dm || 0).toFixed(3), "m3")}
+          {singleRow("Sp Raw Water", (s.sp_raw_l_per_kwh || 0).toFixed(3), "L/kWh")}
+          {singleRow("U1 Gen", (s.gen1 || 0).toFixed(3), "MWh")}
+          {singleRow("U2 Gen", (s.gen2 || 0).toFixed(3), "MWh")}
         </div>
       );
     }
@@ -926,23 +992,24 @@ export default function TotalizerEntryPage({ auth }) {
     if (activeTab === "Energy-Meter") {
       const ek = energyKPI || {};
       return (
-        <div className="space-y-2">
-          <div className="text-sm font-semibold text-gray-700 mb-1">Energy KPIs</div>
-          {compactRow("U1 Gen", (ek.unit1_generation || 0).toFixed(3), "MWh")}
-          {compactRow("U2 Gen", (ek.unit2_generation || 0).toFixed(3), "MWh")}
-          {compactRow("U1 PLF", (ek.unit1_plf || 0).toFixed(2), "%")}
-          {compactRow("U2 PLF", (ek.unit2_plf || 0).toFixed(2), "%")}
-          {compactRow("Station PLF", (ek.station_plf || 0).toFixed(2), "%")}
-          {compactRow("U1 Aux %", (ek.unit1_aux_percent || 0).toFixed(2), "%")}
-          {compactRow("U2 Aux %", (ek.unit2_aux_percent || 0).toFixed(2), "%")}
-          {compactRow("Total Station Aux", (ek.total_station_aux_mwh || 0).toFixed(3), "MWh")}
-          {compactRow("Tie Export", (ek.total_station_tie_mwh || 0).toFixed(3), "MWh")}
+        <div className="space-y-0.5">
+          <div className="text-xs font-bold text-gray-800 uppercase bg-gray-100 p-2 rounded mb-1">Energy KPIs</div>
+          {singleRow("U1 Gen", (ek.unit1_generation || 0).toFixed(3), "MWh")}
+          {singleRow("U2 Gen", (ek.unit2_generation || 0).toFixed(3), "MWh")}
+          {singleRow("U1 PLF", (ek.unit1_plf || 0).toFixed(2), "%")}
+          {singleRow("U2 PLF", (ek.unit2_plf || 0).toFixed(2), "%")}
+          {singleRow("Station PLF", (ek.station_plf || 0).toFixed(2), "%")}
+          {singleRow("U1 Aux %", (ek.unit1_aux_percent || 0).toFixed(2), "%")}
+          {singleRow("U2 Aux %", (ek.unit2_aux_percent || 0).toFixed(2), "%")}
+          {singleRow("Station Aux", (ek.total_station_aux_mwh || 0).toFixed(3), "MWh")}
+          {singleRow("Tie Export", (ek.total_station_tie_mwh || 0).toFixed(3), "MWh")}
         </div>
       );
     }
 
     return null;
   };
+// ... rest of the code ...
 
   /* =============================================================
      Compact Table Render
@@ -954,11 +1021,10 @@ export default function TotalizerEntryPage({ auth }) {
       <table className="min-w-full table-auto">
         <thead className="bg-gray-50 text-xs text-gray-600">
           <tr>
-            <th className="px-3 py-2 text-left w-48">Totalizer</th>
-            <th className="px-2 py-2 text-center w-16">Unit</th>
+            <th className="px-3 py-2 text-left w-64">Totalizer</th>
+            {/* Removed Unit Column */}
             <th className="px-2 py-2 text-right w-28">Yesterday</th>
-            <th className="px-2 py-2 text-right w-32">Today</th>
-            {/* Removed Adj Column */}
+            <th className="px-2 py-2 text-right w-48">Today</th>
             <th className="px-2 py-2 text-right w-28">Diff</th>
           </tr>
         </thead>
@@ -970,9 +1036,11 @@ export default function TotalizerEntryPage({ auth }) {
             const hasAdjustment = rec.adjust && rec.adjust !== 0;
 
             return (
-              <tr key={t.id} className="odd:bg-white even:bg-gray-50">
-                <td className="px-3 py-2 text-sm text-gray-700">{t.display_name}</td>
-                <td className="px-2 py-2 text-center text-xs text-gray-500">{rec.unit}</td>
+              <tr key={t.id} className="odd:bg-white even:bg-gray-50 hover:bg-orange-50 transition-colors">
+                <td className="px-3 py-2 text-sm text-gray-700">
+                  <div className="font-medium">{t.display_name}</div>
+                  <div className="text-xs text-gray-400">{rec.unit}</div>
+                </td>
                 <td className="px-2 py-2 text-right font-mono text-xs text-gray-600">{rec.yesterday}</td>
                 <td className="px-2 py-1 text-right">
                   <input
@@ -980,12 +1048,11 @@ export default function TotalizerEntryPage({ auth }) {
                     step="0.001"
                     value={rec.today === "" ? "" : rec.today}
                     onChange={(e) => updateField(t.id, "today", e.target.value)}
-                    // Double click to open adjust popup
                     onDoubleClick={() => canAdjust && handleAdjustClick({ id: t.id, adjust: rec.adjust || 0 })}
                     readOnly={!isEditable}
                     title={canAdjust ? "Double click to adjust" : ""}
                     placeholder={isEditable ? "" : "N/A"}
-                    className={`w-28 text-right text-sm px-2 py-1 rounded border text-gray-800 ${isEditable ? "border-orange-200 focus:ring-1 focus:ring-orange-400" : "bg-gray-100 border-gray-200"}`}
+                    className={`w-40 text-right text-base px-2 py-1 rounded border text-gray-800 ${isEditable ? "border-orange-200 focus:ring-2 focus:ring-orange-400 focus:border-orange-500" : "bg-gray-100 border-gray-200"}`}
                   />
                 </td>
                 <td className="px-2 py-2 text-right font-mono text-sm text-gray-800 relative">
@@ -998,6 +1065,17 @@ export default function TotalizerEntryPage({ auth }) {
             );
           })}
         </tbody>
+        <tfoot className="bg-gray-50 text-xs text-gray-500">
+          <tr>
+            <td colSpan="4" className="px-3 py-2 text-right">
+               {lastUpdatedInfo ? (
+                 <>Last updated: <strong>{new Date(lastUpdatedInfo.at).toLocaleString()}</strong> by <strong>{lastUpdatedInfo.by}</strong></>
+               ) : (
+                 <span>No update history for this date</span>
+               )}
+            </td>
+          </tr>
+        </tfoot>
       </table>
     </div>
   );
@@ -1098,14 +1176,22 @@ export default function TotalizerEntryPage({ auth }) {
             <svg className="w-6 h-6 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V9a2 2 0 012-2h2a2 2 0 012 2v10"></path></svg>
             Totalizer Daily Entry
           </h1>
-          <div className="text-xs text-gray-500">Date: <strong>{reportDate}</strong></div>
+          <div className="text-xs text-gray-500">
+            User: <strong>{userName}</strong> | Date: <strong>{reportDate}</strong>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <input type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} className="px-2 py-1 border rounded text-sm" />
-          <button onClick={handleSeedMaster} className="px-3 py-1 rounded bg-gray-200 text-sm">Seed</button>
-          <button onClick={handleResetForm} className="px-3 py-1 rounded border text-sm">Reset</button>
-          <button onClick={handleSubmitClick} className="px-3 py-1 rounded bg-orange-600 text-white text-sm">{submitting ? "Saving..." : "Submit"}</button>
+          {/* Date Navigation Arrows */}
+          <div className="flex items-center border rounded bg-white overflow-hidden">
+             <button onClick={() => handleDateChange(-1)} className="px-2 py-1 hover:bg-gray-100 border-r" title="Previous Day">◀</button>
+             <input type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} className="px-2 py-1 text-sm outline-none border-none" />
+             <button onClick={() => handleDateChange(1)} className="px-2 py-1 hover:bg-gray-100 border-l" title="Next Day">▶</button>
+          </div>
+
+          <button onClick={handleSeedMaster} className="px-3 py-1 rounded bg-gray-200 text-sm hover:bg-gray-300">Seed</button>
+          <button onClick={handleResetForm} className="px-3 py-1 rounded border text-sm hover:bg-gray-100">Reset</button>
+          <button onClick={handleSubmitClick} className="px-3 py-1 rounded bg-orange-600 text-white text-sm hover:bg-orange-700">{submitting ? "Saving..." : "Submit"}</button>
         </div>
       </div>
 
@@ -1134,8 +1220,8 @@ export default function TotalizerEntryPage({ auth }) {
 
       {/* Main layout: left KPI panel + right content */}
       <div className="flex gap-4">
-        {/* Left KPI panel - compact list, fixed width */}
-        <aside className="w-64 bg-white border rounded p-3 shadow-sm sticky top-4 h-[calc(100vh-180px)] overflow-auto">
+        {/* Left KPI panel - Increased width w-80 */}
+        <aside className="w-80 bg-white border rounded p-4 shadow-sm sticky top-4 h-[calc(100vh-180px)] overflow-auto flex-shrink-0">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-gray-700">KPIs</h3>
             {kpiLoading && <Spinner size={12} />}
@@ -1145,7 +1231,7 @@ export default function TotalizerEntryPage({ auth }) {
         </aside>
 
         {/* Right content - table + manual KPIs */}
-        <main className="flex-1">
+        <main className="flex-1 overflow-hidden">
           <div className="bg-white border rounded p-3 shadow-sm">
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-sm font-semibold text-gray-700">{activeTab} Readings</h2>
@@ -1160,18 +1246,19 @@ export default function TotalizerEntryPage({ auth }) {
             </div>
 
             {/* Manual KPIs compact grid */}
-            <div className="mt-2">
+            <div className="mt-4 border-t pt-4">
               <h3 className="text-sm font-semibold text-gray-700 mb-2">Manual KPIs</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                 {Object.entries(manualKPI[activeTab] || {}).map(([kname, val]) => (
-                  <div key={kname} className="p-2 border rounded text-sm bg-white">
-                    <div className="text-xs text-gray-600 mb-1">{kname.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} <span className="text-xs text-gray-400">({manualUnits[activeTab]?.[kname] || ""})</span></div>
+                  <div key={kname} className="p-2 border rounded text-sm bg-white hover:border-orange-300 transition-colors">
+                    <div className="text-xs text-gray-600 mb-1 font-medium">{kname.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} <span className="text-xs text-gray-400 font-normal">({manualUnits[activeTab]?.[kname] || ""})</span></div>
                     <input
                       type="number"
                       step="0.001"
                       value={val === "" || val === null || val === undefined ? "" : val}
                       onChange={(e) => updateManualField(activeTab, kname, e.target.value)}
-                      className="w-full px-2 py-1 text-sm border rounded focus:border-orange-500 outline-none"
+                      className="w-full px-2 py-1 text-sm border rounded focus:border-orange-500 focus:ring-1 focus:ring-orange-200 outline-none"
+                      placeholder="Enter value"
                     />
                   </div>
                 ))}

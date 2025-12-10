@@ -216,42 +216,45 @@ async def store_kpis(
     payload: dict = Body(...),
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    Universal scalable KPI store.
-    Example payload:
-    {
-      "date": "2025-12-02",
-      "kpi_type": "energy",
-      "plant_name": "Station",
-      "kpis": [
-        { "name": "unit1_aux_mwh", "value": 33.55, "unit": "MWh" }
-      ]
-    }
-    """
 
-    # Required fields
+    # Required validation
     if not payload.get("date") or not payload.get("kpi_type") or not payload.get("plant_name"):
         raise HTTPException(status_code=422, detail="date, kpi_type, plant_name are required")
 
-    # Parse date
+    # Parse date safely
     try:
         rpt_date = datetime.fromisoformat(payload["date"]).date()
-    except:
+    except Exception:
         raise HTTPException(status_code=422, detail="Invalid date format")
 
     kpi_type = payload["kpi_type"]
     plant_name = payload["plant_name"]
     kpis = payload.get("kpis", [])
 
+    # -------------------------
+    # SAFE VALUE CLEANING
+    # -------------------------
+    def clean_value(v):
+        if v is None:
+            return None
+        if v == "" or v == " ":
+            return None
+        try:
+            return float(v)
+        except:
+            return None
+
     try:
-        # UPSERT each KPI
         for k in kpis:
+
+            safe_value = clean_value(k.get("value"))
+
             stmt = sqlite_upsert(KPIRecordDB).values(
                 report_date=rpt_date,
                 kpi_type=kpi_type,
                 plant_name=plant_name,
                 kpi_name=k["name"],
-                kpi_value=k["value"],
+                kpi_value=safe_value,
                 unit=k.get("unit")
             )
 
@@ -272,6 +275,7 @@ async def store_kpis(
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
     
 
 @router.get("/kpi/get")

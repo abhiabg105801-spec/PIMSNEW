@@ -92,6 +92,8 @@ from routers import chemical
 app.include_router(chemical.router)
 from routers.shutdowns import router as shutdown_router
 app.include_router(shutdown_router)
+from routers import dpr
+app.include_router(dpr.router)
 
 
 

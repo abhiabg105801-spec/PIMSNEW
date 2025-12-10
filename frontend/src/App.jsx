@@ -78,21 +78,7 @@ function Layout({ authHeader, onLogout }) {
       {/* ================= HEADER SECTION ================= */}
       <div className="fixed top-0 left-0 right-0 z-50 shadow-md">
         
-        {/* 1. TOP UTILITY BAR (Dark Industrial Look) */}
-        <div className="bg-slate-900 text-gray-300 h-6 flex items-center justify-between px-6 text-xs tracking-wider font-medium">
-          <div className="flex items-center gap-4">
-             <span>JINDAL STAINLESS LTD</span>
-             <span className="hidden sm:inline text-slate-600">|</span>
-             <span className="text-[#E06A1B] font-bold">SAFETY FIRST</span>
-          </div>
-          <div className="flex items-center gap-4">
-            <span className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-              System Online
-            </span>
-            <span>{new Date().toLocaleDateString()}</span>
-          </div>
-        </div>
+       
 
         {/* 2. BRANDING BAR (White) */}
         <header className="bg-white h-12 flex items-center justify-between px-6 border-b border-gray-100 relative">
@@ -155,7 +141,7 @@ function Layout({ authHeader, onLogout }) {
       </div>
 
       {/* ================= MAIN CONTENT ================= */}
-      <main className="flex-1 pt-[145px] pb-10 px-4 sm:px-6">
+      <main className="flex-1 pt-[100px] pb-10 px-4 sm:px-6">
         <div className="max-w-screen-2xl mx-auto bg-white min-h-[calc(100vh-180px)] rounded-lg shadow-sm border border-gray-200 overflow-hidden relative">
           
           {/* Page Routing */}
