@@ -89,8 +89,8 @@ function Layout({ authHeader, onLogout }) {
             <img src="/jsl-logo.png" className="h-10 w-auto object-contain" alt="JSL Logo" />
             <div className="hidden md:flex h-8 w-[1px] bg-gray-300 mx-2"></div>
             <div className="flex flex-col leading-tight">
-              <span className="text-lg font-bold text-slate-800 tracking-tight">PIMS</span>
-              <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-widest">Plant Information Management System</span>
+              <span className="text-lg font-bold text-slate-800 tracking-tight">IPIM</span>
+              <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-widest">Integrated Plant Information Management</span>
             </div>
           </div>
 

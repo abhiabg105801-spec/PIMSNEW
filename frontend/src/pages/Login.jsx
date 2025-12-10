@@ -1,8 +1,16 @@
 import React, { useState } from "react";
-import { EyeIcon, EyeSlashIcon, ChartBarIcon, ServerIcon } from "@heroicons/react/24/outline";
-// Assuming you've placed the logo image in your public folder or imported it
+import { 
+  EyeIcon, 
+  EyeSlashIcon, 
+  ChartBarIcon, 
+  CpuChipIcon, 
+  AdjustmentsHorizontalIcon, 
+  BeakerIcon, 
+  WrenchScrewdriverIcon 
+} from "@heroicons/react/24/outline";
+
+// Assuming you've placed the logo image in your public folder
 // If it's in the public folder, the path would be like '/jsl-logo.png'
-// If you import it, use: import jslLogo from './path/to/your/logo.png';
 
 export default function Login({ onLogin }) {
   const [username, setUsername] = useState("");
@@ -36,152 +44,184 @@ export default function Login({ onLogin }) {
     }
   };
 
+  // Features Data for the Visual Panel
+  const features = [
+    { title: "KPI Logging & Reports", icon: ChartBarIcon, desc: "Real-time performance tracking" },
+    { title: "Logic Diagrams", icon: CpuChipIcon, desc: "System flow visualization" },
+    { title: "Design Parameters", icon: AdjustmentsHorizontalIcon, desc: "Operational benchmarks" },
+    { title: "LIMS Integration", icon: BeakerIcon, desc: "Laboratory information management" },
+    { title: "Outage Data", icon: WrenchScrewdriverIcon, desc: "Downtime analysis & logs" },
+  ];
+
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-gray-50 relative overflow-hidden font-sans">
+    <div className="min-h-screen w-full flex items-center justify-center bg-zinc-100 relative overflow-hidden font-sans p-4">
       
-      {/* 1. BACKGROUND: Technical Dot Grid */}
+      {/* 1. BACKGROUND: Technical Dot Grid (Zinc Theme) */}
       <div 
         className="absolute inset-0 z-0"
         style={{
-          backgroundImage: "radial-gradient(#cbd5e1 1px, transparent 1px)",
-          backgroundSize: "30px 30px", // Creates the engineering paper look
-          opacity: 0.5
+          backgroundImage: "radial-gradient(#a1a1aa 1px, transparent 1px)", // Zinc-400 dots
+          backgroundSize: "30px 30px", 
+          opacity: 0.4
         }}
       />
       
-      {/* Decorative Orange Circle (Blurry Blob) behind card */}
-      <div className="absolute top-[-10%] right-[-5%] w-96 h-96 bg-orange-400 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-pulse"></div>
-      <div className="absolute bottom-[-10%] left-[-5%] w-96 h-96 bg-gray-400 rounded-full mix-blend-multiply filter blur-3xl opacity-20"></div>
+      {/* Decorative Floating Orbs */}
+      <div className="absolute top-[-10%] right-[-5%] w-80 h-80 bg-orange-500 rounded-full mix-blend-multiply filter blur-[80px] opacity-40 animate-pulse"></div>
+      <div className="absolute bottom-[-10%] left-[-5%] w-80 h-80 bg-zinc-600 rounded-full mix-blend-multiply filter blur-[80px] opacity-40"></div>
 
-      {/* 2. MAIN CARD */}
-      <div className="relative z-10 bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row border border-gray-100">
+      {/* 2. MAIN CARD - Compact Size (max-w-4xl, min-h-[550px]) */}
+      <div className="relative z-10 w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden flex flex-col md:flex-row border border-white/40 backdrop-blur-md min-h-[550px]">
         
-        {/* LEFT SIDE: Login Form (White) */}
-        <div className="w-full md:w-1/2 p-10 lg:p-14 flex flex-col justify-center">
+        {/* PANEL 1: VISUAL PANEL (Now on LEFT) - 50% Width */}
+        <div className="hidden md:flex w-1/2 bg-zinc-900 relative items-center justify-center overflow-hidden border-r border-zinc-700/50">
+           
+           {/* Background Image */}
+           <div 
+             className="absolute inset-0 bg-cover bg-center"
+             style={{ 
+               backgroundImage: "url('/power-plant.jpg')",
+               filter: "grayscale(100%) contrast(1.1) brightness(0.4)" 
+             }} 
+           ></div>
+           
+           {/* Gradients */}
+           <div className="absolute inset-0 bg-gradient-to-t from-zinc-900 via-zinc-900/80 to-zinc-900/40"></div>
+           <div className="absolute inset-0 bg-gradient-to-br from-orange-600/20 to-zinc-900/60 mix-blend-overlay"></div>
+
+           {/* Features Content */}
+           <div className="relative z-10 w-full px-10">
+              <div className="mb-8 border-l-4 border-orange-500 pl-5">
+                <h3 className="text-3xl font-black text-white tracking-tight leading-none mb-2">
+                  SYSTEM <br/> <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-orange-600">FEATURES</span>
+                </h3>
+                <p className="text-zinc-300 text-xs font-light tracking-wide mt-2 max-w-xs">
+                  Integrated Plant Information Management
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                {features.map((item, index) => (
+                  <div 
+                    key={index}
+                    className="flex items-center gap-3 p-3 rounded-xl border border-white/5 bg-white/5 backdrop-blur-sm hover:bg-white/10 hover:border-orange-500/40 transition-all duration-500 group cursor-default shadow-sm hover:shadow-orange-500/10 hover:-translate-y-1"
+                    style={{
+                      animation: `fadeInLeft 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards`,
+                      animationDelay: `${index * 0.1}s`,
+                      opacity: 0, 
+                      transform: 'translateX(-20px)'
+                    }}
+                  >
+                    <div className="p-2 bg-zinc-800/80 rounded-lg text-orange-500 group-hover:bg-orange-600 group-hover:text-white transition-colors duration-300 shadow-inner border border-white/5 group-hover:scale-110">
+                      <item.icon className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h4 className="text-zinc-100 font-bold text-xs tracking-wide group-hover:text-orange-300 transition-colors duration-300">{item.title}</h4>
+                      <p className="text-zinc-500 text-[10px] font-medium group-hover:text-zinc-400 transition-colors uppercase tracking-wider">{item.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+           </div>
+        </div>
+
+        {/* PANEL 2: LOGIN FORM (Now on RIGHT) - 50% Width */}
+        <div className="w-full md:w-1/2 p-8 lg:p-10 flex flex-col justify-center bg-gradient-to-bl from-white/95 to-zinc-100/90 backdrop-blur-xl relative">
           
+          {/* Subtle top accent */}
+          <div className="absolute top-0 right-0 w-full h-1 bg-gradient-to-l from-orange-500 to-zinc-500"></div>
+
           {/* Brand Header */}
-          <div className="mb-10">
-            <div className="flex items-center gap-2 mb-3">
+          <div className="mb-8">
+            <div className="flex items-center gap-3 mb-4">
                {/* Use the imported or public path to your image */}
-               <img src="/jsl-logo.png" alt="JSL Logo" className="h-12 w-auto" /> 
-               <h1 className="text-2xl font-bold text-gray-800 tracking-tight ml-2">PIMS</h1>
+               <img src="/jsl-logo.png" alt="JSL Logo" className="h-10 w-auto" /> 
+               <div className="h-6 w-[2px] bg-zinc-300"></div>
+               <h1 className="text-2xl font-black text-zinc-800 tracking-tighter">PIMS</h1>
             </div>
-            <h2 className="text-4xl font-extrabold text-gray-900 mb-2">Welcome back</h2>
-            <p className="text-gray-500 text-sm">Enter your credentials to access the plant dashboard.</p>
+            <h2 className="text-3xl font-extrabold text-zinc-900 mb-1 tracking-tight">
+              Welcome <span className="text-orange-600">Back</span>
+            </h2>
+            <p className="text-zinc-500 text-xs font-medium leading-relaxed">
+              Secure access for authorized personnel only.
+            </p>
           </div>
 
           {/* Form */}
           <form onSubmit={handleLogin} className="space-y-5">
             
-            <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">User ID</label>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">User ID</label>
               <input
                 type="text"
                 placeholder="e.g. 849201"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full p-4 bg-gray-50 border-l-4 border-transparent focus:border-[#E06A1B] focus:bg-white focus:ring-0 transition-all outline-none font-medium text-gray-700 placeholder-gray-400"
+                className="w-full px-4 py-3 bg-white border border-zinc-300 rounded-xl text-zinc-900 placeholder-zinc-400 focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 transition-all outline-none font-medium text-sm shadow-sm hover:border-zinc-400"
                 required
               />
             </div>
 
-            <div>
-              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Password</label>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest ml-1">Password</label>
               <div className="relative">
                 <input
                   type={showPass ? "text" : "password"}
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full p-4 bg-gray-50 border-l-4 border-transparent focus:border-[#E06A1B] focus:bg-white focus:ring-0 transition-all outline-none font-medium text-gray-700 placeholder-gray-400 pr-12"
+                  className="w-full px-4 py-3 bg-white border border-zinc-300 rounded-xl text-zinc-900 placeholder-zinc-400 focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 transition-all outline-none font-medium pr-12 text-sm shadow-sm hover:border-zinc-400"
                   required
                 />
                 <button
                   type="button"
                   onClick={() => setShowPass(!showPass)}
-                  className="absolute right-4 top-4 text-gray-400 hover:text-[#E06A1B] transition"
+                  className="absolute right-3 top-3 text-zinc-400 hover:text-orange-600 transition"
                 >
-                  {showPass ? <EyeSlashIcon className="h-6 w-6"/> : <EyeIcon className="h-6 w-6"/>}
+                  {showPass ? <EyeSlashIcon className="h-5 w-5"/> : <EyeIcon className="h-5 w-5"/>}
                 </button>
               </div>
             </div>
 
-            {error && <p className="text-red-500 text-sm font-medium">{error}</p>}
+            {error && (
+              <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs font-semibold flex items-center gap-2 animate-pulse">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-600"></span>
+                {error}
+              </div>
+            )}
 
-            <div className="flex items-center justify-between pt-2">
-               <label className="flex items-center text-sm text-gray-500 cursor-pointer hover:text-gray-700">
-                  <input type="checkbox" className="mr-2 accent-[#E06A1B] w-4 h-4" />
+            <div className="flex items-center justify-between pt-1">
+               <label className="flex items-center text-xs text-zinc-600 cursor-pointer hover:text-zinc-900 transition select-none group">
+                  <input type="checkbox" className="mr-2 accent-orange-600 w-3.5 h-3.5 rounded border-gray-300 focus:ring-orange-500 group-hover:border-orange-500 transition-colors" />
                   Remember me
                </label>
-               <a href="#" className="text-sm font-bold text-[#E06A1B] hover:text-orange-700">Help?</a>
+               <a href="#" className="text-xs font-bold text-orange-600 hover:text-orange-700 hover:underline">Forgot Password?</a>
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-4 bg-[#E06A1B]  text-white font-bold text-lg rounded hover:bg-gray-900 transition-colors duration-300 shadow-lg flex justify-center items-center gap-2"
+              className="w-full py-3.5 bg-gradient-to-r from-zinc-800 to-zinc-900 hover:from-orange-600 hover:to-orange-700 text-white font-bold text-sm tracking-wide rounded-xl shadow-lg hover:shadow-orange-500/30 transform active:scale-[0.98] transition-all duration-200 flex justify-center items-center gap-2"
             >
-              {loading ? "Connecting..." : "ACCESS SYSTEM"}
+              {loading ? "Verifying..." : "LOGIN TO DASHBOARD"}
             </button>
           </form>
         </div>
 
-        {/* RIGHT SIDE: Visual Panel (Grey/Orange) */}
-        <div className="hidden md:flex w-1/2 bg-gray-100 relative items-center justify-center overflow-hidden">
-           
-           {/* Background Image with Grayscale Filter */}
-           <div 
-             className="absolute inset-0 bg-cover bg-center grayscale contrast-125"
-             // Replaced with a local image path
-             style={{ backgroundImage: "url('/power-plant.jpg')" }} 
-           ></div>
-           
-           {/* Orange Gradient Fade from bottom */}
-           <div className="absolute inset-0 bg-gradient-to-t from-[#E06A1B]/90 via-[#E06A1B]/40 to-transparent mix-blend-multiply"></div>
-
-           {/* Floating Info Stats */}
-           <div className="relative z-10 w-64">
-              
-              {/* Stat Card 1 */}
-              <div className="bg-white/90 backdrop-blur-sm p-4 rounded-lg shadow-xl mb-4 border-l-4 border-[#E06A1B] transform translate-x-4">
-                  <div className="flex items-center gap-3">
-                      <div className="p-2 bg-orange-100 rounded text-[#E06A1B]">
-                          <ChartBarIcon className="h-6 w-6" />
-                      </div>
-                      <div>
-                          
-                          <p className="text-xl font-bold text-gray-800">2x125MW CPP</p>
-                      </div>
-                  </div>
-              </div>
-
-              {/* Stat Card 2 */}
-              <div className="bg-white/90 backdrop-blur-sm p-4 rounded-lg shadow-xl border-l-4 border-gray-800 transform -translate-x-4">
-                  <div className="flex items-center gap-3">
-                      <div className="p-2 bg-gray-200 rounded text-gray-800">
-                          <ServerIcon className="h-6 w-6" />
-                      </div>
-                      <div>
-                          
-                          <p className="text-xl font-bold text-gray-800">14MW CPP</p>
-                      </div>
-                  </div>
-              </div>
-              
-              <div className="mt-8 text-white text-center">
-                  <p className="text-sm font-medium tracking-widest uppercase opacity-80">JSL CPP</p>
-                  <p className="text-xs opacity-60">----</p>
-              </div>
-
-           </div>
-        </div>
-        
       </div>
       
       {/* Footer Text */}
-      <div className="absolute bottom-6 text-gray-400 text-xs text-center w-full">
-         &copy; 2025 JSL. All rights reserved.
+      <div className="absolute bottom-4 text-zinc-400 text-[10px] text-center w-full font-medium tracking-widest uppercase opacity-70">
+         &copy; 2025 JSL Industries. Secure Enterprise System.
       </div>
+
+      {/* Animation Styles */}
+      <style>{`
+        @keyframes fadeInLeft {
+          from { opacity: 0; transform: translateX(-20px); }
+          to { opacity: 1; transform: translateX(0); }
+        }
+      `}</style>
 
     </div>
   );
