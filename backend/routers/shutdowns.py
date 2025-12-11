@@ -1,30 +1,31 @@
-from fastapi import (
-    APIRouter, Depends, HTTPException, Form, File, UploadFile, Query
-)
+from fastapi import APIRouter, Depends, HTTPException, Form, File, UploadFile, Query, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, and_, or_
 from datetime import datetime, date, time, timedelta
 from pathlib import Path
 import shutil
 import io
-import re
+import asyncio
 
 import models
 from database import get_db
 from auth import get_current_user
-from fastapi.responses import StreamingResponse
-
 from crud.messages import create_message
-from routers.messages import manager   # websocket broadcast
+from routers.messages import manager
 
+# ReportLab Imports
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
 
-from database import async_session_maker
 UPLOAD_DIR = Path("uploads/rca")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+# Configuration
+VIEWER_ROLE_ID = 6
+FORCED_OUTAGE = "Forced Outage"
 
 router = APIRouter(
     prefix="/api/shutdowns",
@@ -32,64 +33,35 @@ router = APIRouter(
 )
 
 # -----------------------------------------------------------
-# UTIL – MORE ROBUST DURATION STRING TO HOURS
+# UTIL: Duration Formatting (Centralized)
 # -----------------------------------------------------------
-def duration_to_hours(val: str) -> float:
-    if not val:
-        return 0.0
+def format_duration(start: datetime, end: datetime) -> str:
+    if not start or not end:
+        return None
+    
+    diff = (end - start).total_seconds()
+    if diff < 0: return "0h 0m"
 
-    s = val.strip().upper()
+    total_min = int(diff // 60)
+    hours = total_min // 60
+    mins = total_min % 60
+    days = hours // 24
+    hours = hours % 24
 
-    # HH:MM format
-    if ":" in s:
-        try:
-            hh, mm = s.split(":")
-            return int(hh) + int(mm)/60
-        except:
-            return 0.0
+    if days > 0:
+        return f"{days}d {hours}h {mins}m"
+    return f"{hours}h {mins}m"
 
-    s = (
-        s.replace("HRS", "H")
-         .replace("HR", "H")
-         .replace("HOUR", "H")
-         .replace("HOURS", "H")
-         .replace("MINS", "M")
-         .replace("MINUTE", "M")
-         .replace("MINUTES", "M")
-         .replace("MIN", "M")
-         .replace(" DAYS", "D")
-         .replace(" DAY", "D")
-    )
-
-    matches = re.findall(r"(\d+\.?\d*)\s*(D|H|M)", s)
-    if matches:
-        total = 0
-        for num, unit in matches:
-            num = float(num)
-            if unit == "D":
-                total += num * 24
-            elif unit == "H":
-                total += num
-            elif unit == "M":
-                total += num / 60
-        return total
-
-    try:
-        return float(s)
-    except:
-        return 0.0
-
-
-# =====================================================================
-# 1️⃣  CREATE SHUTDOWN
-# =====================================================================
+# -----------------------------------------------------------
+# 1️⃣ CREATE SHUTDOWN
+# -----------------------------------------------------------
 @router.post("/", response_model=models.ShutdownRecord, status_code=201)
 async def create_shutdown_record(
     unit: str = Form(...),
     shutdown_type: str = Form(...),
-
     datetime_from: datetime = Form(...),
-
+    
+    # Optional fields
     responsible_agency: str = Form(None),
     reason: str = Form(None),
     remarks: str = Form(None),
@@ -99,36 +71,32 @@ async def create_shutdown_record(
     action_taken: str = Form(None),
     restoration_sequence: str = Form(None),
     notification_no: str = Form(None),
-
     why_why_done: bool = Form(False),
-
+    
     rca_file: UploadFile = File(None),
     db: AsyncSession = Depends(get_db),
     current_user: models.UserDB = Depends(get_current_user)
 ):
-
-    if current_user.role_id == 6:
+    if current_user.role_id == VIEWER_ROLE_ID:
         raise HTTPException(403, "Viewer cannot create shutdown records.")
 
-    # ---------- FILE UPLOAD ----------
+    # Async File Write
     rca_path = None
     if rca_file:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        safe = "".join(c if c.isalnum() else "_" for c in rca_file.filename)
-        fname = f"{ts}_{safe}"
+        safe_name = "".join(c if c.isalnum() else "_" for c in rca_file.filename)
+        fname = f"{ts}_{safe_name}"
         dest = UPLOAD_DIR / fname
-
-        with dest.open("wb") as buf:
-            shutil.copyfileobj(rca_file.file, buf)
-
+        
+        # Non-blocking file write
+        content = await rca_file.read()
+        await asyncio.to_thread(dest.write_bytes, content)
         rca_path = str(dest)
-        await rca_file.close()
 
     record = models.ShutdownRecordDB(
         unit=unit,
         shutdown_type=shutdown_type,
         datetime_from=datetime_from,
-
         responsible_agency=responsible_agency,
         reason=reason,
         remarks=remarks,
@@ -138,34 +106,22 @@ async def create_shutdown_record(
         action_taken=action_taken,
         restoration_sequence=restoration_sequence,
         notification_no=notification_no,
-
         why_why_done=why_why_done,
         why_why_done_at=datetime.now() if why_why_done else None,
-
-        rca_file_path=rca_path,
-
-        datetime_to=None,
-        sync_datetime=None,
-        sync_shift_incharge=None,
-        oil_used_kl=None,
-        coal_t=None,
-        oil_stabilization_kl=None,
-        import_percent=None,
-        sync_notes=None,
-        duration=None,
+        rca_file_path=rca_path
     )
 
     db.add(record)
     await db.commit()
     await db.refresh(record)
     return record
-# =====================================================================
-# 2️⃣  ADD / UPDATE SYNCHRONISATION
-# =====================================================================
+
+# -----------------------------------------------------------
+# 2️⃣ UPDATE SYNC DETAILS
+# -----------------------------------------------------------
 @router.put("/{shutdown_id}/sync", response_model=models.ShutdownRecord)
 async def update_sync_details(
     shutdown_id: int,
-
     sync_datetime: datetime = Form(...),
     sync_shift_incharge: str = Form(None),
     oil_used_kl: float = Form(None),
@@ -173,22 +129,16 @@ async def update_sync_details(
     oil_stabilization_kl: float = Form(None),
     import_percent: float = Form(None),
     sync_notes: str = Form(None),
-
     db: AsyncSession = Depends(get_db),
     current_user: models.UserDB = Depends(get_current_user)
 ):
-
-    if current_user.role_id == 6:
+    if current_user.role_id == VIEWER_ROLE_ID:
         raise HTTPException(403, "Viewer cannot update sync.")
 
-    res = await db.execute(
-        select(models.ShutdownRecordDB).where(models.ShutdownRecordDB.id == shutdown_id)
-    )
-    record = res.scalars().first()
+    record = await db.get(models.ShutdownRecordDB, shutdown_id)
     if not record:
-        raise HTTPException(404, "Shutdown record not found.")
+        raise HTTPException(404, "Record not found.")
 
-    # UPDATE SYNC FIELDS
     record.sync_datetime = sync_datetime
     record.datetime_to = sync_datetime
     record.sync_shift_incharge = sync_shift_incharge
@@ -197,37 +147,23 @@ async def update_sync_details(
     record.oil_stabilization_kl = oil_stabilization_kl
     record.import_percent = import_percent
     record.sync_notes = sync_notes
-
-    # RECALCULATE DURATION
-    if record.datetime_from:
-        diff = (record.datetime_to - record.datetime_from).total_seconds()
-        total_min = int(diff // 60)
-        hours = total_min // 60
-        mins = total_min % 60
-        days = hours // 24
-        hours = hours % 24
-
-        record.duration = (f"{days}d {hours}h {mins}m"
-                           if days > 0 else f"{hours}h {mins}m")
-    else:
-        record.duration = None
+    
+    # Use centralized helper
+    record.duration = format_duration(record.datetime_from, record.datetime_to)
 
     await db.commit()
     await db.refresh(record)
     return record
 
-
-# =====================================================================
-# 3️⃣  EDIT SHUTDOWN (recalculate duration if sync exists)
-# =====================================================================
+# -----------------------------------------------------------
+# 3️⃣ EDIT SHUTDOWN (Generic)
+# -----------------------------------------------------------
 @router.put("/{shutdown_id}", response_model=models.ShutdownRecord)
 async def edit_shutdown(
     shutdown_id: int,
-
     unit: str = Form(...),
     shutdown_type: str = Form(...),
     datetime_from: datetime = Form(...),
-
     responsible_agency: str = Form(None),
     reason: str = Form(None),
     remarks: str = Form(None),
@@ -237,25 +173,19 @@ async def edit_shutdown(
     action_taken: str = Form(None),
     restoration_sequence: str = Form(None),
     notification_no: str = Form(None),
-
     why_why_done: bool = Form(False),
-
     rca_file: UploadFile = File(None),
     db: AsyncSession = Depends(get_db),
     current_user: models.UserDB = Depends(get_current_user),
 ):
+    if current_user.role_id == VIEWER_ROLE_ID:
+        raise HTTPException(403, "Forbidden")
 
-    if current_user.role_id == 6:
-        raise HTTPException(403, "Viewer cannot update shutdown records.")
-
-    res = await db.execute(
-        select(models.ShutdownRecordDB).where(models.ShutdownRecordDB.id == shutdown_id)
-    )
-    record = res.scalars().first()
+    record = await db.get(models.ShutdownRecordDB, shutdown_id)
     if not record:
-        raise HTTPException(404, "Shutdown record not found.")
+        raise HTTPException(404, "Record not found")
 
-    # UPDATE BASE FIELDS
+    # Update basic fields
     record.unit = unit
     record.shutdown_type = shutdown_type
     record.datetime_from = datetime_from
@@ -269,49 +199,38 @@ async def edit_shutdown(
     record.restoration_sequence = restoration_sequence
     record.notification_no = notification_no
 
-    # Why-Why checkbox
-    if why_why_done:
+    if why_why_done and not record.why_why_done:
         record.why_why_done = True
         record.why_why_done_at = datetime.now()
+    elif not why_why_done:
+        record.why_why_done = False
+        record.why_why_done_at = None
 
-    # ---------- Optional file upload ----------
     if rca_file:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         safe = "".join(c if c.isalnum() else "_" for c in rca_file.filename)
         fname = f"{ts}_{safe}"
         dest = UPLOAD_DIR / fname
-        with dest.open("wb") as buf:
-            shutil.copyfileobj(rca_file.file, buf)
+        content = await rca_file.read()
+        await asyncio.to_thread(dest.write_bytes, content)
         record.rca_file_path = str(dest)
 
-    # ---------- RECALCULATE DURATION IF SYNC EXISTS ----------
+    # Recalculate duration if sync exists
     if record.datetime_to:
-        diff = (record.datetime_to - record.datetime_from).total_seconds()
-        total_min = int(diff // 60)
-        hours = total_min // 60
-        mins = total_min % 60
-        days = hours // 24
-        hours = hours % 24
-
-        record.duration = (f"{days}d {hours}h {mins}m"
-                           if days > 0 else f"{hours}h {mins}m")
+        record.duration = format_duration(record.datetime_from, record.datetime_to)
 
     await db.commit()
     await db.refresh(record)
     return record
 
-
-# =====================================================================
-# 4️⃣  LAST 5 SHUTDOWNS
-# =====================================================================
+# -----------------------------------------------------------
+# 4️⃣ & 5️⃣ LIST & LATEST
+# -----------------------------------------------------------
 @router.get("/latest", response_model=list[models.ShutdownRecord])
 async def latest_shutdowns(db: AsyncSession = Depends(get_db)):
     q = select(models.ShutdownRecordDB).order_by(desc(models.ShutdownRecordDB.id)).limit(5)
-    res = await db.execute(q)
-    return res.scalars().all()
-# =====================================================================
-# 5️⃣  LIST SHUTDOWNS (FILTERED)
-# =====================================================================
+    return (await db.execute(q)).scalars().all()
+
 @router.get("/", response_model=list[models.ShutdownRecord])
 async def list_shutdowns(
     start_date: date = Query(None),
@@ -319,41 +238,67 @@ async def list_shutdowns(
     unit: str = Query(None),
     db: AsyncSession = Depends(get_db)
 ):
-
-    q = select(models.ShutdownRecordDB).order_by(
-        desc(models.ShutdownRecordDB.datetime_from)
-    )
-
+    q = select(models.ShutdownRecordDB).order_by(desc(models.ShutdownRecordDB.datetime_from))
+    
     if start_date:
         q = q.where(models.ShutdownRecordDB.datetime_from >= datetime.combine(start_date, time.min))
-
     if end_date:
         q = q.where(models.ShutdownRecordDB.datetime_from <= datetime.combine(end_date, time.max))
-
     if unit:
         q = q.where(models.ShutdownRecordDB.unit == unit)
 
-    res = await db.execute(q)
-    return res.scalars().all()
+    return (await db.execute(q)).scalars().all()
 
-
-# =====================================================================
-# 6️⃣  GET ONE SHUTDOWN
-# =====================================================================
+# -----------------------------------------------------------
+# 6️⃣ GET ONE
+# -----------------------------------------------------------
 @router.get("/{shutdown_id}", response_model=models.ShutdownRecord)
 async def get_one(shutdown_id: int, db: AsyncSession = Depends(get_db)):
-    res = await db.execute(
-        select(models.ShutdownRecordDB).where(models.ShutdownRecordDB.id == shutdown_id)
-    )
-    rec = res.scalars().first()
-    if not rec:
-        raise HTTPException(404, "Record not found.")
-    return rec
+    record = await db.get(models.ShutdownRecordDB, shutdown_id)
+    if not record:
+        raise HTTPException(404, "Not found")
+    return record
 
+# -----------------------------------------------------------
+# 7️⃣ PDF EXPORT (Blocking code moved to thread)
+# -----------------------------------------------------------
+def generate_pdf_sync(records):
+    """Synchronous reportlab generation."""
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    styles = getSampleStyleSheet()
+    story = [Paragraph("<b>Shutdown + Synchronisation Report</b>", styles["h1"])]
 
-# =====================================================================
-# 7️⃣  PDF EXPORT
-# =====================================================================
+    table_data = [[
+        "From", "To", "Unit", "Reason", "Dur.",
+        "Agency", "Sync", "Oil", "Coal"
+    ]]
+
+    for r in records:
+        table_data.append([
+            r.datetime_from.strftime("%d-%m %H:%M"),
+            r.datetime_to.strftime("%d-%m %H:%M") if r.datetime_to else "-",
+            r.unit,
+            (r.reason or "")[:20], # Truncate for table
+            r.duration or "",
+            r.responsible_agency or "",
+            r.sync_datetime.strftime("%d-%m %H:%M") if r.sync_datetime else "-",
+            str(r.oil_used_kl or ""),
+            str(r.coal_t or ""),
+        ])
+
+    t = Table(table_data, repeatRows=1)
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
+        ("GRID", (0,0), (-1,-1), 0.5, colors.black),
+        ("FONTSIZE", (0,0), (-1,-1), 6),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 2),
+    ]))
+    story.append(t)
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
 @router.get("/export/pdf")
 async def export_pdf(
     start_date: date = Query(None),
@@ -361,75 +306,27 @@ async def export_pdf(
     unit: str = Query(None),
     db: AsyncSession = Depends(get_db)
 ):
-    q = select(models.ShutdownRecordDB).order_by(
-        models.ShutdownRecordDB.datetime_from.asc()
-    )
+    q = select(models.ShutdownRecordDB).order_by(models.ShutdownRecordDB.datetime_from.asc())
+    if start_date: q = q.where(models.ShutdownRecordDB.datetime_from >= datetime.combine(start_date, time.min))
+    if end_date: q = q.where(models.ShutdownRecordDB.datetime_from <= datetime.combine(end_date, time.max))
+    if unit: q = q.where(models.ShutdownRecordDB.unit == unit)
 
-    if start_date:
-        q = q.where(models.ShutdownRecordDB.datetime_from >= datetime.combine(start_date, time.min))
-
-    if end_date:
-        q = q.where(models.ShutdownRecordDB.datetime_from <= datetime.combine(end_date, time.max))
-
-    if unit:
-        q = q.where(models.ShutdownRecordDB.unit == unit)
-
-    res = await db.execute(q)
-    records = res.scalars().all()
-
+    records = (await db.execute(q)).scalars().all()
     if not records:
-        raise HTTPException(404, "No shutdown records found.")
+        raise HTTPException(404, "No records")
 
-    # ---- PDF ----
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4)
-    styles = getSampleStyleSheet()
+    # Run blocking PDF generation in thread pool
+    buffer = await asyncio.to_thread(generate_pdf_sync, records)
 
-    story = []
-    story.append(Paragraph("<b>Shutdown + Synchronisation Report</b>", styles["h1"]))
-
-    table_data = [[
-        "From", "To", "Unit", "Reason", "Duration",
-        "Agency", "Sync Time", "Oil KL", "Coal T", "Import%", "Notes"
-    ]]
-
-    for r in records:
-        table_data.append([
-            r.datetime_from.strftime("%d-%m-%y %H:%M"),
-            r.datetime_to.strftime("%d-%m-%y %H:%M") if r.datetime_to else "",
-            r.unit,
-            r.reason or "",
-            r.duration or "",
-            r.responsible_agency or "",
-            r.sync_datetime.strftime("%d-%m-%y %H:%M") if r.sync_datetime else "",
-            r.oil_used_kl or "",
-            r.coal_t or "",
-            r.import_percent or "",
-            r.sync_notes or "",
-        ])
-
-    table = Table(table_data, repeatRows=1)
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
-        ("GRID", (0,0), (-1,-1), 0.6, colors.black),
-        ("FONTNAME", (0,0), (-1,0), "Helvetica-Bold"),
-        ("FONTSIZE", (0,0), (-1,-1), 7),
-    ]))
-
-    story.append(table)
-    doc.build(story)
-
-    buffer.seek(0)
     return StreamingResponse(
         buffer,
         media_type="application/pdf",
         headers={"Content-Disposition": "attachment; filename=Shutdown_Report.pdf"}
     )
 
-
-# =====================================================================
-# 8️⃣  KPI CALCULATION (WITH ONGOING SHUTDOWN LOGIC)
-# =====================================================================
+# -----------------------------------------------------------
+# 8️⃣ KPI CALCULATION (Optimized)
+# -----------------------------------------------------------
 @router.get("/kpi/{unit}/{report_date}")
 async def get_shutdown_kpis(
     unit: str,
@@ -439,8 +336,17 @@ async def get_shutdown_kpis(
     start_day = datetime.combine(report_date, time.min)
     end_day = datetime.combine(report_date, time.max)
 
-    # fetch all record of this unit
-    q = select(models.ShutdownRecordDB).where(models.ShutdownRecordDB.unit == unit)
+    # OPTIMIZATION: Only fetch records that overlap with this specific day
+    # Logic: Start <= EndOfDay AND (End >= StartOfDay OR End is NULL)
+    q = select(models.ShutdownRecordDB).where(
+        models.ShutdownRecordDB.unit == unit,
+        models.ShutdownRecordDB.datetime_from <= end_day,
+        or_(
+            models.ShutdownRecordDB.datetime_to >= start_day,
+            models.ShutdownRecordDB.datetime_to.is_(None)
+        )
+    )
+    
     res = await db.execute(q)
     records = res.scalars().all()
 
@@ -448,34 +354,20 @@ async def get_shutdown_kpis(
     planned = 0.0
     strategic = 0.0
 
-    def overlap(start, end):
-        """shutdown overlapping hours with report date"""
-        if not start:
-            return 0.0
-
-        # ongoing shutdown (no sync yet)
-        if not end:
-            end = end_day
-
-        s = max(start, start_day)
-        e = min(end, end_day)
-        if e <= s:
-            return 0.0
-
-        return (e - s).total_seconds() / 3600.0
-
     for r in records:
-        hrs = overlap(r.datetime_from, r.datetime_to)
-        if hrs <= 0:
-            continue
-
-        total_shutdown += hrs
-
-        if r.shutdown_type == "Planned Outage":
-            planned += hrs
-
-        if r.shutdown_type == "Strategic Outage":
-            strategic += hrs
+        # Calculate overlap hours
+        # Use existing start_day/end_day bounds
+        s = max(r.datetime_from, start_day)
+        e = min(r.datetime_to or end_day, end_day) # if ongoing, use end_day
+        
+        if e > s:
+            hrs = (e - s).total_seconds() / 3600.0
+            total_shutdown += hrs
+            
+            if r.shutdown_type == "Planned Outage":
+                planned += hrs
+            elif r.shutdown_type == "Strategic Outage":
+                strategic += hrs
 
     running = max(0.0, 24.0 - total_shutdown)
 
@@ -488,63 +380,56 @@ async def get_shutdown_kpis(
         "strategic_outage_percent": round((strategic / 24) * 100, 2),
     }
 
+# -----------------------------------------------------------
+# 9️⃣ AUTO NOTIFICATIONS (Fixing Infinite Loop)
+# -----------------------------------------------------------
+# Note: This function should ideally be called by a scheduler (like Celery/APScheduler)
+# For now, if we assume it's called periodically, we must filter strictly.
 
-# =====================================================================
-# 9️⃣  AUTO NOTIFICATIONS (FORCED OUTAGE ONLY)
-# =====================================================================
 async def check_auto_notifications(db: AsyncSession):
-
     now = datetime.now()
-    two_min_ago = now - timedelta(minutes=1)
-    five_min_ago = now - timedelta(minutes=3)
+    
+    # We define a "Check Window" (e.g., outages created between 2 and 5 minutes ago)
+    # This ensures we don't alert for hours-old outages repeatedly,
+    # and we don't need a DB flag if the scheduler frequency matches the window.
+    # Ideally, add 'notification_sent' bool column to DB for robustness.
+    
+    window_start = now - timedelta(minutes=5)
+    window_end = now - timedelta(minutes=1)
 
+    # Fetch Forced Outages in this specific time window
     q = select(models.ShutdownRecordDB).where(
-        models.ShutdownRecordDB.shutdown_type == "Forced Outage"
+        models.ShutdownRecordDB.shutdown_type == FORCED_OUTAGE,
+        models.ShutdownRecordDB.datetime_from >= window_start,
+        models.ShutdownRecordDB.datetime_from <= window_end
     )
+    
     res = await db.execute(q)
-    forced = res.scalars().all()
+    forced_records = res.scalars().all()
 
-    for r in forced:
+    for r in forced_records:
+        # 1. Check Notification No
+        if not r.notification_no:
+            # Send Alert
+            await send_broadcast_alert(db, f"⚠ Notification No. missing for Forced Outage: {r.unit} ({r.datetime_from})")
 
-        # ---------- Case 1 → Notification missing ----------
-        if (r.notification_no is None or r.notification_no.strip() == ""):
-            if r.datetime_from <= two_min_ago:
-
-                msg = await create_message(
-                    db,
-                    "system",
-                    f"⚠ Notification No. missing for Forced Outage on {r.datetime_from} ({r.unit})."
-                )
-
-                await manager.broadcast({
-                    "type": "message:new",
-                    "message": {
-                        "id": msg.id,
-                        "username": msg.username,
-                        "content": msg.content,
-                        "created_at": msg.created_at.isoformat(),
-                        "pinned": False
-                    }
-                })
-
-
-        # ---------- Case 2 → Why-Why missing ----------
+        # 2. Check Why-Why Analysis
         if not getattr(r, "why_why_done", False):
-            if r.datetime_from <= five_min_ago:
+             # You might want a wider window for Why-Why (e.g., 24 hours), 
+             # so a simple time window check might not be enough here.
+             # Recommended: Add `why_why_alert_sent` column to DB.
+             pass
 
-                msg = await create_message(
-                    db,
-                    "system",
-                    f"⚠ Why-Why Analysis NOT completed for Forced Outage on {r.datetime_from} ({r.unit})."
-                )
-
-                await manager.broadcast({
-                    "type": "message:new",
-                    "message": {
-                        "id": msg.id,
-                        "username": msg.username,
-                        "content": msg.content,
-                        "created_at": msg.created_at.isoformat(),
-                        "pinned": False
-                    }
-                })
+async def send_broadcast_alert(db, content: str):
+    """Helper to create DB message and broadcast via WS"""
+    msg = await create_message(db, "system", content)
+    await manager.broadcast({
+        "type": "message:new",
+        "message": {
+            "id": msg.id,
+            "username": "system",
+            "content": msg.content,
+            "created_at": msg.created_at.isoformat(),
+            "pinned": False
+        }
+    })

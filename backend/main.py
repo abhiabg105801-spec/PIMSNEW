@@ -87,11 +87,11 @@ app.include_router(messages.router, prefix="/messages")
 app.include_router(logic_router)
 app.include_router(fuel_inventory.router)
 from routers import totalizers
-app.include_router(totalizers.router, prefix="/api/totalizers", tags=["Totalizers"])
+app.include_router(totalizers.router)
 from routers import chemical
 app.include_router(chemical.router)
-from routers.shutdowns import router as shutdown_router
-app.include_router(shutdown_router)
+from routers import shutdowns
+app.include_router(shutdowns.router)
 from routers import dpr
 app.include_router(dpr.router)
 
