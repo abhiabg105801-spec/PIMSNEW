@@ -44,7 +44,7 @@ from models import (
     UserCreate,
     UserOut,
 )
-
+from dm.dm_models import DMEntryDB
 from auth import (
     get_current_user,
     admin_required,
@@ -94,6 +94,10 @@ from routers import shutdowns
 app.include_router(shutdowns.router)
 from routers import dpr
 app.include_router(dpr.router)
+from dm.dm_router import router as dm_router
+
+app.include_router(dm_router)
+
 
 
 

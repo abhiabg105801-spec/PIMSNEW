@@ -28,7 +28,7 @@ import {
   heatBalanceData,
   heatRateCharts,
   outputCharts,
-} from "./designPageData";
+} from "../config/designPageData.js";
 
 // ------------------------------ SECTION TITLE ------------------------------
 const SectionTitle = ({ title }) => (

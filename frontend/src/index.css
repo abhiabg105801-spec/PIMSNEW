@@ -2,11 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Global baseline */
-body {
-  @apply bg-gray-100 text-gray-800;
-  font-family: 'Inter', sans-serif;
-}
 
 /* --------------------------------------------
    FADE + SLIDE (used for message banners)

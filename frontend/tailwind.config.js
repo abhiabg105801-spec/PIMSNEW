@@ -7,6 +7,8 @@ export default {
     "./index.html",
     "./src/**/*.{js,jsx,ts,tsx}", // Scans all relevant files in src
   ],
+
+  
   theme: {
     // ✅ Theme extensions from your second snippet
     extend: {
@@ -34,8 +36,11 @@ export default {
         'fade-in': 'fade-in 0.8s ease-out',
         'slide-up': 'slide-up 0.8s ease-out',
       },
+
+      
     },
   },
   // ✅ Plugins array (can be empty)
   plugins: [],
 }
+

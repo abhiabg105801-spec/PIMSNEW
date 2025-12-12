@@ -759,7 +759,7 @@ export default function TotalizerEntryPage({ auth }) {
     );
   };
 
-  const renderLeftKPIList = () => {
+ const renderLeftKPIList = () => {
     // Compose KPI cards compactly — grouped and arranged
     if (activeTab === "Unit-1" || activeTab === "Unit-2") {
       const s = serverKPIs[activeTab] || {};
@@ -814,72 +814,136 @@ export default function TotalizerEntryPage({ auth }) {
     return null;
   };
 
+
+
   /* ---------------- Table render ---------------- */
 
   const currentTotalizers = totalizersByUnit[activeTab] || [];
 
   const renderTotalizerTable = () => (
-    <div className="overflow-auto rounded-md border border-gray-200">
-      <table className="min-w-full table-fixed">
-        <thead className="bg-gray-100 text-xs text-gray-600">
-          <tr>
-            <th className="px-3 py-2 text-left w-64">Totalizer</th>
-            <th className="px-2 py-2 text-right w-28">Yesterday</th>
-            <th className="px-2 py-2 text-right w-44">Today</th>
-            <th className="px-2 py-2 text-right w-28">Diff</th>
-          </tr>
-        </thead>
-        <tbody className="text-sm">
-          {currentTotalizers.filter(t => canView(t.name)).map((t) => {
-            const rec = readingsForm[t.id];
-            if (!rec) return null;
-            const isEditable = canEdit(t.name);
-            const hasAdjustment = rec.adjust && rec.adjust !== 0;
+  <div
+  className="
+    max-h-[65vh] overflow-auto rounded-xl
+    bg-white
+    border border-[#D8D8D8]
+    shadow-[inset_0_1px_1px_rgba(255,255,255,0.7),0_2px_4px_rgba(0,0,0,0.05)]
+  "
+>
 
-            return (
-              <tr key={t.id} className="odd:bg-white even:bg-gray-50 hover:bg-orange-50 transition-colors">
-                <td className="px-3 py-2 text-sm text-gray-700">
-                  <div className="font-medium">{t.display_name}</div>
-                  <div className="text-xs text-gray-400">{rec.unit}</div>
-                </td>
-                <td className="px-2 py-2 text-right font-mono text-xs text-gray-600">{rec.yesterday}</td>
-                <td className="px-2 py-1 text-right">
-                  <input
-                    type="number"
-                    step="0.001"
-                    value={rec.today === "" ? "" : rec.today}
-                    onChange={(e) => updateField(t.id, "today", e.target.value)}
-                    onDoubleClick={() => canAdjust && handleAdjustClick({ id: t.id, adjust: rec.adjust || 0 })}
-                    readOnly={!isEditable}
-                    title={canAdjust ? "Double click to adjust" : ""}
-                    placeholder={isEditable ? "" : "N/A"}
-                    className={`w-36 text-right text-sm px-2 py-1 rounded border ${isEditable ? "border-orange-300 focus:ring-2 focus:ring-orange-200 focus:border-orange-400" : "bg-gray-100 border-gray-200"}`}
-                  />
-                </td>
-                <td className="px-2 py-2 text-right font-mono text-sm text-gray-800 relative">
-                  {rec.difference}
-                  {hasAdjustment && (
-                    <span className="text-orange-500 font-bold ml-1 text-xs" title={`Adjustment: ${rec.adjust}`}>*</span>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-        <tfoot className="bg-gray-50 text-xs text-gray-500">
-          <tr>
-            <td colSpan="4" className="px-3 py-2 text-right">
-               {lastUpdatedInfo ? (
-                 <>Last updated: <strong>{new Date(lastUpdatedInfo.at).toLocaleString()}</strong> by <strong>{lastUpdatedInfo.by}</strong></>
-               ) : (
-                 <span>No update history for this date</span>
-               )}
-            </td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
-  );
+    <table className="min-w-full table-fixed">
+
+      {/* ---------- FIXED HEADER ---------- */}
+      <thead className="sticky top-0 z-10">
+        <tr className="bg-gray-100 text-gray-700 text-[11px] uppercase tracking-wide shadow-sm">
+          <th className="px-3 py-1 text-left font-semibold w-[240px]">Totalizer</th>
+          <th className="px-2 py-1 text-right font-semibold w-[90px]">Yesterday</th>
+          <th className="px-2 py-1 text-right font-semibold w-[150px]">Today</th>
+          <th className="px-2 py-1 text-right font-semibold w-[90px]">Diff</th>
+        </tr>
+      </thead>
+
+      {/* ---------- TABLE BODY ---------- */}
+      <tbody className="text-[13px]">
+        {currentTotalizers.filter(t => canView(t.name)).map((t) => {
+          const rec = readingsForm[t.id];
+          if (!rec) return null;
+
+          const isEditable = canEdit(t.name);
+          const hasAdjustment = rec.adjust && rec.adjust !== 0;
+
+          return (
+            <tr
+              key={t.id}
+              className="
+                hover:bg-orange-50/60 
+                transition-all 
+                border-b border-gray-100
+              "
+            >
+              {/* NAME */}
+              <td className="px-3 py-1 text-gray-900 font-medium truncate">
+                {t.display_name}
+              </td>
+              
+               {/* TODAY INPUT */}
+              <td className="px-2 py-1 text-right">
+                <input
+  type="number"
+  step="1"
+  value={rec.today === "" ? "" : rec.today}
+  onChange={(e) => updateField(t.id, "today", e.target.value)}
+  onDoubleClick={() =>
+    canAdjust && handleAdjustClick({ id: t.id, adjust: rec.adjust || 0 })
+  }
+  readOnly={!isEditable}
+  className={`
+    w-[230px]
+    px-2 py-1 
+    rounded-md 
+    font-mono text-[13px]
+    
+    text-left 
+    [direction:ltr] caret-auto
+    focus:[direction:ltr]
+
+    bg-white/70 backdrop-blur-sm
+    outline-none
+    ${
+      isEditable
+        ? "border border-orange-300 focus:ring-1 focus:ring-orange-300 focus:border-orange-500"
+        : "border border-gray-200 bg-gray-100 cursor-not-allowed"
+    }
+  `}
+/>
+
+              </td>
+
+              {/* YESTERDAY */}
+              <td className="px-2 py-1 text-right font-mono text-[12px] text-gray-600 whitespace-nowrap">
+                {rec.yesterday}
+              </td>
+
+            
+              
+              {/* DIFF */}
+              <td className="px-2 py-1 text-right font-mono text-[13px] text-gray-900 whitespace-nowrap">
+                {rec.difference}
+                {hasAdjustment && (
+                  <span
+                    className="text-orange-500 font-bold ml-1 text-[10px]"
+                    title={`Adjustment: ${rec.adjust}`}
+                  >
+                    *
+                  </span>
+                )}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+
+      {/* ---------- FOOTER ---------- */}
+      <tfoot>
+        <tr className="bg-gray-100">
+          <td colSpan="4" className="px-3 py-1 text-right text-[11px] text-gray-600">
+            {lastUpdatedInfo ? (
+              <>
+                Last updated:{" "}
+                <strong>{new Date(lastUpdatedInfo.at).toLocaleString()}</strong> by{" "}
+                <strong>{lastUpdatedInfo.by}</strong>
+              </>
+            ) : (
+              <span>No update history for this date</span>
+            )}
+          </td>
+        </tr>
+      </tfoot>
+
+    </table>
+  </div>
+);
+
+
 
   /* ---------------- confirm & adjust popups ---------------- */
 
@@ -1030,113 +1094,333 @@ export default function TotalizerEntryPage({ auth }) {
   /* ---------------- render ---------------- */
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      {renderConfirmPopup()}
-      {renderAdjustPopup()}
+  <div className="min-h-screen  flex p-2 gap-2 overflow-visible">
 
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900 flex items-center gap-3">
-            <svg className="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19V9a2 2 0 012-2h2a2 2 0 012 2v10" /></svg>
-            Totalizer Daily Entry
-          </h1>
-          <div className="text-xs text-gray-600">User: <strong>{userName}</strong> | Date: <strong>{reportDate}</strong></div>
-        </div>
+    {/* LEFT CONTROL PANEL (STYLISH, COMPACT, NO SCROLL) */}
 
-        <div className="flex items-center gap-2">
-          <div className="flex items-center border rounded bg-white overflow-hidden">
-             <button onClick={() => handleDateChange(-1)} className="px-2 py-1 hover:bg-gray-100 border-r" title="Previous Day">◀</button>
-             <input type="date" value={reportDate} onChange={(e) => setReportDate(e.target.value)} className="px-2 py-1 text-sm outline-none border-none" />
-             <button onClick={() => handleDateChange(1)} className="px-2 py-1 hover:bg-gray-100 border-l" title="Next Day">▶</button>
-          </div>
+  <div
+  className="
+    w-64 p-4 flex flex-col gap-4
+    rounded-2xl
 
-          <button onClick={handleSeedMaster} disabled={loading} className="px-3 py-1 rounded bg-gray-200 text-sm hover:bg-gray-300">Seed</button>
-          <button onClick={handleResetForm} className="px-3 py-1 rounded border text-sm hover:bg-gray-100">Reset</button>
+    /* PURE WHITE BG */
+    bg-white
 
-          {(activeTab === "Unit-1" || activeTab === "Unit-2" || activeTab === "Station") && (
-            <button onClick={() => calculateKPIsForUnit(activeTab)} disabled={loading} className="px-3 py-1 rounded border text-sm hover:bg-gray-100">
-              {loading ? <Spinner /> : "Calculate KPI"}
-            </button>
+    /* Strong contrast border */
+    border border-[#D5D5D5]
+
+    /* Deep 3D shadows */
+    shadow-[0_3px_6px_rgba(0,0,0,0.08),0_10px_22px_rgba(0,0,0,0.12)]
+
+    relative
+
+    /* Inner glossy bevel highlight */
+    before:absolute before:inset-0 before:rounded-2xl
+    before:border before:border-white/70
+    before:shadow-[inset_0_1px_2px_rgba(255,255,255,0.9)]
+    before:pointer-events-none
+  "
+>
+
+
+  {/* --- 1. Tabs --- */}
+  <div className="flex flex-col gap-2">
+    {["Unit-1", "Unit-2", "Station", "Energy-Meter"].map((tab) => {
+      const isActive = activeTab === tab;
+      return (
+        <button
+          key={tab}
+          onClick={() => setActiveTab(tab)}
+          className={`
+  relative px-4 py-2.5 text-xs font-bold uppercase tracking-wider rounded-xl
+  transition-all duration-300 flex items-center justify-between group
+  border
+
+  ${
+    isActive
+      ? `
+        bg-gradient-to-br from-orange-400 via-orange-500 to-amber-500
+        text-white
+        shadow-[0_2px_4px_rgba(0,0,0,0.15),0_6px_12px_rgba(0,0,0,0.2)]
+        border-orange-300
+        before:absolute before:inset-0 before:rounded-xl
+        before:bg-white/30 before:blur-[2px] before:opacity-40 before:pointer-events-none
+      `
+      : `
+        bg-gradient-to-br from-[#fafafa] via-[#f2f2f2] to-[#e8e8e8]
+        text-gray-600
+        border-gray-300
+        shadow-[0_2px_3px_rgba(0,0,0,0.1)]
+        hover:bg-gradient-to-br hover:from-white hover:to-[#f7f7f7]
+        hover:border-orange-300 hover:text-orange-600
+        hover:shadow-[0_3px_6px_rgba(0,0,0,0.15)]
+      `
+  }
+`}
+
+        >
+          {tab}
+          {isActive ? (
+            <span className="w-2 h-2 rounded-full bg-white animate-pulse shadow-sm" />
+          ) : (
+            <span className="w-1.5 h-1.5 rounded-full bg-gray-300 group-hover:bg-orange-200 transition-colors" />
           )}
+        </button>
+      );
+    })}
+  </div>
 
-          <button onClick={handleSubmitClick} className="px-4 py-1 rounded bg-orange-600 text-white text-sm hover:bg-orange-700">
-            {submitting ? "Saving..." : "Submit"}
-          </button>
-        </div>
-      </div>
+  {/* Divider */}
+  <div className="h-px w-full bg-gradient-to-r from-transparent via-gray-300/50 to-transparent my-1" />
 
-      {message && (
-        <div className={`p-2 mb-4 rounded text-sm ${message.startsWith("❌") ? "bg-red-100 text-red-700" : message.startsWith("✅") ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"}`}>
-          {message}
-        </div>
+  {/* --- 2. Date Controls (Immediately below tabs) --- */}
+  <div className="flex flex-col gap-1.5">
+    <label className="text-[10px] font-bold text-gray-400 uppercase ml-1 tracking-wider">Configuration</label>
+    <div
+      className="
+  flex items-center p-1.5 gap-1.5 rounded-xl
+  bg-gradient-to-br from-white via-[#f6f6f6] to-[#eaeaea]
+  border border-gray-300
+
+  shadow-[inset_0_1px_2px_rgba(255,255,255,0.7),0_2px_4px_rgba(0,0,0,0.08)]
+"
+    >
+      <button
+        onClick={() => handleDateChange(-1)}
+        className="
+  p-2 rounded-lg
+  bg-gradient-to-br from-[#ffffff] via-[#f3f3f3] to-[#e5e5e5]
+  border border-gray-300
+  shadow-[0_2px_3px_rgba(0,0,0,0.12)]
+  text-gray-500
+  hover:shadow-[0_3px_6px_rgba(0,0,0,0.2)]
+  hover:text-orange-600 hover:border-orange-300
+  active:scale-95
+  transition-all duration-200
+"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+      </button>
+
+      <input
+        type="date"
+        value={reportDate}
+        onChange={(e) => setReportDate(e.target.value)}
+        className="
+  flex-1 min-w-0 bg-transparent text-center text-sm font-bold font-mono
+  text-gray-700
+  outline-none
+"
+
+      />
+
+      <button
+        onClick={() => handleDateChange(1)}
+        className="
+  p-2 rounded-lg
+  bg-gradient-to-br from-[#ffffff] via-[#f3f3f3] to-[#e5e5e5]
+  border border-gray-300
+  shadow-[0_2px_3px_rgba(0,0,0,0.12)]
+  text-gray-500
+  hover:shadow-[0_3px_6px_rgba(0,0,0,0.2)]
+  hover:text-orange-600 hover:border-orange-300
+  active:scale-95
+  transition-all duration-200
+"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+      </button>
+    </div>
+  </div>
+
+  {/* --- 3. Utility Buttons (Seed/Reset) --- */}
+  <div className="grid grid-cols-2 gap-2">
+    <button
+      onClick={handleSeedMaster}
+      disabled={loading}
+      className="
+        px-3 py-2 text-[11px] font-bold uppercase tracking-wide rounded-xl
+        bg-white text-gray-500 border border-gray-200
+        hover:bg-gray-50 hover:text-indigo-600 hover:border-indigo-200 hover:shadow-sm
+        disabled:opacity-50 disabled:cursor-not-allowed
+        transition-all duration-200
+      "
+    >
+      Seed Data
+    </button>
+
+    <button
+      onClick={handleResetForm}
+      className="
+        px-3 py-2 text-[11px] font-bold uppercase tracking-wide rounded-xl
+        bg-white text-gray-500 border border-gray-200
+        hover:bg-gray-50 hover:text-red-500 hover:border-red-200 hover:shadow-sm
+        transition-all duration-200
+      "
+    >
+      Reset
+    </button>
+  </div>
+
+  {/* --- 4. Primary Actions (Stacked below) --- */}
+  <div className="flex flex-col gap-3 mt-1">
+    {(activeTab === "Unit-1" ||
+      activeTab === "Unit-2" ||
+      activeTab === "Station") && (
+      <button
+        onClick={() => calculateKPIsForUnit(activeTab)}
+        disabled={loading}
+        className="
+          w-full px-3 py-2.5 text-xs font-bold rounded-xl
+          bg-indigo-50 text-indigo-600 border border-indigo-100
+          hover:bg-indigo-100 hover:shadow-md hover:border-indigo-200 hover:-translate-y-0.5
+          flex items-center justify-center gap-2 transition-all duration-200
+        "
+      >
+        {loading ? <Spinner size={14} /> : (
+          <>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+            Calculate KPIs
+          </>
+        )}
+      </button>
+    )}
+
+    <button
+      onClick={handleSubmitClick}
+      className="
+        w-full px-4 py-3 text-sm font-bold tracking-wide text-white rounded-xl
+        bg-gradient-to-r from-orange-600 to-amber-600
+        shadow-lg shadow-orange-500/20 border border-white/20
+        hover:shadow-orange-500/40 hover:-translate-y-0.5 hover:scale-[1.02]
+        active:scale-95
+        transition-all duration-200
+        flex items-center justify-center gap-2
+      "
+    >
+      {submitting ? "Saving..." : (
+        <>
+          <span>Submit Readings</span>
+          <svg className="w-4 h-4 text-orange-100" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
+        </>
       )}
+    </button>
+  </div>
 
-      <div className="flex gap-4 mb-4">
-        {["Unit-1", "Unit-2", "Station", "Energy-Meter"].map(tab => (
-            <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`px-3 py-1 text-sm font-medium rounded-t ${ activeTab === tab ? "bg-orange-50 text-orange-700 border-b-2 border-orange-500" : "bg-white text-gray-600 border border-gray-200" }`}
-            >
-                {tab}
-            </button>
-        ))}
+  {/* --- Message Toast --- */}
+  {message && (
+    <div
+      className={`
+        mt-1 px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 shadow-sm
+        ${
+          message.startsWith("❌")
+            ? "bg-red-50 text-red-600 border border-red-100"
+            : message.startsWith("✅")
+            ? "bg-emerald-50 text-emerald-600 border border-emerald-100"
+            : "bg-amber-50 text-amber-600 border border-amber-100"
+        }
+      `}
+    >
+      {message.startsWith("✅") && <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/></svg>}
+      {message.startsWith("❌") && <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd"/></svg>}
+      <span className="flex-1 leading-tight">{message.replace(/^[❌✅⚠️]\s*/, '')}</span>
+    </div>
+  )}
+</div>
+
+
+    {/* CENTER FORM PANEL (NO SCROLL) */}
+    <div
+  className="
+    flex-1 p-4 rounded-2xl
+    bg-gradient-to-b from-white to-[#F7F7F7]
+    border border-[#DCDCDC]
+    shadow-[inset_0_1px_1px_rgba(255,255,255,0.8),0_4px_12px_rgba(0,0,0,0.06)]
+  "
+>
+
+      <h2 className="text-base font-semibold text-gray-800 mb-3">
+        {activeTab} Readings
+      </h2>
+
+      {/* Totalizer Table */}
+      <div className="mb-4">
+        {currentTotalizers.length > 0 ? (
+          renderTotalizerTable()
+        ) : (
+          <div className="p-4 text-center text-gray-500 border border-dashed rounded">
+            No totalizers found for {activeTab}
+          </div>
+        )}
       </div>
 
-      {/* Compact grouped layout: KPIs on left (1 col), totalizer table on right (2 cols) */}
-      <div className="grid grid-cols-3 gap-4">
-        <aside className="col-span-1 sticky top-4 p-3">
-          <div className="bg-white border rounded-lg p-3 shadow-sm">
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-sm font-semibold text-gray-700">KPIs</div>
-              {(activeTab === "Unit-1" || activeTab === "Unit-2" || activeTab === "Station") && (
-                <button onClick={() => calculateKPIsForUnit(activeTab)} disabled={loading} className="px-2 py-1 text-xs bg-orange-50 rounded border text-orange-700">
-                  {loading ? <Spinner size={12} /> : "Calc"}
-                </button>
-              )}
-            </div>
-            <div className="h-px bg-gray-100 mb-3" />
-            {renderLeftKPIList()}
-          </div>
-        </aside>
+      {/* Manual KPIs */}
+      <div className="mt-4 border-t pt-4">
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">Manual KPIs</h3>
 
-        <main className="col-span-2">
-          <div className="bg-white border rounded-lg p-3 shadow-sm">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold text-gray-800">{activeTab} Readings</h2>
-              <div className="text-xs text-gray-500">{currentTotalizers.length} totalizers</div>
-            </div>
-
-            <div className="mb-3">
-              {currentTotalizers.length > 0 ? renderTotalizerTable() : (
-                <div className="p-4 text-center text-gray-500 border border-dashed rounded">No totalizers found for {activeTab}</div>
-              )}
-            </div>
-
-            <div className="mt-4 border-t pt-4">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">Manual KPIs</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                {Object.entries(manualKPI[activeTab] || {}).map(([kname, val]) => (
-                  <div key={kname} className="p-2 border rounded bg-white">
-                    <div className="text-xs text-gray-600 mb-1 font-medium">{kname.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                      <span className="text-xs text-gray-400 font-normal ml-2">({manualUnits[activeTab]?.[kname] || ""})</span>
-                    </div>
-                    <input
-                      type="number"
-                      step="0.001"
-                      value={val === "" || val === null || val === undefined ? "" : val}
-                      onChange={(e) => updateManualField(activeTab, kname, e.target.value)}
-                      className="w-full px-2 py-1 text-sm border rounded focus:border-orange-500 focus:ring-1 focus:ring-orange-100 outline-none"
-                      placeholder="Enter value"
-                    />
-                  </div>
-                ))}
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          {Object.entries(manualKPI[activeTab] || {}).map(([kname, val]) => (
+            <div key={kname} className="p-2 border rounded bg-white">
+              <div className="text-xs text-gray-600 mb-1 font-medium">
+                {kname.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                <span className="text-xs text-gray-400 ml-1">
+                  ({manualUnits[activeTab]?.[kname] || ""})
+                </span>
               </div>
-            </div>
 
-          </div>
-        </main>
+              <input
+                type="number"
+                step="0.001"
+                value={val ?? ""}
+                onChange={(e) =>
+                  updateManualField(activeTab, kname, e.target.value)
+                }
+                className="w-full px-2 py-1 text-sm border rounded focus:border-orange-500 outline-none"
+              />
+            </div>
+          ))}
+        </div>
       </div>
     </div>
-  );
+
+    {/* RIGHT KPI PANEL (NO SCROLL) */}
+    <div
+  className="
+    w-80 p-4 rounded-2xl
+    bg-gradient-to-br from-white to-[#F5F5F5]
+    border border-[#E2E2E2]
+    shadow-[0_3px_6px_rgba(0,0,0,0.05),0_10px_20px_rgba(0,0,0,0.06)]
+    relative
+    before:absolute before:inset-0 before:rounded-2xl
+    before:border before:border-white/50 before:pointer-events-none
+  "
+>
+
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-semibold text-gray-700">KPIs</h3>
+        {(activeTab === "Unit-1" ||
+          activeTab === "Unit-2" ||
+          activeTab === "Station") && (
+          <button
+            onClick={() => calculateKPIsForUnit(activeTab)}
+            disabled={loading}
+            className="px-2 py-1 text-xs bg-orange-50 rounded border text-orange-700"
+          >
+            {loading ? <Spinner size={12} /> : "Calc"}
+          </button>
+        )}
+      </div>
+
+      <div className="h-px bg-gray-200 mb-2" />
+
+      {renderLeftKPIList()}
+    </div>
+
+    {/* Popups */}
+    {renderConfirmPopup()}
+    {renderAdjustPopup()}
+  </div>
+);
+
+
 }
