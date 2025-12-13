@@ -67,6 +67,10 @@ export default function App() {
    PREMIUM CORPORATE GREY–ORANGE UI LAYOUT
    ====================================================== */
 
+/* ======================================================
+   THEME: "CONCRETE & STEEL" (Zinc-300 Industrial)
+   ====================================================== */
+
 function Layout({ authHeader, onLogout }) {
   const decoded = decodeJWT(authHeader.replace("Bearer ", ""));
   const username = decoded?.sub || "User";
@@ -76,36 +80,44 @@ function Layout({ authHeader, onLogout }) {
   const dmRoles = [1, 2, 3, 5, 7, 8];
 
   return (
-    // UPDATED: Added Premium Gradient Background here
-    <div className="min-h-screen flex flex-col bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-white via-gray-100 to-gray-300 text-slate-700">
+    // MAIN WRAPPER: Gradient from Light Zinc (200) to Mid Zinc (300)
+    // This creates the "Zinc-300 level" feel without being too dark to read.
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-zinc-50 via-zinc-50 to-zinc-50 text-zinc-800">
 
       {/* ================= HEADER ================= */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-white shadow-[0_2px_8px_rgba(0,0,0,0.08)] border-b border-gray-200">
+      {/* Dark Charcoal Header for contrast */}
+      <header className="fixed top-0 left-0 right-0 z-50 bg-zinc-800 shadow-md border-b border-zinc-900">
 
         {/* Top Branding Bar */}
-        <div className="h-14 flex items-center justify-between px-6 bg-white">
+        <div className="h-14 flex items-center justify-between px-6 bg-zinc-800 text-zinc-100">
 
           {/* LOGO */}
           <div className="flex items-center gap-3">
-            <img src="/jsl-logo.png" alt="JSL Logo" className="h-12" />
+             {/* Ensure logo is visible on dark bg */}
+            <img src="/jsl-logo.JPG" alt="JSL Logo" className="h-12 brightness-110" />
           </div>
 
           {/* CENTER TITLE */}
           <div className="absolute left-1/2 -translate-x-1/2 hidden xl:block text-center">
-            <span className="text-[26px] font-bold tracking-wide text-[#7A7A7A]">
-              <span className="text-[#E06A1B] font-extrabold">2×125 MW CPP</span> – PIMS
+            <span className="text-[26px] font-bold tracking-wide text-zinc-400">
+              <span className="text-orange-500 font-extrabold">2×125 MW CPP</span> 
+              <span className="mx-2 text-zinc-600">|</span> 
+              <span className="text-white">PIMS</span>
             </span>
           </div>
 
-          {/* USER MENU */}
-          <UserMenu username={username} onLogout={onLogout} />
+          {/* USER MENU - Text forced to white/light for the dark header */}
+          <div className="text-zinc-200">
+            <UserMenu username={username} onLogout={onLogout} />
+          </div>
         </div>
 
-        {/* ORANGE ACCENT BAR */}
-        <div className="h-[4px] bg-gradient-to-r from-[#E06A1B] via-[#F6A65A] to-[#E06A1B]" />
+        {/* ORANGE ACCENT STRIP */}
+        <div className="h-[3px] bg-gradient-to-r from-[#E06A1B] via-[#F6A65A] to-[#E06A1B]" />
         
         {/* ================= NAVIGATION ================= */}
-        <nav className="h-10 bg-[#F8F8F8] border-b border-gray-300">
+        {/* Zinc-300 Navbar (The specific grey you requested) */}
+        <nav className="h-8 bg-zinc-200 border-b border-zinc-400 shadow-inner">
           <div className="max-w-7xl mx-auto flex items-center h-full gap-5 px-6">
 
             {/* --- Navigation Items --- */}
@@ -127,10 +139,8 @@ function Layout({ authHeader, onLogout }) {
       </header>
 
       {/* ================= MAIN CONTENT ================= */}
-      <main className="flex-1 pt-[110px] px-4 pb-6">
-        {/* Optional: Add a backdrop blur or slight transparency to content wrapper if desired */}
-        <div className="max-w-[1920px] mx-auto">
-
+      <main className="flex-1 pt-[110px] px-3 pb-6">
+        <div className="h-full">
           <Routes>
             <Route path="/" element={<Navigate to="/entry" />} />
             
@@ -142,7 +152,6 @@ function Layout({ authHeader, onLogout }) {
 
             {/* DM Plant */}
             <Route path="/dm-plant" element={<DMPlantPage auth={authHeader} />} />
-            
 
             {/* Technical Pages */}
             <Route path="/DesignDataPage" element={<DesignDataPage auth={authHeader} />} />
@@ -151,15 +160,14 @@ function Layout({ authHeader, onLogout }) {
             {/* Totalizer Entry */}
             <Route path="/TotalizerEntry" element={<TotalizerEntry auth={authHeader} />} />
           </Routes>
-
         </div>
       </main>
 
       {/* ================= FOOTER ================= */}
-      <footer className="bg-white/80 backdrop-blur-sm border-t border-gray-300 py-4 mt-auto">
-        <div className="max-w-7xl mx-auto px-6 text-sm text-gray-600 flex items-center justify-between">
+      <footer className="bg-zinc-300 border-t border-zinc-400 py-4 mt-auto">
+        <div className="max-w-7xl mx-auto px-6 text-sm text-zinc-600 flex items-center justify-between">
           <span>© {new Date().getFullYear()} Jindal Stainless Ltd.</span>
-          <a href="mailto:cppsupport@jsl.com" className="text-[#E06A1B] font-semibold hover:underline">
+          <a href="mailto:cppsupport@jsl.com" className="text-[#E06A1B] font-bold hover:underline">
             Contact Support
           </a>
         </div>
@@ -171,7 +179,7 @@ function Layout({ authHeader, onLogout }) {
 }
 
 /* -----------------------------------------------------
-   PREMIUM NAVIGATION LINK COMPONENT
+   NAVIGATION LINK COMPONENT (Adapted for Zinc-300)
 ----------------------------------------------------- */
 function NavItem({ to, label }) {
   return (
@@ -179,11 +187,16 @@ function NavItem({ to, label }) {
       to={to}
       className={({ isActive }) =>
         `
-        relative flex items-center h-full px-3 text-[13px] font-semibold uppercase tracking-wide
+        relative flex items-center h-full px-3 text-[13px] font-bold uppercase tracking-wide
         transition-all duration-300
 
-        ${isActive ? "text-[#E06A1B]" : "text-[#555] hover:text-[#E06A1B]"}
+        /* Text Colors for Zinc-300 Background */
+        ${isActive 
+          ? "text-black" // Active: Sharp Black
+          : "text-zinc-600 hover:text-[#E06A1B]" // Inactive: Dark Grey -> Orange
+        }
 
+        /* Bottom Orange Line */
         after:absolute after:bottom-0 after:left-0
         after:h-[3px] after:bg-[#E06A1B]
         after:transition-all after:duration-300
@@ -195,3 +208,4 @@ function NavItem({ to, label }) {
     </NavLink>
   );
 }
+

@@ -742,7 +742,7 @@ export default function TotalizerEntryPage({ auth }) {
   const KpiCard = ({ k, label, value, unit = "", Icon = ChartBarIcon }) => {
     const isHighlighted = !!highlightedKPIs[k];
     return (
-      <div className={`flex items-center justify-between p-3 rounded-lg transition-all duration-200 border ${isHighlighted ? "border-orange-400 bg-orange-50 shadow-[0_6px_18px_rgba(249,115,22,0.08)] scale-[1.02]" : "border-gray-200 bg-white"} `}>
+      <div className={`flex items-center justify-between p-1 rounded-lg transition-all duration-200 border ${isHighlighted ? "border-orange-400 bg-orange-50 shadow-[0_6px_18px_rgba(249,115,22,0.08)] scale-[1.02]" : "border-gray-200 bg-white"} `}>
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-md bg-gray-100 text-orange-600">
             <Icon className="w-5 h-5" />
@@ -822,100 +822,130 @@ export default function TotalizerEntryPage({ auth }) {
 
   const renderTotalizerTable = () => (
   <div
-  className="
-    max-h-[65vh] overflow-auto rounded-xl
-    bg-white
-    border border-[#D8D8D8]
-    shadow-[inset_0_1px_1px_rgba(255,255,255,0.7),0_2px_4px_rgba(0,0,0,0.05)]
-  "
->
+    className="
+      max-h-[65vh] overflow-auto 
+      bg-white
+      border border-zinc-300
+      shadow-sm
+    "
+  >
+    <table className="min-w-full table-fixed border-collapse">
 
-    <table className="min-w-full table-fixed">
-
-      {/* ---------- FIXED HEADER ---------- */}
-      <thead className="sticky top-0 z-10">
-        <tr className="bg-gray-100 text-gray-700 text-[11px] uppercase tracking-wide shadow-sm">
-          <th className="px-3 py-1 text-left font-semibold w-[240px]">Totalizer</th>
-          <th className="px-2 py-1 text-right font-semibold w-[90px]">Yesterday</th>
-          <th className="px-2 py-1 text-right font-semibold w-[150px]">Today</th>
-          <th className="px-2 py-1 text-right font-semibold w-[90px]">Diff</th>
+      {/* ---------- FIXED HEADER (Zinc-100 & Orange-400 Theme) ---------- */}
+      <thead className="sticky top-0 z-20">
+        <tr className="bg-zinc-100 text-zinc-700 text-[11px] uppercase tracking-wider font-bold">
+          <th className="px-3 py-2 text-left w-[240px] border-r border-zinc-200 align-middle">
+            Totalizer
+          </th>
+          <th className="px-2 py-2 text-right w-[110px] border-r border-zinc-200 align-middle">
+            Today
+          </th>
+          <th className="px-2 py-2 text-right w-[110px] border-r border-zinc-200 align-middle">
+            Yesterday
+          </th>
+          <th className="px-2 py-2 text-right w-[90px] align-middle">
+            Diff
+          </th>
         </tr>
+        
+        {/* Accent Line: Orange-400 */}
+        <tr className="h-[2px] bg-orange-400 w-full absolute left-0 right-0 bottom-0 z-30 block"></tr>
       </thead>
 
       {/* ---------- TABLE BODY ---------- */}
-      <tbody className="text-[13px]">
+      <tbody className="text-[12px] bg-white">
         {currentTotalizers.filter(t => canView(t.name)).map((t) => {
           const rec = readingsForm[t.id];
           if (!rec) return null;
 
           const isEditable = canEdit(t.name);
-          const hasAdjustment = rec.adjust && rec.adjust !== 0;
+          
+          // --- FIXED LOGIC HERE ---
+          // 1. Convert to Number to handle string "0" from API
+          // 2. Check if it is NOT zero and NOT NaN
+          const adjustVal = Number(rec.adjust);
+          const hasAdjustment = !isNaN(adjustVal) && adjustVal !== 0;
 
           return (
             <tr
               key={t.id}
               className="
-                hover:bg-orange-50/60 
-                transition-all 
-                border-b border-gray-100
+                group
+                hover:bg-orange-50 
+                transition-colors duration-150
+                border-b border-zinc-100
               "
             >
               {/* NAME */}
-              <td className="px-3 py-1 text-gray-900 font-medium truncate">
+              <td className="px-3 py-1 text-zinc-800 font-medium truncate align-middle border-r border-zinc-100">
                 {t.display_name}
               </td>
               
-               {/* TODAY INPUT */}
-              <td className="px-2 py-1 text-right">
+              {/* TODAY INPUT (Compact & Sharp) */}
+              <td className="px-1 py-1 text-right align-middle border-r border-zinc-100 bg-zinc-50/30">
                 <input
-  type="number"
-  step="1"
-  value={rec.today === "" ? "" : rec.today}
-  onChange={(e) => updateField(t.id, "today", e.target.value)}
-  onDoubleClick={() =>
-    canAdjust && handleAdjustClick({ id: t.id, adjust: rec.adjust || 0 })
-  }
-  readOnly={!isEditable}
-  className={`
-    w-[230px]
-    px-2 py-1 
-    rounded-md 
-    font-mono text-[13px]
-    
-    text-left 
-    [direction:ltr] caret-auto
-    focus:[direction:ltr]
-
-    bg-white/70 backdrop-blur-sm
-    outline-none
-    ${
-      isEditable
-        ? "border border-orange-300 focus:ring-1 focus:ring-orange-300 focus:border-orange-500"
-        : "border border-gray-200 bg-gray-100 cursor-not-allowed"
-    }
-  `}
-/>
-
+                  type="number"
+                  step="1"
+                  value={rec.today === "" ? "" : rec.today}
+                  onChange={(e) => updateField(t.id, "today", e.target.value)}
+                  onDoubleClick={() =>
+                    // Only allow adjust click if we have permissions
+                    canAdjust && handleAdjustClick({ id: t.id, adjust: rec.adjust || 0 })
+                  }
+                  readOnly={!isEditable}
+                  placeholder="0.00"
+                  className={`
+                    w-full h-7
+                    px-2
+                    font-mono text-[13px] text-right font-semibold
+                    outline-none
+                    transition-all duration-150
+                    rounded-none
+                    ${isEditable 
+                      ? `
+                        bg-zinc-50 
+                        text-zinc-900
+                        border border-zinc-300
+                        shadow-[inset_0_1px_2px_rgba(0,0,0,0.06)]
+                        focus:bg-white 
+                        focus:shadow-none
+                        focus:border-orange-400
+                        focus:ring-1 focus:ring-orange-400
+                        ` 
+                      : "bg-zinc-100 text-zinc-400 cursor-not-allowed border-none shadow-none"
+                    }
+                  `}
+                />
               </td>
 
               {/* YESTERDAY */}
-              <td className="px-2 py-1 text-right font-mono text-[12px] text-gray-600 whitespace-nowrap">
+              <td className="px-2 py-1 text-right font-mono text-[12px] text-zinc-500 whitespace-nowrap align-middle border-r border-zinc-100">
                 {rec.yesterday}
               </td>
 
-            
-              
               {/* DIFF */}
-              <td className="px-2 py-1 text-right font-mono text-[13px] text-gray-900 whitespace-nowrap">
-                {rec.difference}
-                {hasAdjustment && (
-                  <span
-                    className="text-orange-500 font-bold ml-1 text-[10px]"
-                    title={`Adjustment: ${rec.adjust}`}
-                  >
-                    *
+              <td className="px-2 py-1 text-right align-middle">
+                <div className="flex items-center justify-end gap-1">
+                  <span className={`font-bold font-mono text-[13px] ${Number(rec.difference) < 0 ? 'text-red-600' : 'text-zinc-700'}`}>
+                    {rec.difference}
                   </span>
-                )}
+                  
+                  {/* --- ONLY SHOW INDICATOR IF VALUE EXISTS AND IS NOT 0 --- */}
+                  {hasAdjustment && (
+                    <span
+                      className="
+                        flex items-center justify-center 
+                        w-3 h-3 
+                        bg-orange-100 text-orange-600 
+                        text-[9px] font-bold 
+                        rounded-none cursor-help
+                      "
+                      title={`Adjustment: ${adjustVal}`}
+                    >
+                      *
+                    </span>
+                  )}
+                </div>
               </td>
             </tr>
           );
@@ -924,16 +954,15 @@ export default function TotalizerEntryPage({ auth }) {
 
       {/* ---------- FOOTER ---------- */}
       <tfoot>
-        <tr className="bg-gray-100">
-          <td colSpan="4" className="px-3 py-1 text-right text-[11px] text-gray-600">
+        <tr className="bg-zinc-50 border-t border-zinc-300">
+          <td colSpan="4" className="px-3 py-1 text-right text-[10px] text-zinc-500">
             {lastUpdatedInfo ? (
               <>
-                Last updated:{" "}
-                <strong>{new Date(lastUpdatedInfo.at).toLocaleString()}</strong> by{" "}
-                <strong>{lastUpdatedInfo.by}</strong>
+                Updated: <strong>{new Date(lastUpdatedInfo.at).toLocaleString()}</strong> by{" "}
+                <span className="text-orange-500 font-bold uppercase">{lastUpdatedInfo.by}</span>
               </>
             ) : (
-              <span>No update history for this date</span>
+              <span>No data</span>
             )}
           </td>
         </tr>
@@ -942,7 +971,6 @@ export default function TotalizerEntryPage({ auth }) {
     </table>
   </div>
 );
-
 
 
   /* ---------------- confirm & adjust popups ---------------- */
@@ -1094,14 +1122,14 @@ export default function TotalizerEntryPage({ auth }) {
   /* ---------------- render ---------------- */
 
   return (
-  <div className="min-h-screen  flex p-2 gap-2 overflow-visible">
+  <div className="min-h-screen  flex p-2 gap-4 overflow-visible">
 
     {/* LEFT CONTROL PANEL (STYLISH, COMPACT, NO SCROLL) */}
 
   <div
   className="
     w-64 p-4 flex flex-col gap-4
-    rounded-2xl
+    
 
     /* PURE WHITE BG */
     bg-white
@@ -1110,21 +1138,17 @@ export default function TotalizerEntryPage({ auth }) {
     border border-[#D5D5D5]
 
     /* Deep 3D shadows */
-    shadow-[0_3px_6px_rgba(0,0,0,0.08),0_10px_22px_rgba(0,0,0,0.12)]
+    shadow-[0_3px_6px_rgba(0,0,0,0.48),0_10px_22px_rgba(0,0,0,0.22)]
 
-    relative
+   
 
-    /* Inner glossy bevel highlight */
-    before:absolute before:inset-0 before:rounded-2xl
-    before:border before:border-white/70
-    before:shadow-[inset_0_1px_2px_rgba(255,255,255,0.9)]
-    before:pointer-events-none
+    
   "
 >
 
 
   {/* --- 1. Tabs --- */}
-  <div className="flex flex-col gap-2">
+  <div className="flex flex-col gap-5">
     {["Unit-1", "Unit-2", "Station", "Energy-Meter"].map((tab) => {
       const isActive = activeTab === tab;
       return (
@@ -1139,7 +1163,7 @@ export default function TotalizerEntryPage({ auth }) {
   ${
     isActive
       ? `
-        bg-gradient-to-br from-orange-400 via-orange-500 to-amber-500
+        bg-gradient-to-br from-orange-400 via-orange-600 to-amber-500
         text-white
         shadow-[0_2px_4px_rgba(0,0,0,0.15),0_6px_12px_rgba(0,0,0,0.2)]
         border-orange-300
@@ -1332,10 +1356,10 @@ export default function TotalizerEntryPage({ auth }) {
     {/* CENTER FORM PANEL (NO SCROLL) */}
     <div
   className="
-    flex-1 p-4 rounded-2xl
+    flex-1 p-6
     bg-gradient-to-b from-white to-[#F7F7F7]
     border border-[#DCDCDC]
-    shadow-[inset_0_1px_1px_rgba(255,255,255,0.8),0_4px_12px_rgba(0,0,0,0.06)]
+    shadow-[inset_0_1px_1px_rgba(255,255,255,0.8),0_4px_12px_rgba(0,0,0,0.46)]
   "
 >
 
@@ -1386,10 +1410,10 @@ export default function TotalizerEntryPage({ auth }) {
     {/* RIGHT KPI PANEL (NO SCROLL) */}
     <div
   className="
-    w-80 p-4 rounded-2xl
+    w-80 p-4 
     bg-gradient-to-br from-white to-[#F5F5F5]
     border border-[#E2E2E2]
-    shadow-[0_3px_6px_rgba(0,0,0,0.05),0_10px_20px_rgba(0,0,0,0.06)]
+    shadow-[0_3px_6px_rgba(0,0,0,0.35),0_10px_20px_rgba(0,0,0,0.26)]
     relative
     before:absolute before:inset-0 before:rounded-2xl
     before:border before:border-white/50 before:pointer-events-none

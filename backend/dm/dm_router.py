@@ -1,53 +1,76 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from .dm_schemas import DMEntryCreate
-from .dm_crud import dm_create_entries, dm_get_stats
-from database import get_db
 from datetime import datetime
 
-from fastapi.responses import Response
-from .dm_report_builder import build_dm_pdf
-from .dm_crud import dm_get_entries_by_date
+from .dm_schemas import DMEntryCreate
+from .dm_crud import (
+    dm_create_entries,
+    dm_get_stats,
+    dm_get_raw_by_date,
+    dm_get_by_sample,
+    dm_update_by_sample,
+    dm_delete_by_sample,
+)
+from database import get_db
+
 router = APIRouter(prefix="/api/dm", tags=["DM Universal"])
 
+
+# ---------------------------------------------------
+# CREATE ENTRY
+# ---------------------------------------------------
 @router.post("/add")
 async def dm_add(payload: DMEntryCreate, db: AsyncSession = Depends(get_db)):
     rows = await dm_create_entries(db, payload.dict())
-    return {"status": "success", "saved": len(rows)}
+    return {"saved": len(rows), "sample_no": rows[0].sample_no}
 
 
+# ---------------------------------------------------
+# STATISTICS
+# ---------------------------------------------------
 @router.get("/report")
 async def dm_report(date: str, module: str = None, db: AsyncSession = Depends(get_db)):
-    try:
-        parsed = datetime.strptime(date, "%Y-%m-%d").date()
-    except:
-        raise HTTPException(400, "Invalid date format, use YYYY-MM-DD")
+    parsed = datetime.strptime(date, "%Y-%m-%d").date()
+    return {"stats": await dm_get_stats(db, parsed, module)}
 
-    stats = await dm_get_stats(db, parsed, module)
 
-    results = []
-    for (module, category, parameter, avg, mn, mx, cnt) in stats:
-        results.append({
-            "module": module,
-            "category": category,
-            "parameter": parameter,
-            "avg": avg,
-            "min": mn,
-            "max": mx,
-            "count": cnt,
-        })
+# ---------------------------------------------------
+# RAW DATA TABLE
+# ---------------------------------------------------
+@router.get("/raw")
+async def dm_raw(date: str, module: str = None, db: AsyncSession = Depends(get_db)):
+    parsed = datetime.strptime(date, "%Y-%m-%d").date()
+    rows = await dm_get_raw_by_date(db, parsed, module)
+    return {"rows": rows}
 
-    return {"date": date, "stats": results}
 
-@router.get("/report/pdf")
-async def dm_report_pdf(date: str, module: str = None, db: AsyncSession = Depends(get_db)):
-    try:
-        parsed = datetime.strptime(date, "%Y-%m-%d").date()
-    except:
-        raise HTTPException(400, "Invalid date format, use YYYY-MM-DD")
+# ---------------------------------------------------
+# EDIT — LOAD BY SAMPLE NO
+# ---------------------------------------------------
+@router.get("/entry")
+async def dm_entry(sample_no: str, db: AsyncSession = Depends(get_db)):
+    rows = await dm_get_by_sample(db, sample_no)
+    if not rows:
+        raise HTTPException(404, "Sample not found")
+    return {"rows": rows}
 
-    entries = await dm_get_entries_by_date(db, parsed, module)
-    pdf_bytes = await run_in_threadpool(build_dm_pdf, date, entries)
 
-    return Response(content=pdf_bytes, media_type="application/pdf",
-                    headers={"Content-Disposition": f'attachment; filename="dm-report-{date}.pdf"'})
+# ---------------------------------------------------
+# UPDATE ENTRY GROUP
+# ---------------------------------------------------
+
+@router.post("/update")
+async def dm_update(payload: DMEntryCreate, db: AsyncSession = Depends(get_db)):
+    if not payload.sample_no:
+        raise HTTPException(400, "sample_no is required for update operation")
+
+    rows = await dm_update_entries(db, payload.dict())
+    return {"status": "updated", "rows": len(rows)}
+
+# ---------------------------------------------------
+# DELETE ENTRY GROUP
+# ---------------------------------------------------
+@router.delete("/delete")
+async def dm_delete(sample_no: str, db: AsyncSession = Depends(get_db)):
+    await dm_delete_by_sample(db, sample_no)
+    return {"deleted": sample_no}

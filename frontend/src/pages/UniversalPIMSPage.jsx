@@ -1,436 +1,547 @@
-// src/pages/UniversalPIMSPage.jsx
+// ======================================================================
+// UNIVERSAL PIMS PAGE — FINAL COMPLETE FILE
+// Light UI • Update Mode (U1) • Raw Table • Sample No (SN1)
+// ======================================================================
+
 import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
-import FORMS, { MODULE_KEYS } from "../config/dm_config";
+import PIMS_CONFIG from "../config/pims_config";
+import {
+  Save, RefreshCw, FileText, Activity, Clock, MapPin,
+  Database, Layers, Settings, Trash2
+} from "lucide-react";
 
-const API = "/api/dm";
-const DEFAULT_CFG = { label: "", params: [], locations: [], main_area_options: [], exact_options: [], plant: "", broad_area: "", main_collection_area: "" };
+// ======================================================================
+// INPUT COMPONENT (LIGHT THEME)
+// ======================================================================
+const PimsInput = ({ label, type="text", value, onChange, options=[], readOnly=false }) => {
+  return (
+    <div className="w-full">
+      <label className="block text-[10px] font-bold text-zinc-500 mb-1 uppercase tracking-wider">
+        {label}
+      </label>
 
+      {type === "textarea" ? (
+        <textarea
+          rows={2}
+          readOnly={readOnly}
+          value={value}
+          onChange={onChange}
+          className={`w-full bg-zinc-50 border border-zinc-300 text-zinc-800 text-sm px-3 py-2 
+            rounded-sm outline-none focus:border-orange-500 
+            ${readOnly ? "bg-zinc-100 cursor-not-allowed" : ""}`}
+        />
+      ) : type === "select" ? (
+        <select
+          value={value}
+          disabled={readOnly}
+          onChange={onChange}
+          className={`w-full bg-zinc-50 border border-zinc-300 text-zinc-800 text-sm px-3 py-2 
+            rounded-sm outline-none focus:border-orange-500
+            ${readOnly ? "bg-zinc-100 cursor-not-allowed" : ""}`}
+        >
+          <option value="">-- Select --</option>
+          {options.map(op => (
+            <option key={op} value={op}>{op}</option>
+          ))}
+        </select>
+      ) : (
+        <input
+          type={type}
+          readOnly={readOnly}
+          value={value}
+          onChange={onChange}
+          className={`w-full bg-zinc-50 border border-zinc-300 text-zinc-800 text-sm px-3 py-2 
+            rounded-sm outline-none focus:border-orange-500
+            ${readOnly ? "bg-zinc-100 cursor-not-allowed" : ""}`}
+        />
+      )}
+    </div>
+  );
+};
+
+// ======================================================================
+// SECTION HEADER
+// ======================================================================
+const SectionHeader = ({ title, icon: Icon, subTitle }) => (
+  <div className="flex items-center gap-3 px-6 py-4 border-b border-zinc-200 bg-white">
+    <div className="p-1.5 bg-orange-50 text-orange-600 rounded-md border border-orange-100">
+      {Icon && <Icon size={18} />}
+    </div>
+    <div>
+      <h3 className="text-sm font-bold text-zinc-800 uppercase tracking-wide">{title}</h3>
+      {subTitle && <p className="text-[10px] text-zinc-400 font-medium">{subTitle}</p>}
+    </div>
+  </div>
+);
+
+// ======================================================================
+// MAIN PAGE COMPONENT
+// ======================================================================
 export default function UniversalPIMSPage({ auth }) {
-  // top
+
+  // -----------------------------------------
+  // MODULE & FORM STATES
+  // -----------------------------------------
+  const MODULES = Object.keys(PIMS_CONFIG);
+  const [module, setModule] = useState(MODULES[0]);
+  const config = PIMS_CONFIG[module];
+
+  const [formData, setFormData] = useState({});
+  const [matrixData, setMatrixData] = useState({});
   const [sampleNo, setSampleNo] = useState("");
-  const [dateSampling, setDateSampling] = useState(new Date().toISOString().slice(0,10));
-  const [timeSampling, setTimeSampling] = useState(new Date().toTimeString().slice(0,8));
-  const [shift, setShift] = useState("Morning");
-  const [analysisDate, setAnalysisDate] = useState(new Date().toISOString().slice(0,10));
+  const [updateMode, setUpdateMode] = useState(false);
 
-  // left/mid
-  const [module, setModule] = useState((MODULE_KEYS && MODULE_KEYS[0]) || "");
-  const [plant, setPlant] = useState("");
-  const [broadArea, setBroadArea] = useState("");
-  const [mainArea, setMainArea] = useState("");
-  const [mainCollection, setMainCollection] = useState("");
-  const [exactArea, setExactArea] = useState("");
-  const [analysisType, setAnalysisType] = useState("Proximate");
-  const [sendingAuthority, setSendingAuthority] = useState("Self");
+  // Raw table
+  const [rawRows, setRawRows] = useState([]);
+  const [loadingRaw, setLoadingRaw] = useState(false);
 
-  // right/analysis values
-  const [values, setValues] = useState({});
-  const [matrix, setMatrix] = useState({}); // for matrix modules
-  const [remarks, setRemarks] = useState("");
-
-  // table + states
-  const [records, setRecords] = useState([]);
-  const [stats, setStats] = useState([]);
-  const [loading, setLoading] = useState(false);
+  // Save/Update
   const [saving, setSaving] = useState(false);
 
-  const api = useMemo(() => axios.create({
-    baseURL: API,
-    headers: { Authorization: auth || (localStorage.getItem("authToken") ? `Bearer ${localStorage.getItem("authToken")}` : "") }
-  }), [auth]);
-
-  // safe config for module
-  const cfg = FORMS[module] || DEFAULT_CFG;
-
-  // default proximate fields (in case module doesn't define)
-  const PROXIMATE_PARAMS = [
-    { key: "total_moisture", label: "Total Moisture (%)" },
-    { key: "ash", label: "Ash (%)" },
-    { key: "vm", label: "Volatile Matter (%)" },
-    { key: "fixed_carbon", label: "Fixed Carbon (%)" },
-    { key: "gcv", label: "GCV (Kcal/kg)" },
-    { key: "uhv", label: "UHV (Kcal/kg)" },
-    { key: "plus_25mm", label: "Plus 25 mm Size" },
-  ];
-
-  // initialize when module/date change
-  useEffect(() => {
-    const c = FORMS[module] || DEFAULT_CFG;
-
-    setPlant(c.plant || "");
-    setBroadArea(c.broad_area || c.broadArea || "");
-    setMainArea((c.main_area_options && c.main_area_options[0]) || "");
-    setMainCollection(c.main_collection_area || "");
-    setExactArea((c.exact_options && c.exact_options[0]) || "");
-    setRemarks("");
-
-    // values
-    const usedParams = (c.params && c.params.length) ? c.params : PROXIMATE_PARAMS;
-    setValues(Object.fromEntries(usedParams.map(p => [p.key, ""])));
-
-    // matrix skeleton (if any)
-    const m = {};
-    (c.params || []).forEach(p => {
-      m[p.key] = {};
-      (c.locations || []).forEach(loc => m[p.key][loc] = "");
+  // -----------------------------------------
+  // AXIOS
+  // -----------------------------------------
+  const api = useMemo(() => {
+    return axios.create({
+      baseURL: "/api/dm",
+      headers: {
+        Authorization: auth || localStorage.getItem("authToken")
+          ? `Bearer ${localStorage.getItem("authToken")}`
+          : "",
+      },
     });
-    setMatrix(m);
+  }, [auth]);
 
-    fetchRecords();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [module, dateSampling, analysisDate]);
+  // ======================================================================
+  // INITIALIZE FORM WHEN MODULE CHANGES
+  // ======================================================================
+  useEffect(() => {
+    initForm();
+  }, [module]);
 
-  const updateValue = (k, v) => setValues(prev => ({ ...prev, [k]: v }));
-  const updateMatrixCell = (p, loc, v) => setMatrix(prev => ({ ...prev, [p]: {...(prev[p]||{}), [loc]: v} }));
+  const initForm = () => {
+    setSampleNo("");
+    setUpdateMode(false);
 
-  // fetch records (raw) and aggregated stats
-  async function fetchRecords() {
-    setLoading(true);
+    let tmp = {};
+    const now = new Date();
+    const d = now.toISOString().slice(0, 10);
+    const t = now.toTimeString().slice(0, 5);
+
+    config.topPanel?.forEach(f => {
+      if (f.type === "date") tmp[f.key] = d;
+      else if (f.type === "time") tmp[f.key] = t;
+      else tmp[f.key] = "";
+    });
+
+    config.locationPanel?.forEach(f => (tmp[f.key] = ""));
+    config.parameterPanels?.forEach(p => p.fields.forEach(f => (tmp[f.key] = "")));
+    config.bottomPanel?.fields?.forEach(f => (tmp[f.key] = ""));
+
+    setFormData(tmp);
+
+    // Matrix
+    if (config.matrix) {
+      const m = {};
+      config.matrix.params.forEach(p => {
+        m[p.key] = {};
+        config.matrix.locations.forEach(loc => (m[p.key][loc] = ""));
+      });
+      setMatrixData(m);
+    } else setMatrixData({});
+
+    fetchRaw(d);
+  };
+
+  // ======================================================================
+  // FETCH RAW TABLE
+  // ======================================================================
+  const fetchRaw = async (dateOverride = null) => {
+    setLoadingRaw(true);
     try {
-      // try /raw first (not guaranteed), otherwise /report
-      let raw = [];
-      try {
-        const rr = await api.get("/raw", { params: { date: dateSampling, module } });
-        raw = Array.isArray(rr.data) ? rr.data : (rr.data.rows || []);
-      } catch (e) {
-        raw = [];
-      }
-      setRecords(raw);
+      const dKey = config.topPanel.find(f => f.type === "date")?.key;
+      const d = dateOverride || formData[dKey];
 
-      const r = await api.get("/report", { params: { date: dateSampling, module } });
-      setStats(r.data.stats || []);
+      const res = await api.get("/raw", {
+        params: { module, date: d }
+      });
+
+      setRawRows(res.data.rows || []);
+    } catch {
+      setRawRows([]);
+    }
+    setLoadingRaw(false);
+  };
+
+  // ======================================================================
+  // HELPERS
+  // ======================================================================
+  const setField = (key, val) =>
+    setFormData(prev => ({ ...prev, [key]: val }));
+
+  const setMatrix = (param, loc, val) =>
+    setMatrixData(prev => ({
+      ...prev,
+      [param]: { ...prev[param], [loc]: val },
+    }));
+
+  // ======================================================================
+  // SAVE ENTRY
+  // ======================================================================
+  const saveEntry = async () => {
+    setSaving(true);
+
+    try {
+      const payload = buildPayload();
+      const res = await api.post("/add", payload);
+
+      alert(`Saved. Sample No: ${res.data.sample_no}`);
+
+      initForm();
     } catch (err) {
-      console.error(err);
-      setRecords([]);
-      setStats([]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // build payload and send
-  const save = async () => {
-    const c = FORMS[module] || DEFAULT_CFG;
-    // matrix flow for chemical_matrix (legacy)
-    if ((c.locations || []).length > 1 && module === "chemical_matrix") {
-      setSaving(true);
-      try {
-        for (const loc of (c.locations || [])) {
-          const entries = (c.params || []).filter(p => {
-            const v = matrix?.[p.key]?.[loc];
-            return v !== undefined && v !== "" && !isNaN(Number(v));
-          }).map(p => ({ parameter: p.key, value: Number(matrix?.[p.key]?.[loc]), remarks }));
-
-          if (entries.length === 0) continue;
-
-          await api.post("/add", {
-            date: dateSampling, time: timeSampling, module,
-            plant, broad_area: broadArea, main_area: mainArea, main_collection_area: mainCollection,
-            exact_collection_area: loc, category: c.label, location: loc, entries
-          });
-        }
-        alert("Saved matrix entries");
-        fetchRecords();
-      } catch (err) {
-        console.error(err);
-        alert(err?.response?.data?.detail || "Save failed");
-      } finally {
-        setSaving(false);
-      }
-      return;
+      alert(err?.response?.data?.detail || "Save failed");
     }
 
-    // single-location
-    const usedParams = (c.params && c.params.length) ? c.params : PROXIMATE_PARAMS;
-    const entries = usedParams.map(p => ({ parameter: p.key, value: values[p.key] === "" ? null : Number(values[p.key]), remarks }))
-      .filter(e => e.value !== null && e.value !== undefined && !Number.isNaN(e.value));
+    setSaving(false);
+  };
 
-    if (entries.length === 0) return alert("Enter at least one value");
+  // ======================================================================
+  // LOAD SAMPLE GROUP FOR EDITING
+  // ======================================================================
+  const loadSample = async (sn) => {
+    try {
+      const res = await api.get("/entry", { params: { sample_no: sn } });
+      const rows = res.data.rows;
+
+      setSampleNo(sn);
+      setUpdateMode(true);
+
+      let tmp = {};
+      rows.forEach(r => {
+        tmp.date = r.date;
+        tmp.time = r.time;
+        tmp.plant = r.plant;
+        tmp.broad_area = r.broad_area;
+        tmp.main_area = r.main_area;
+        tmp.main_collection_area = r.main_collection_area;
+        tmp.exact_collection_area = r.exact_collection_area;
+        tmp.location = r.location;
+        tmp[r.parameter] = r.value ?? "";
+      });
+
+      setFormData(tmp);
+    } catch {
+      alert("Failed to load sample.");
+    }
+  };
+
+  // ======================================================================
+  // UPDATE SAMPLE
+  // ======================================================================
+  const updateSample = async () => {
+    if (!sampleNo) return alert("No sample selected");
 
     setSaving(true);
     try {
-      await api.post("/add", {
-        date: dateSampling, time: timeSampling, module,
-        plant, broad_area: broadArea, main_area: mainArea, main_collection_area: mainCollection,
-        exact_collection_area: exactArea, category: c.label, location, entries
-      });
-      alert("Saved");
-      fetchRecords();
+      const payload = buildPayload();
+      payload.sample_no = sampleNo;
+
+      const res = await api.post("/update", payload);
+
+      alert(`Updated successfully: ${res.data.sample_no}`);
+      initForm();
     } catch (err) {
-      console.error(err);
-      alert(err?.response?.data?.detail || "Save failed");
-    } finally {
-      setSaving(false);
+      alert(err?.response?.data?.detail || "Update failed");
     }
+    setSaving(false);
   };
 
-  // load a record into form on click
-  const handleRowClick = (row) => {
-    if (!row) return;
+  // ======================================================================
+  // DELETE SAMPLE
+  // ======================================================================
+  const deleteSample = async () => {
+    if (!sampleNo) return;
+    if (!window.confirm(`Delete Sample No ${sampleNo}?`)) return;
+
     try {
-      if (row.time) setTimeSampling(String(row.time).slice(0,8));
-      if (row.plant) setPlant(row.plant);
-      if (row.main_collection_area) setMainCollection(row.main_collection_area);
-      if (row.exact_collection_area) setExactArea(row.exact_collection_area);
-      if (row.remarks) setRemarks(row.remarks);
-
-      if (row.params && typeof row.params === "object") {
-        const newVals = {...values};
-        Object.keys(row.params).forEach(k => { if (newVals.hasOwnProperty(k)) newVals[k] = row.params[k]; });
-        setValues(newVals);
-        return;
-      }
-
-      if (row.parameter) {
-        setValues(prev => ({ ...prev, [row.parameter]: row.value ?? "" }));
-      }
-    } catch (e) {
-      console.error("load row", e);
+      await api.delete("/delete", { params: { sample_no: sampleNo } });
+      alert("Deleted.");
+      initForm();
+    } catch {
+      alert("Delete failed");
     }
   };
 
-  // Download PDF
-  const downloadPdf = () => {
-    const url = `/api/dm/report/pdf?date=${encodeURIComponent(dateSampling)}&module=${encodeURIComponent(module)}`;
-    window.open(url, "_blank");
+  // ======================================================================
+  // BUILD PAYLOAD
+  // ======================================================================
+  const buildPayload = () => {
+    const payload = {
+      module,
+      ...formData,
+      entries: []
+    };
+
+    if (!config.matrix) {
+      config.parameterPanels?.forEach(panel =>
+        panel.fields.forEach(f => {
+          if (formData[f.key] !== "")
+            payload.entries.push({
+              parameter: f.key,
+              value: Number(formData[f.key])
+            });
+        })
+      );
+
+      config.bottomPanel?.fields?.forEach(f => {
+        if (formData[f.key] !== "")
+          payload.entries.push({
+            parameter: f.key,
+            value: Number(formData[f.key])
+          });
+      });
+    }
+
+    return payload;
   };
 
-  // placeholder actions
-  const calculateGcvUhv = () => alert("GCV/UHV calculation disabled (per config).");
-  const deleteBySr = () => alert("Delete by Sr - implement backend endpoint.");
-  const changeStatusByDate = () => alert("Change Status by Date - implement backend endpoint.");
-  const approve = () => alert("Approve - implement backend endpoint.");
-  const unapprove = () => alert("Unapprove - implement backend endpoint.");
-
-  // render helpers
-  const usedParams = (cfg.params && cfg.params.length) ? cfg.params : PROXIMATE_PARAMS;
-
+  // ======================================================================
+  // RENDER
+  // ======================================================================
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-screen-xl mx-auto space-y-4 text-sm">
+    <div className="min-h-screen bg-[#F5F7FA] text-zinc-800 p-6 pb-20">
 
-        {/* TOP HORIZONTAL PANEL */}
-        <div className="bg-white border rounded shadow p-3 grid grid-cols-12 gap-3 items-center">
-          <div className="col-span-2">
-            <label className="block text-xs text-gray-500">Sample No.</label>
-            <input value={sampleNo} onChange={e=>setSampleNo(e.target.value)} className="w-full p-2 border rounded" />
+      {/* HEADER */}
+      <div className="flex flex-col md:flex-row items-center justify-between gap-6 mb-8 bg-white 
+                      px-6 py-5 rounded-lg shadow-sm border border-zinc-200">
+
+        <div className="flex items-center gap-4">
+          <div className="h-12 w-12 rounded-lg bg-white border border-zinc-200 
+                          flex items-center justify-center text-orange-600 shadow-sm">
+            <Activity size={24} />
           </div>
-          <div className="col-span-2">
-            <label className="block text-xs text-gray-500">Date of Sampling</label>
-            <input type="date" value={dateSampling} onChange={e=>setDateSampling(e.target.value)} className="w-full p-2 border rounded" />
-          </div>
-          <div className="col-span-2">
-            <label className="block text-xs text-gray-500">Time of Sampling</label>
-            <input type="time" value={timeSampling} onChange={e=>setTimeSampling(e.target.value)} className="w-full p-2 border rounded" />
-          </div>
-          <div className="col-span-2">
-            <label className="block text-xs text-gray-500">Shift</label>
-            <select value={shift} onChange={e=>setShift(e.target.value)} className="w-full p-2 border rounded">
-              <option>Morning</option><option>Evening</option><option>Night</option>
-            </select>
-          </div>
-          <div className="col-span-2">
-            <label className="block text-xs text-gray-500">Date of Analysis</label>
-            <input type="date" value={analysisDate} onChange={e=>setAnalysisDate(e.target.value)} className="w-full p-2 border rounded" />
-          </div>
-          <div className="col-span-2 text-right">
-            <div className="text-xs text-gray-500">Module</div>
-            <select value={module} onChange={e=>setModule(e.target.value)} className="p-2 border rounded">
-              {(MODULE_KEYS || []).map(k => <option key={k} value={k}>{FORMS[k]?.label ?? k}</option>)}
-            </select>
+          <div>
+            <h1 className="text-2xl font-bold text-zinc-800 tracking-tight">
+              Lab<span className="text-orange-600">Entry</span>
+            </h1>
+            <p className="text-xs text-zinc-400 uppercase tracking-wider">
+              Universal PIMS Portal
+            </p>
           </div>
         </div>
 
-        {/* MIDDLE PANELS (LEFT: Location & Equipment, RIGHT: Analysis Data) */}
-        <div className="grid grid-cols-12 gap-4">
-          {/* LEFT */}
-          <div className="col-span-12 lg:col-span-6">
-            <div className="bg-white border rounded shadow p-3 space-y-3">
-              <h3 className="text-sm font-semibold text-gray-700">Location & Equipment</h3>
+        {/* MODULE SELECT */}
+        <div className="flex items-center bg-zinc-50 p-1.5 rounded-lg border border-zinc-200">
+          <span className="px-3 text-xs font-bold text-zinc-400 uppercase flex items-center gap-2">
+            <Settings size={12} /> Module:
+          </span>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs text-gray-500">Plant</label>
-                  <input value={plant} onChange={e=>setPlant(e.target.value)} className="w-full p-2 border rounded" />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500">Broad Area</label>
-                  <input value={broadArea} onChange={e=>setBroadArea(e.target.value)} className="w-full p-2 border rounded" />
-                </div>
+          <select
+            value={module}
+            onChange={(e) => setModule(e.target.value)}
+            className="bg-white text-zinc-800 text-sm font-bold py-2 pl-3 pr-8 rounded-md 
+                     outline-none border border-zinc-200 hover:bg-zinc-50"
+          >
+            {MODULES.map(m => (
+              <option key={m} value={m}>{PIMS_CONFIG[m].label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
 
-                <div>
-                  <label className="block text-xs text-gray-500">Main Area</label>
-                  { (cfg.main_area_options || []).length > 0 ?
-                    (<select value={mainArea} onChange={e=>setMainArea(e.target.value)} className="w-full p-2 border rounded">
-                      {(cfg.main_area_options||[]).map(x => <option key={x} value={x}>{x}</option>)}
-                    </select>)
-                    :
-                    (<input value={mainArea} onChange={e=>setMainArea(e.target.value)} className="w-full p-2 border rounded" />)
-                  }
-                </div>
+      <div className="max-w-[1900px] mx-auto space-y-6">
 
-                <div>
-                  <label className="block text-xs text-gray-500">Main Collection Area</label>
-                  <input value={mainCollection} onChange={e=>setMainCollection(e.target.value)} className="w-full p-2 border rounded" />
-                </div>
+        {/* CONTEXT BAR */}
+        <div className="bg-white rounded-lg shadow-sm border border-zinc-200">
+          <SectionHeader title="Log Context" icon={Clock} />
+          <div className="p-5 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
+            {config.topPanel.map(f => (
+              <PimsInput
+                key={f.key}
+                {...f}
+                value={formData[f.key] || ""}
+                onChange={e => setField(f.key, e.target.value)}
+              />
+            ))}
+          </div>
+        </div>
 
-                <div className="col-span-2">
-                  <label className="block text-xs text-gray-500">Exact Collection Area / Sample Point</label>
-                  { (cfg.exact_options || []).length > 0 ? (
-                    <select value={exactArea} onChange={e=>setExactArea(e.target.value)} className="w-full p-2 border rounded">
-                      {(cfg.exact_options||[]).map(x => <option key={x} value={x}>{x}</option>)}
-                    </select>
-                  ) : (
-                    <input value={exactArea} onChange={e=>setExactArea(e.target.value)} className="w-full p-2 border rounded" />
-                  )}
-                </div>
+        {/* LOCATION BAR */}
+        <div className="bg-white rounded-lg shadow-sm border border-zinc-200">
+          
+          <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200">
+            <div className="flex items-center gap-3">
+              <MapPin size={18} className="text-orange-600" />
+              <h3 className="text-sm font-bold uppercase text-zinc-800">Location Details</h3>
+            </div>
 
-                <div>
-                  <label className="block text-xs text-gray-500">Analysis Type</label>
-                  <input value={analysisType} onChange={e=>setAnalysisType(e.target.value)} className="w-full p-2 border rounded" />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500">Sending Authority</label>
-                  <input value={sendingAuthority} onChange={e=>setSendingAuthority(e.target.value)} className="w-full p-2 border rounded" />
-                </div>
+            {/* SAVE OR UPDATE BUTTON */}
+            {!updateMode ? (
+              <button
+                onClick={saveEntry}
+                className="bg-orange-600 text-white px-6 py-2 rounded shadow hover:bg-orange-700 flex items-center gap-2"
+              >
+                <Save size={16} /> Save Entry
+              </button>
+            ) : (
+              <div className="flex gap-3">
+                <button
+                  onClick={deleteSample}
+                  className="bg-red-600 text-white px-6 py-2 rounded shadow hover:bg-red-700 flex items-center gap-2"
+                >
+                  <Trash2 size={16} /> Delete
+                </button>
+                <button
+                  onClick={updateSample}
+                  className="bg-blue-600 text-white px-6 py-2 rounded shadow hover:bg-blue-700 flex items-center gap-2"
+                >
+                  <Save size={16} /> Update
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="p-5 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
+            {config.locationPanel.map(f => (
+              <PimsInput
+                key={f.key}
+                {...f}
+                value={formData[f.key] || ""}
+                onChange={e => setField(f.key, e.target.value)}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* PARAMETER PANELS */}
+        {!config.matrix &&
+          config.parameterPanels.map((panel, idx) => (
+            <div key={idx} className="bg-white border border-zinc-200 shadow-sm rounded-lg">
+              <SectionHeader title={panel.title} icon={Database} />
+              <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {panel.fields.map(f => (
+                  <PimsInput
+                    key={f.key}
+                    {...f}
+                    value={formData[f.key] || ""}
+                    onChange={e => setField(f.key, e.target.value)}
+                  />
+                ))}
               </div>
             </div>
-          </div>
+          ))
+        }
 
-          {/* RIGHT */}
-          <div className="col-span-12 lg:col-span-6">
-            <div className="bg-white border rounded shadow p-3 space-y-3">
-              <h3 className="text-sm font-semibold text-gray-700">ANALYSIS DATA</h3>
-
-              <div className="grid grid-cols-2 gap-2">
-                {(usedParams || []).slice(0,4).map(p => (
-                  <div key={p.key}>
-                    <label className="block text-xs text-gray-500">{p.label}</label>
-                    <input type="number" step="any" value={values[p.key] ?? ""} onChange={e=>updateValue(p.key, e.target.value)} className="w-full p-2 border rounded" />
-                  </div>
-                ))}
-
-                {(usedParams || []).slice(4).map(p => (
-                  <div key={p.key}>
-                    <label className="block text-xs text-gray-500">{p.label}</label>
-                    <input type="number" step="any" value={values[p.key] ?? ""} onChange={e=>updateValue(p.key, e.target.value)} className="w-full p-2 border rounded" />
-                  </div>
-                ))}
-
-                <div className="col-span-2">
-                  <label className="block text-xs text-gray-500">Remarks</label>
-                  <textarea value={remarks} onChange={e=>setRemarks(e.target.value)} className="w-full p-2 border rounded h-24"></textarea>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* HORIZONTAL TOOLBAR */}
-        <div className="bg-black text-white rounded shadow px-3 py-2 flex flex-wrap gap-2 items-center">
-          <button onClick={deleteBySr} className="bg-red-400 px-3 py-1 rounded text-sm">Delete by Sr</button>
-          <button onClick={save} className="bg-orange-500 px-3 py-1 rounded text-sm">{saving ? "Saving..." : "Save"}</button>
-          <button onClick={fetchRecords} className="bg-gray-200 text-black px-3 py-1 rounded text-sm">Search By Sr</button>
-          <button onClick={downloadPdf} className="bg-gray-200 text-black px-3 py-1 rounded text-sm">Report</button>
-          <button onClick={()=>{ setValues({}); setRemarks(""); }} className="bg-gray-200 text-black px-3 py-1 rounded text-sm">Clear / Refresh</button>
-          <button onClick={calculateGcvUhv} className="bg-gray-200 text-black px-3 py-1 rounded text-sm">Calculate GCV & UHV</button>
-
-          <div className="ml-auto flex gap-2">
-            <button onClick={changeStatusByDate} className="bg-pink-400 px-3 py-1 rounded text-sm">Change Status by Date</button>
-            <button onClick={approve} className="bg-green-500 px-3 py-1 rounded text-sm">Approve</button>
-            <button onClick={unapprove} className="bg-gray-300 px-3 py-1 rounded text-sm">Unapprove</button>
-          </div>
-        </div>
-
-        {/* DATA TABLE SECTION */}
-        <div className="bg-white border rounded shadow p-3">
-          <h4 className="text-sm font-semibold mb-2">Click the grid to select for editing / updating</h4>
-
-          {loading ? (
-            <div className="text-center py-6 text-gray-500">Loading...</div>
-          ) : (records && records.length > 0) ? (
-            <div className="overflow-x-auto max-h-64">
-              <table className="min-w-full text-sm">
-                <thead className="bg-gray-100 sticky top-0">
-                  <tr>
-                    {Object.keys(records[0] || {}).slice(0, 12).map(k => <th key={k} className="p-2 text-left">{k}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {records.map((r,i) => (
-                    <tr key={i} className="odd:bg-white even:bg-gray-50 hover:bg-orange-50 cursor-pointer" onClick={()=>handleRowClick(r)}>
-                      {Object.keys(records[0] || {}).slice(0,12).map(k => <td key={k} className="p-2 text-xs">{String(r[k] ?? "-")}</td>)}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (stats && Object.keys(stats).length > 0) ? (
+        {/* MATRIX PANEL */}
+        {config.matrix && (
+          <div className="bg-white border border-zinc-200 shadow-sm rounded-lg">
+            <SectionHeader title={config.label} icon={Layers} />
             <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead className="bg-gray-100">
-                  <tr>
-                    <th className="p-2 text-left">Parameter</th>
-                    <th className="p-2 text-right">Avg</th>
-                    <th className="p-2 text-right">Min</th>
-                    <th className="p-2 text-right">Max</th>
-                    <th className="p-2 text-right">Count</th>
+              <table className="min-w-full text-sm border-t border-zinc-200">
+                <thead>
+                  <tr className="bg-zinc-50 text-zinc-600 text-[11px] uppercase">
+                    <th className="px-4 py-2 border-r">Parameter</th>
+                    {config.matrix.locations.map(loc => (
+                      <th key={loc} className="px-4 py-2 border-r">{loc}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {Object.entries(stats).map(([k,v],i) => (
-                    <tr key={i} className="border-t">
-                      <td className="p-2">{k}</td>
-                      <td className="p-2 text-right">{v.avg ?? "-"}</td>
-                      <td className="p-2 text-right">{v.min ?? "-"}</td>
-                      <td className="p-2 text-right">{v.max ?? "-"}</td>
-                      <td className="p-2 text-right">{v.count ?? 0}</td>
+                  {config.matrix.params.map(p => (
+                    <tr key={p.key} className="border-t hover:bg-orange-50">
+                      <td className="px-4 py-2 font-semibold border-r">{p.label}</td>
+                      {config.matrix.locations.map(loc => (
+                        <td key={loc} className="p-0 border-r">
+                          <input
+                            type="number"
+                            value={matrixData[p.key]?.[loc] || ""}
+                            onChange={e => setMatrix(p.key, loc, e.target.value)}
+                            className="w-full px-2 h-[40px] text-center border-none outline-none"
+                          />
+                        </td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          ) : (
-            <div className="text-center py-6 text-gray-500">No records found</div>
-          )}
-        </div>
+          </div>
+        )}
 
-        {/* BOTTOM CALC PANEL */}
-        <div className="bg-white border rounded shadow p-3 space-y-3">
-          <h4 className="text-sm font-semibold">Unit & Mill Calculations</h4>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="p-3 border rounded bg-gray-50">
-              <div className="text-xs text-gray-600 mb-2">Unit #1 Mills</div>
-              <div className="grid grid-cols-2 gap-2">
-                <input className="p-2 border rounded text-sm" placeholder="Mill A" />
-                <input className="p-2 border rounded text-sm" placeholder="Mill B" />
-                <input className="p-2 border rounded text-sm" placeholder="Mill C" />
-                <input className="p-2 border rounded text-sm" placeholder="Mill D" />
-              </div>
-            </div>
-
-            <div className="p-3 border rounded bg-gray-50">
-              <div className="text-xs text-gray-600 mb-2">Weighted / Coal / GCV</div>
-              <div className="space-y-2 text-sm">
-                <div>Weighted Average GCV of Unit #1: <strong className="text-orange-600">-</strong></div>
-                <div>Weighted Average GCV of Unit #2: <strong className="text-orange-600">-</strong></div>
-                <div>Coal (T): <strong>-</strong></div>
-              </div>
-            </div>
-
-            <div className="p-3 border rounded bg-gray-50">
-              <div className="text-xs text-gray-600 mb-2">Generation / Heat Rate</div>
-              <div className="space-y-2 text-sm">
-                <div>Average GCV: <strong>-</strong></div>
-                <div>Generation MWH: <strong>-</strong></div>
-                <div>Heat Rate Kcal/KWh: <strong>-</strong></div>
-              </div>
+        {/* BOTTOM PANEL */}
+        {config.bottomPanel && (
+          <div className="bg-white border border-zinc-200 shadow-sm rounded-lg">
+            <SectionHeader title={config.bottomPanel.title} icon={Layers} />
+            <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {config.bottomPanel.fields.map(field => (
+                <PimsInput
+                  key={field.key}
+                  {...field}
+                  value={formData[field.key] || ""}
+                  onChange={e => setField(field.key, e.target.value)}
+                />
+              ))}
             </div>
           </div>
+        )}
 
-          <div className="text-xs text-gray-500">Presented by Operation Dept., CPP</div>
+        {/* RAW TABLE */}
+        <div className="bg-white border border-zinc-200 shadow-sm rounded-lg">
+          
+          <div className="px-6 py-4 border-b flex justify-between bg-zinc-50">
+            <div className="flex items-center gap-2">
+              <FileText size={16} />
+              <h3 className="text-sm font-bold uppercase">Raw Entries (Click to Edit)</h3>
+            </div>
+
+            <button
+              onClick={() => fetchRaw()}
+              className="flex items-center gap-2 px-3 py-1 text-xs border rounded hover:text-orange-600"
+            >
+              <RefreshCw size={14} className={loadingRaw ? "animate-spin" : ""} />
+              Refresh
+            </button>
+          </div>
+
+          <div className="overflow-x-auto max-h-[500px]">
+            <table className="min-w-full text-xs">
+              <thead className="bg-zinc-100 text-zinc-500">
+                <tr>
+                  <th className="px-6 py-3 border-b">Sample No</th>
+                  <th className="px-6 py-3 border-b">Time</th>
+                  <th className="px-6 py-3 border-b">Parameter</th>
+                  <th className="px-6 py-3 border-b text-right">Value</th>
+                  <th className="px-6 py-3 border-b">Location</th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y">
+                {rawRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="p-10 text-center text-zinc-400 italic">
+                      No records found
+                    </td>
+                  </tr>
+                ) : (
+                  rawRows.map((r, i) => (
+                    <tr
+                      key={i}
+                      className="hover:bg-orange-50 cursor-pointer"
+                      onClick={() => loadSample(r.sample_no)}
+                    >
+                      <td className="px-6 py-3">{r.sample_no}</td>
+                      <td className="px-6 py-3">{r.time}</td>
+                      <td className="px-6 py-3">{r.parameter}</td>
+                      <td className="px-6 py-3 text-right">{r.value ?? "-"}</td>
+                      <td className="px-6 py-3">{r.location ?? "-"}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
         </div>
       </div>
     </div>
