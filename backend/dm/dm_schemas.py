@@ -10,19 +10,26 @@ class DMParamItem(BaseModel):
 
 
 class DMEntryCreate(BaseModel):
-    sample_no: Optional[str] = None
+    # Core
     date: date
     time: str
     module: str
 
+    # NEW — sample number (auto or manual)
+    sample_no: Optional[str] = None
+
+    # Location / hierarchy
     plant: Optional[str] = None
     broad_area: Optional[str] = None
     main_area: Optional[str] = None
     main_collection_area: Optional[str] = None
     exact_collection_area: Optional[str] = None
-
     location: Optional[str] = None
 
+    # Optional grouping
+    category: Optional[str] = None
+
+    # Actual data
     entries: List[DMParamItem]
 
 

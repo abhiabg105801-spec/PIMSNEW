@@ -1,6 +1,6 @@
 from pydantic import BaseModel, field_validator
 from datetime import date, datetime, time 
-from typing import Optional
+from typing import Optional,List
 import enum
 
 from sqlalchemy import (
@@ -296,61 +296,9 @@ class StationAggregateResponse(BaseModel):
 # -------------------------------------------------------------
 #  CONTINUING UPDATED MODELS
 # -------------------------------------------------------------
-class DMEntryDB(Base):
-    __tablename__ = "dm_entries"
 
-    id = Column(Integer, primary_key=True)
-    date = Column(Date, nullable=False, index=True)
-    time = Column(Time, nullable=False, index=True)
 
-    module = Column(String(80), nullable=False, index=True)
-    category = Column(String(120), nullable=True, index=True)
 
-    plant = Column(String(120), nullable=True)
-    broad_area = Column(String(120), nullable=True)
-    main_area = Column(String(120), nullable=True)
-    main_collection_area = Column(String(140), nullable=True)
-    exact_collection_area = Column(String(140), nullable=True)
-    location = Column(String(200), nullable=True)
-
-    parameter = Column(String(120), nullable=False, index=True)
-    value = Column(Float, nullable=True)
-    remarks = Column(Text, nullable=True)
-
-    uploaded_at = Column(DateTime, default=datetime.now)
-
-class DMPlantEntryDB(Base):
-    __tablename__ = "dm_plant_entries"
-    id = Column(Integer, primary_key=True, index=True)
-    date = Column(Date, nullable=False, index=True)
-    time = Column(Time, nullable=False)
-    unit = Column(String, nullable=False)
-    section = Column(String, nullable=False)
-    parameter = Column(String, nullable=False)
-    value = Column(Float, nullable=False)
-    remarks = Column(String, nullable=True)
-    
-    # ✅ CHANGED: Uses server PC time
-    uploaded_at = Column(DateTime, default=datetime.now)
-
-class ChemicalParamEntryDB(Base):
-    __tablename__ = "chemical_param_entries"
-
-    id = Column(Integer, primary_key=True, index=True)
-    date = Column(Date, nullable=False, index=True)
-    time = Column(Time, nullable=False)
-    plant = Column(String, nullable=False)
-    broad_area = Column(String, nullable=True)
-    main_area = Column(String, nullable=True)               
-    main_collection_area = Column(String, nullable=True)    
-    exact_collection_area = Column(String, nullable=True)   
-
-    parameter = Column(String, nullable=False)
-    value = Column(Float, nullable=True)
-    remarks = Column(String, nullable=True)
-
-    # ✅ CHANGED: Uses server PC time
-    uploaded_at = Column(DateTime, default=datetime.now)
 
 # ... [RoleDB, UserDB, PermissionDB classes remain unchanged] ...
 class RoleDB(Base):

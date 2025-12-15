@@ -1,34 +1,69 @@
 // ======================================================================
-// UNIVERSAL PIMS PAGE — FINAL (EDIT + DATE RANGE + FULL RAW MATRIX)
+// UNIVERSAL PIMS PAGE — FINAL STABLE VERSION (LIGHT UI)
 // ======================================================================
 
 import React, { useEffect, useMemo, useState } from "react";
 import axios from "axios";
-import * as XLSX from "xlsx";
 import PIMS_CONFIG from "../config/pims_config";
 import {
   Save,
+  RefreshCw,
   FileText,
   Activity,
   Clock,
   MapPin,
   Database,
+  Layers,
+  Settings,
 } from "lucide-react";
 
 /* =========================================================
    BASIC INPUT
    ========================================================= */
-const PimsInput = ({ label, type = "text", value, onChange }) => (
+const PimsInput = ({
+  label,
+  type = "text",
+  value,
+  onChange,
+  options = [],
+  readOnly = false,
+}) => (
   <div className="w-full">
     <label className="block text-[10px] font-bold text-zinc-500 mb-1 uppercase">
       {label}
     </label>
-    <input
-      type={type}
-      value={value ?? ""}
-      onChange={onChange}
-      className="w-full bg-zinc-50 border border-zinc-300 px-3 py-2 text-sm rounded"
-    />
+
+    {type === "textarea" ? (
+      <textarea
+        rows={2}
+        value={value ?? ""}
+        readOnly={readOnly}
+        onChange={onChange}
+        className="w-full bg-zinc-50 border border-zinc-300 px-3 py-2 text-sm rounded"
+      />
+    ) : type === "select" ? (
+      <select
+        value={value ?? ""}
+        disabled={readOnly}
+        onChange={onChange}
+        className="w-full bg-zinc-50 border border-zinc-300 px-3 py-2 text-sm rounded"
+      >
+        <option value="">-- Select --</option>
+        {options.map((op) => (
+          <option key={op} value={op}>
+            {op}
+          </option>
+        ))}
+      </select>
+    ) : (
+      <input
+        type={type}
+        value={value ?? ""}
+        readOnly={readOnly}
+        onChange={onChange}
+        className="w-full bg-zinc-50 border border-zinc-300 px-3 py-2 text-sm rounded"
+      />
+    )}
   </div>
 );
 
@@ -45,31 +80,6 @@ const SectionHeader = ({ title, icon: Icon }) => (
 );
 
 /* =========================================================
-   RAW HELPERS
-   ========================================================= */
-const pivotRaw = (rows) => {
-  const params = new Set();
-  const map = {};
-
-  rows.forEach((r) => {
-    params.add(r.parameter);
-    if (!map[r.sample_no]) {
-      map[r.sample_no] = {
-        sample_no: r.sample_no,
-        date: r.date,
-        time: r.time?.slice(0, 5),
-        plant: r.plant,
-        main_area: r.main_area,
-        location: r.location,
-      };
-    }
-    map[r.sample_no][r.parameter] = r.value;
-  });
-
-  return { columns: [...params], data: Object.values(map) };
-};
-
-/* =========================================================
    MAIN COMPONENT
    ========================================================= */
 export default function UniversalPIMSPage({ auth }) {
@@ -78,13 +88,12 @@ export default function UniversalPIMSPage({ auth }) {
   const config = PIMS_CONFIG[module];
 
   const [formData, setFormData] = useState({});
+  const [matrixData, setMatrixData] = useState({});
   const [rawRows, setRawRows] = useState([]);
   const [sampleNo, setSampleNo] = useState(null);
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
-
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [loadingRaw, setLoadingRaw] = useState(false);
 
   /* ================= API ================= */
   const api = useMemo(
@@ -112,183 +121,216 @@ export default function UniversalPIMSPage({ auth }) {
     setSampleNo(null);
 
     const now = new Date();
+    const isoDate = now.toISOString().slice(0, 10);
+    const isoTime = now.toTimeString().slice(0, 5);
+
     const fd = {};
+
     config.topPanel?.forEach((f) => {
-      fd[f.key] =
-        f.type === "date"
-          ? now.toISOString().slice(0, 10)
-          : f.type === "time"
-          ? now.toTimeString().slice(0, 5)
-          : "";
+      if (f.type === "date") fd[f.key] = isoDate;
+      else if (f.type === "time") fd[f.key] = isoTime;
+      else fd[f.key] = "";
     });
 
     config.locationPanel?.forEach((f) => (fd[f.key] = ""));
     config.parameterPanels?.forEach((p) =>
       p.fields.forEach((f) => (fd[f.key] = ""))
     );
+    config.bottomPanel?.fields?.forEach((f) => (fd[f.key] = ""));
 
     setFormData(fd);
-    fetchRaw(fd.date);
+
+    if (config.matrix) {
+      const md = {};
+      config.matrix.params.forEach((p) => {
+        md[p.key] = {};
+        config.matrix.locations.forEach((l) => (md[p.key][l] = ""));
+      });
+      setMatrixData(md);
+    } else {
+      setMatrixData({});
+    }
+
+    fetchRaw(isoDate);
   };
 
+  /* ================= RAW TABLE ================= */
+  const fetchRaw = async (dateOverride) => {
+    setLoadingRaw(true);
+    try {
+      const dateKey =
+        config.topPanel?.find((x) => x.type === "date")?.key ||
+        "sampling_date";
+      const date = dateOverride || formData[dateKey];
 
+      const res = await api.get("/raw", {
+        params: { module, date },
+      });
+      setRawRows(res.data.rows || []);
+    } catch {
+      setRawRows([]);
+    }
+    setLoadingRaw(false);
+  };
 
-
-
-  useEffect(() => {
-  setRawRows([]);          // clear old module data
-  setSampleNo(null);
-  setEditMode(false);
-
-  const dateKey =
-    config.topPanel?.find((x) => x.type === "date")?.key || "date";
-
-  const date = formData[dateKey];
-
-  if (date) {
-    fetchRaw(date);        // reload raw for new module
-  }
-  // eslint-disable-next-line
-}, [module]);
-  /* ================= RAW ================= */
-  const fetchRaw = async (date) => {
-  try {
-    const res = await api.get("/raw", {
-      params: { module, date },
-    });
-    setRawRows(res.data.rows || []);
-  } catch {
-    setRawRows([]);
-  }
-};
-
-  const fetchRange = async () => {
-  if (!fromDate || !toDate) {
-    alert("Select From and To dates");
-    return;
-  }
-
-  try {
-    const res = await api.get("/raw-range", {
-      params: {
-        start: fromDate,
-        end: toDate,
-        module,          // 🔴 REQUIRED
-      },
-    });
-    setRawRows(res.data.rows || []);
-  } catch {
-    setRawRows([]);
-  }
-};
-
-
-  /* ================= SAVE ================= */
-  const saveEntry = async () => {
-  setSaving(true);
-  try {
+  /* ================= BUILD PAYLOAD (FIXED) ================= */
+  const buildPayload = () => {
     const payload = {
       module,
-
-      // --- REQUIRED ---
       date:
         formData.sampling_date ||
         formData.entry_date ||
         formData.date,
-
       time:
         formData.sampling_time ||
         formData.entry_time ||
         formData.time,
 
-      // --- LOCATION (must match schema) ---
       plant: formData.plant || null,
       broad_area: formData.broad_area || null,
       main_area: formData.main_area || null,
       main_collection_area: formData.main_collection_area || null,
       exact_collection_area:
-        formData.exact_area ||
-        formData.exact_collection_area ||
-        null,
+        formData.exact_area || formData.exact_collection_area || null,
       location: formData.location || null,
 
-      // --- IMPORTANT FOR UPDATE ---
       sample_no: editMode ? sampleNo : undefined,
-
-      // --- PARAMETERS ---
       entries: [],
     };
 
-    config.parameterPanels?.forEach((p) =>
-      p.fields.forEach((f) => {
+    if (!config.matrix) {
+      config.parameterPanels?.forEach((p) =>
+        p.fields.forEach((f) => {
+          if (formData[f.key] !== "") {
+            payload.entries.push({
+              parameter: f.key,
+              value: Number(formData[f.key]),
+            });
+          }
+        })
+      );
+
+      config.bottomPanel?.fields?.forEach((f) => {
         if (formData[f.key] !== "") {
           payload.entries.push({
             parameter: f.key,
             value: Number(formData[f.key]),
           });
         }
-      })
-    );
+      });
+    } else {
+      config.matrix.params.forEach((p) => {
+        config.matrix.locations.forEach((loc) => {
+          const v = matrixData[p.key]?.[loc];
+          if (v !== "") {
+            payload.entries.push({
+              parameter: `${p.key}__${loc}`,
+              value: Number(v),
+            });
+          }
+        });
+      });
+    }
 
-    if (editMode) {
-  await api.post("/update", payload);
-  alert("Sample updated successfully");
-} else {
-  const res = await api.post("/add", payload);
-  alert(`Saved successfully\nSample No: ${res.data.sample_no}`);
-}
+    return payload;
+  };
 
-// reload raw for current module + date
-fetchRaw(payload.date);
-initForm();
-  } catch (e) {
-    console.error(e.response?.data || e);
-    alert(
-      e.response?.data?.detail ||
-        JSON.stringify(e.response?.data) ||
-        "Save failed"
-    );
-  }
-  setSaving(false);
-};
-
+  /* ================= SAVE / UPDATE ================= */
+  const saveEntry = async () => {
+    setSaving(true);
+    try {
+      const payload = buildPayload();
+      if (editMode) {
+        await api.post("/update", payload);
+        alert("Sample updated successfully");
+      } else {
+        const res = await api.post("/add", payload);
+        alert(`Saved successfully\nSample No: ${res.data.sample_no}`);
+      }
+      initForm();
+    } catch (e) {
+      alert(e.response?.data?.detail || "Save failed");
+    }
+    setSaving(false);
+  };
 
   /* ================= LOAD SAMPLE ================= */
-  const loadSample = async (sn) => {
-    const res = await api.get("/entry", { params: { sample_no: sn } });
-    const rows = res.data.rows;
-    if (!rows?.length) return;
-
-    const first = rows[0];
-    const fd = {};
-
-    config.topPanel?.forEach((f) => {
-      fd[f.key] =
-        f.type === "date"
-          ? first.date
-          : f.type === "time"
-          ? first.time?.slice(0, 5)
-          : first[f.key] ?? "";
+  const loadSample = async (selectedSampleNo) => {
+  try {
+    const res = await api.get("/entry", {
+      params: { sample_no: selectedSampleNo },
     });
 
-    config.locationPanel?.forEach(
-      (f) => (fd[f.key] = first[f.key] ?? "")
-    );
+    const rows = res.data.rows;
+    if (!rows || rows.length === 0) {
+      alert("Sample not found");
+      return;
+    }
 
+    const first = rows[0];
+
+    // ---------- 1. BASE FORM DATA ----------
+    const fd = {};
+
+    // Map TOP PANEL correctly
+    config.topPanel?.forEach((f) => {
+      if (f.key.includes("date")) {
+        fd[f.key] = first.date; // YYYY-MM-DD
+      } else if (f.key.includes("time")) {
+        fd[f.key] = first.time?.slice(0, 5); // HH:MM
+      } else {
+        fd[f.key] = first[f.key] ?? "";
+      }
+    });
+
+    // Map LOCATION PANEL correctly
+    fd.plant = first.plant ?? "";
+    fd.broad_area = first.broad_area ?? "";
+    fd.main_area = first.main_area ?? "";
+    fd.main_collection_area = first.main_collection_area ?? "";
+    fd.exact_area = first.exact_collection_area ?? "";
+    fd.location = first.location ?? "";
+
+    // ---------- 2. CLEAR PARAMETER FIELDS ----------
     config.parameterPanels?.forEach((p) =>
       p.fields.forEach((f) => (fd[f.key] = ""))
     );
+    config.bottomPanel?.fields?.forEach((f) => (fd[f.key] = ""));
 
-    rows.forEach((r) => (fd[r.parameter] = r.value ?? ""));
+    // ---------- 3. LOAD VALUES ----------
+    if (!config.matrix) {
+      rows.forEach((r) => {
+        fd[r.parameter] = r.value ?? "";
+      });
+      setMatrixData({});
+    } else {
+      // MATRIX MODULE
+      const md = {};
+      config.matrix.params.forEach((p) => {
+        md[p.key] = {};
+        config.matrix.locations.forEach((l) => (md[p.key][l] = ""));
+      });
 
+      rows.forEach((r) => {
+        const [p, loc] = r.parameter.split("__");
+        if (md[p] && loc) md[p][loc] = r.value ?? "";
+      });
+
+      setMatrixData(md);
+    }
+
+    // ---------- 4. FINAL STATE ----------
     setFormData(fd);
-    setSampleNo(sn);
+    setSampleNo(selectedSampleNo);
     setEditMode(true);
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
 
-  /* ================= RAW MATRIX ================= */
-  const { columns, data } = useMemo(() => pivotRaw(rawRows), [rawRows]);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  } catch (err) {
+    console.error(err);
+    alert("Failed to load sample");
+  }
+};
+
 
   /* ================= RENDER ================= */
   return (
@@ -313,7 +355,7 @@ initForm();
         </select>
       </div>
 
-      {/* FORM */}
+      {/* TOP PANEL */}
       <div className="bg-white border rounded-lg">
         <SectionHeader title="Log Context" icon={Clock} />
         <div className="p-5 grid grid-cols-2 md:grid-cols-4 gap-6">
@@ -321,6 +363,8 @@ initForm();
             <PimsInput
               key={f.key}
               label={f.label}
+              type={f.type}
+              options={f.options}
               value={formData[f.key]}
               onChange={(e) =>
                 setFormData({ ...formData, [f.key]: e.target.value })
@@ -330,6 +374,7 @@ initForm();
         </div>
       </div>
 
+      {/* LOCATION */}
       <div className="bg-white border rounded-lg">
         <SectionHeader title="Location Details" icon={MapPin} />
         <div className="p-5 grid grid-cols-2 md:grid-cols-4 gap-6">
@@ -346,6 +391,7 @@ initForm();
         </div>
       </div>
 
+      {/* PARAMETERS */}
       {config.parameterPanels?.map((p, i) => (
         <div key={i} className="bg-white border rounded-lg">
           <SectionHeader title={p.title} icon={Database} />
@@ -354,6 +400,7 @@ initForm();
               <PimsInput
                 key={f.key}
                 label={f.label}
+                type={f.type}
                 value={formData[f.key]}
                 onChange={(e) =>
                   setFormData({ ...formData, [f.key]: e.target.value })
@@ -377,50 +424,26 @@ initForm();
       </button>
 
       {/* RAW TABLE */}
-      <div className="bg-white border rounded-lg overflow-x-auto">
+      <div className="bg-white border rounded-lg">
         <SectionHeader title="Raw Entries" icon={FileText} />
-
-        <div className="p-4 flex gap-4">
-          <PimsInput label="From Date" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-          <PimsInput label="To Date" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-          <button onClick={fetchRange} className="self-end px-4 py-2 bg-orange-600 text-white rounded">
-            Load
-          </button>
-        </div>
-
-        <table className="min-w-max text-xs border">
+        <table className="w-full text-sm">
           <thead className="bg-zinc-100">
             <tr>
-              <th className="p-2 border">Sample</th>
-              <th className="p-2 border">Date</th>
-              <th className="p-2 border">Time</th>
-              <th className="p-2 border">Plant</th>
-              <th className="p-2 border">Area</th>
-              <th className="p-2 border">Location</th>
-              {columns.map((c) => (
-                <th key={c} className="p-2 border">{c}</th>
-              ))}
+              <th className="p-2">Sample No</th>
+              <th className="p-2">Parameter</th>
+              <th className="p-2">Value</th>
             </tr>
           </thead>
-
           <tbody>
-            {data.map((r, i) => (
+            {rawRows.map((r, i) => (
               <tr
                 key={i}
                 onClick={() => loadSample(r.sample_no)}
                 className="cursor-pointer hover:bg-orange-50"
               >
-                <td className="p-2 border font-semibold">{r.sample_no}</td>
-                <td className="p-2 border">{r.date}</td>
-                <td className="p-2 border">{r.time}</td>
-                <td className="p-2 border">{r.plant}</td>
-                <td className="p-2 border">{r.main_area}</td>
-                <td className="p-2 border">{r.location}</td>
-                {columns.map((c) => (
-                  <td key={c} className="p-2 border text-center">
-                    {r[c] ?? ""}
-                  </td>
-                ))}
+                <td className="p-2">{r.sample_no}</td>
+                <td className="p-2">{r.parameter}</td>
+                <td className="p-2">{r.value}</td>
               </tr>
             ))}
           </tbody>

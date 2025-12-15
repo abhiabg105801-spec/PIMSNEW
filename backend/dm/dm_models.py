@@ -1,8 +1,7 @@
 from sqlalchemy import Column, Integer, String, Date, Time, Float, DateTime, Text
-from sqlalchemy.orm import declarative_base
-from datetime import datetime
 
-Base = declarative_base()
+from datetime import datetime
+from database import Base
 
 class DMEntryDB(Base):
     __tablename__ = "dm_entries"

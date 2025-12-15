@@ -4,10 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.websockets import WebSocket
-from routers import dm_plant
-from routers import messages
-from routers import fuel_inventory
-from routers.router_logic import router as logic_router
+
+
 
 from datetime import datetime, date, timedelta, time
 from typing import List, Optional
@@ -82,20 +80,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(dm_plant.router)
+from routers import messages
 app.include_router(messages.router, prefix="/messages")
-app.include_router(logic_router)
+from routers import fuel_inventory
 app.include_router(fuel_inventory.router)
+from routers.router_logic import router as logic_router
+app.include_router(logic_router)
+
 from routers import totalizers
 app.include_router(totalizers.router)
-from routers import chemical
-app.include_router(chemical.router)
+
 from routers import shutdowns
 app.include_router(shutdowns.router)
 from routers import dpr
 app.include_router(dpr.router)
-from dm.dm_router import router as dm_router
 
+from dm.dm_router import router as dm_router
 app.include_router(dm_router)
 
 

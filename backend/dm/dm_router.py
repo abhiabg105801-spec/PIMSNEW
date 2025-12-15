@@ -8,8 +8,9 @@ from .dm_crud import (
     dm_get_stats,
     dm_get_raw_by_date,
     dm_get_by_sample,
-    dm_update_by_sample,
+    dm_update_entries,
     dm_delete_by_sample,
+    dm_get_raw_by_range,
 )
 from database import get_db
 
@@ -74,3 +75,15 @@ async def dm_update(payload: DMEntryCreate, db: AsyncSession = Depends(get_db)):
 async def dm_delete(sample_no: str, db: AsyncSession = Depends(get_db)):
     await dm_delete_by_sample(db, sample_no)
     return {"deleted": sample_no}
+
+
+@router.get("/raw-range")
+async def dm_raw_range(
+    start: str,
+    end: str,
+    module: str = None,
+    db: AsyncSession = Depends(get_db)
+):
+    s = datetime.strptime(start, "%Y-%m-%d").date()
+    e = datetime.strptime(end, "%Y-%m-%d").date()
+    return {"rows": await dm_get_raw_by_range(db, s, e, module)}

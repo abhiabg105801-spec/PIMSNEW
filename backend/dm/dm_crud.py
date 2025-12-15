@@ -1,13 +1,18 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, delete, update
+from sqlalchemy import select, func, delete
 from datetime import datetime
 from .dm_models import DMEntryDB
 
-
-# -------------------------------------------------------
-#  AUTO SAMPLE NUMBER GENERATOR
-# -------------------------------------------------------
+# =======================================================
+# AUTO SAMPLE NUMBER GENERATOR (MODULE + YYYYMM + SEQ)
+# =======================================================
 async def generate_sample_no(db: AsyncSession, module: str, date_obj):
+    """
+    Format:
+      <MOD>-YYYYMM-0001
+    Example:
+      PROX-202502-0007
+    """
     ym = date_obj.strftime("%Y%m")
     prefix = module[:4].upper()
 
@@ -30,23 +35,26 @@ async def generate_sample_no(db: AsyncSession, module: str, date_obj):
     return f"{prefix}-{ym}-{new_num:04d}"
 
 
-# -------------------------------------------------------
-#  CREATE ENTRIES
-# -------------------------------------------------------
+# =======================================================
+# CREATE ENTRIES (CREATE + UPDATE REUSE)
+# =======================================================
 async def dm_create_entries(db: AsyncSession, payload: dict):
     date_obj = payload["date"]
     raw_time = payload["time"]
 
+    # parse time safely
     try:
         py_time = datetime.strptime(raw_time, "%H:%M:%S").time()
     except:
         py_time = datetime.strptime(raw_time, "%H:%M").time()
 
+    # generate sample_no if not provided
     sample_no = payload.get("sample_no")
     if not sample_no:
         sample_no = await generate_sample_no(db, payload["module"], date_obj)
 
     rows = []
+
     for entry in payload["entries"]:
         row = DMEntryDB(
             sample_no=sample_no,
@@ -70,15 +78,20 @@ async def dm_create_entries(db: AsyncSession, payload: dict):
         rows.append(row)
 
     await db.commit()
+    for r in rows:
+        await db.refresh(r)
+
     return rows
 
 
-# -------------------------------------------------------
-#  READ STATISTICS
-# -------------------------------------------------------
+# =======================================================
+# DAILY STATISTICS (MODULE SAFE)
+# =======================================================
 async def dm_get_stats(db: AsyncSession, date_obj, module=None):
     stmt = (
         select(
+            DMEntryDB.module,
+            DMEntryDB.category,
             DMEntryDB.parameter,
             func.avg(DMEntryDB.value),
             func.min(DMEntryDB.value),
@@ -86,120 +99,90 @@ async def dm_get_stats(db: AsyncSession, date_obj, module=None):
             func.count(DMEntryDB.value),
         )
         .where(DMEntryDB.date == date_obj)
-        .group_by(DMEntryDB.parameter)
+        .group_by(
+            DMEntryDB.module,
+            DMEntryDB.category,
+            DMEntryDB.parameter
+        )
     )
 
     if module:
         stmt = stmt.where(DMEntryDB.module == module)
 
     rows = (await db.execute(stmt)).all()
+
     return [
         {
-            "parameter": r[0],
-            "avg": float(r[1]) if r[1] else None,
-            "min": float(r[2]) if r[2] else None,
-            "max": float(r[3]) if r[3] else None,
-            "count": r[4],
+            "module": r[0],
+            "category": r[1],
+            "parameter": r[2],
+            "avg": float(r[3]) if r[3] is not None else None,
+            "min": float(r[4]) if r[4] is not None else None,
+            "max": float(r[5]) if r[5] is not None else None,
+            "count": int(r[6]),
         }
         for r in rows
     ]
 
 
-# -------------------------------------------------------
-#  RAW DATA GET BY DATE (INCLUDES sample_no)
-# -------------------------------------------------------
+# =======================================================
+# RAW DATA TABLE (PER ENTRY, INCLUDES sample_no)
+# =======================================================
 async def dm_get_raw_by_date(db: AsyncSession, date_obj, module=None):
     stmt = select(DMEntryDB).where(DMEntryDB.date == date_obj)
 
     if module:
         stmt = stmt.where(DMEntryDB.module == module)
 
-    stmt = stmt.order_by(DMEntryDB.sample_no, DMEntryDB.parameter)
+    stmt = stmt.order_by(
+        DMEntryDB.sample_no.asc(),
+        DMEntryDB.parameter.asc()
+    )
+
     return (await db.execute(stmt)).scalars().all()
 
 
-# -------------------------------------------------------
-#  GET ENTRY GROUP BY sample_no
-# -------------------------------------------------------
+# =======================================================
+# LOAD FULL SAMPLE (EDIT MODE)
+# =======================================================
 async def dm_get_by_sample(db: AsyncSession, sample_no: str):
     stmt = select(DMEntryDB).where(DMEntryDB.sample_no == sample_no)
     return (await db.execute(stmt)).scalars().all()
 
 
-# -------------------------------------------------------
-#  UPDATE ENTRY GROUP
-# -------------------------------------------------------
-async def dm_update_by_sample(db: AsyncSession, sample_no: str, payload: dict):
-    # delete old rows
-    await db.execute(delete(DMEntryDB).where(DMEntryDB.sample_no == sample_no))
-    await db.commit()
-
-    # insert new rows with SAME sample_no
-    payload["sample_no"] = sample_no
-    return await dm_create_entries(db, payload)
-
-
-# -------------------------------------------------------
-#  DELETE ENTRY GROUP
-# -------------------------------------------------------
-async def dm_delete_by_sample(db: AsyncSession, sample_no: str):
-    await db.execute(delete(DMEntryDB).where(DMEntryDB.sample_no == sample_no))
-    await db.commit()
-    return True
-
+# =======================================================
+# UPDATE SAMPLE (DELETE + INSERT SAME sample_no)
+# =======================================================
 async def dm_update_entries(db: AsyncSession, payload: dict):
-    """
-    Replaces all rows of a sample_no with new rows.
-    Incoming payload:
-    {
-        sample_no: "...",
-        module: "...",
-        date: "YYYY-MM-DD",
-        time: "HH:MM",
-        entries: [{parameter, value, remarks}]
-    }
-    """
     sample_no = payload["sample_no"]
 
-    # 1. Delete old entries of this sample_no
+    # delete existing rows
     await db.execute(
         delete(DMEntryDB).where(DMEntryDB.sample_no == sample_no)
     )
-
-    # 2. Insert new entries
-    raw_time = payload["time"]
-    try:
-        py_time = datetime.strptime(raw_time, "%H:%M:%S").time()
-    except:
-        py_time = datetime.strptime(raw_time, "%H:%M").time()
-
-    rows = []
-
-    for entry in payload["entries"]:
-        row = DMEntryDB(
-            sample_no=sample_no,
-            date=payload["date"],
-            time=py_time,
-            module=payload["module"],
-
-            plant=payload.get("plant"),
-            broad_area=payload.get("broad_area"),
-            main_area=payload.get("main_area"),
-            main_collection_area=payload.get("main_collection_area"),
-            exact_collection_area=payload.get("exact_collection_area"),
-
-            location=payload.get("location"),
-
-            parameter=entry["parameter"],
-            value=entry.get("value"),
-            remarks=entry.get("remarks")
-        )
-
-        db.add(row)
-        rows.append(row)
-
     await db.commit()
-    for r in rows:
-        await db.refresh(r)
 
-    return rows
+    # reinsert with SAME sample_no
+    return await dm_create_entries(db, payload)
+
+
+# =======================================================
+# DELETE SAMPLE GROUP
+# =======================================================
+async def dm_delete_by_sample(db: AsyncSession, sample_no: str):
+    await db.execute(
+        delete(DMEntryDB).where(DMEntryDB.sample_no == sample_no)
+    )
+    await db.commit()
+    return True
+
+
+async def dm_get_raw_by_range(db, start_date, end_date, module=None):
+    stmt = select(DMEntryDB).where(
+        DMEntryDB.date.between(start_date, end_date)
+    )
+    if module:
+        stmt = stmt.where(DMEntryDB.module == module)
+
+    stmt = stmt.order_by(DMEntryDB.date, DMEntryDB.sample_no)
+    return (await db.execute(stmt)).scalars().all()
