@@ -91,12 +91,11 @@ const SectionHeader = ({ title, icon: Icon, right }) => (
 );
 
 /* ================= RAW HELPERS ================= */
-const pivotRawData = (rows) => {
-  const params = new Set();
+const pivotRawData = (rows, config) => {
+  const cols = new Set();
   const map = {};
 
   rows.forEach((r) => {
-    params.add(r.parameter);
     if (!map[r.sample_no]) {
       map[r.sample_no] = {
         sample_no: r.sample_no,
@@ -107,11 +106,28 @@ const pivotRawData = (rows) => {
         location: r.location,
       };
     }
-    map[r.sample_no][r.parameter] = r.value;
+
+    // ---------- MATRIX PARAM ----------
+    if (config.matrix && r.parameter.includes("__")) {
+      const [param, loc] = r.parameter.split("__");
+      const colKey = `${param} (${loc})`; // 👈 column name
+      cols.add(colKey);
+      map[r.sample_no][colKey] = r.value;
+    }
+
+    // ---------- NORMAL PARAM ----------
+    else {
+      cols.add(r.parameter);
+      map[r.sample_no][r.parameter] = r.value;
+    }
   });
 
-  return { columns: [...params], data: Object.values(map) };
+  return {
+    columns: Array.from(cols),
+    data: Object.values(map),
+  };
 };
+
 
 const calcStats = (data, cols) => {
   const stats = {};
@@ -403,7 +419,11 @@ if (payload.entries.length === 0) {
     fetchRange();
   };
 
-  const { columns, data } = useMemo(() => pivotRawData(rawRows), [rawRows]);
+  const { columns, data } = useMemo(
+  () => pivotRawData(rawRows, config),
+  [rawRows, config]
+);
+
 
   useEffect(() => {
     const init = {};
@@ -652,6 +672,9 @@ if (payload.entries.length === 0) {
               title="Raw Data Log"
               icon={FileText}
               right={
+
+
+                
                 <div className="flex gap-2">
                   <button
                     onClick={() => setShowCols(!showCols)}
@@ -724,7 +747,7 @@ if (payload.entries.length === 0) {
                 <thead className="bg-zinc-100 sticky top-0 z-30 shadow-sm">
                   <tr>
                     <th className="p-2 border-b border-r border-zinc-300 sticky left-0 z-40 bg-zinc-100 w-10"></th>
-                    <th className="p-2 border-b border-r border-zinc-300 sticky left-[40px] z-40 bg-zinc-100 text-zinc-600 font-bold uppercase w-24 text-left">
+                    <th className="p-2 border-b border-r border-zinc-300 sticky left-[40px] z-40 bg-zinc-100 text-zinc-600 font-bold uppercase w-30 text-left">
                       Sample
                     </th>
                     <th className="p-2 border-b border-r border-zinc-300 sticky left-[136px] z-40 bg-zinc-100 text-zinc-600 font-bold uppercase w-24 text-left">

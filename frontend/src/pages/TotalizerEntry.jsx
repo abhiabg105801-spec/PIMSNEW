@@ -462,14 +462,15 @@ export default function TotalizerEntryPage({ auth }) {
   const liveEnergyKPI = useMemo(() => {
     const d = (k) => getDiff(k, "Energy-Meter");
     try {
-      const unit1_unit_aux_mwh = d("1lsr01_ic1") + d("1lsr02_ic1");
-      const unit2_unit_aux_mwh = d("2lsr01_ic1") + d("2lsr02_ic1");
-      const total_station_aux_mwh = d("rlsr01") + d("rlsr02") + d("rlsr03") + d("rlsr04") + d("SST_10") + d("UST_15") + d("UST_25");
+      const unit1_unit_aux_mwh = d("1lsr01_ic1") + d("1lsr02_ic1") + d("1lsr01_ic2_tie")-d("SST_10")-d("UST_15");
+      const unit2_unit_aux_mwh = d("2lsr01_ic1") + d("2lsr02_ic1")+ d("2lsr01_ic2_tie")-d("UST_25");
+      const total_station_aux_mwh = d("rlsr01") + d("rlsr02") + d("rlsr03") + d("rlsr04") -d("1lsr01_ic2_tie") 
+      - d("1lsr02_ic2_tie") - d("2lsr01_ic2_tie") - d("2lsr02_ic2_tie")+d("SST_10")+d("UST_15")+d("UST_25")+d("SST_10")+d("UST_15");
       const total_station_tie_mwh = d("1lsr01_ic2_tie") + d("1lsr02_ic2_tie") + d("2lsr01_ic2_tie") + d("2lsr02_ic2_tie");
       const unit1_gen = d("unit1_gen");
       const unit2_gen = d("unit2_gen");
-      const unit1_aux_consumption_mwh = unit1_unit_aux_mwh + (total_station_aux_mwh + total_station_tie_mwh) / 2.0;
-      const unit2_aux_consumption_mwh = unit2_unit_aux_mwh + (total_station_aux_mwh + total_station_tie_mwh) / 2.0;
+      const unit1_aux_consumption_mwh = unit1_unit_aux_mwh + (total_station_aux_mwh ) / 2.0;
+      const unit2_aux_consumption_mwh = unit2_unit_aux_mwh + (total_station_aux_mwh ) / 2.0;
       const unit1_aux_percent = unit1_gen > 0 ? (unit1_aux_consumption_mwh / unit1_gen) * 100.0 : 0.0;
       const unit2_aux_percent = unit2_gen > 0 ? (unit2_aux_consumption_mwh / unit2_gen) * 100.0 : 0.0;
       const unit1_plf_percent = unit1_gen > 0 ? (unit1_gen / 3000.0) * 100.0 : 0.0;
@@ -803,9 +804,23 @@ export default function TotalizerEntryPage({ auth }) {
         <div className="space-y-3">
           <div className="text-xs font-semibold text-gray-700">Energy (live)</div>
           <KpiCard k="unit1_generation" label="U1 Gen" value={ek.unit1_generation ?? 0} unit="MWh" Icon={ChartBarIcon} />
+          <KpiCard k="unit1_plf_percent" label="U1 PLF" value={ek.unit1_plf_percent ?? 0} unit="%" Icon={ChartBarIcon} />
+
           <KpiCard k="unit2_generation" label="U2 Gen" value={ek.unit2_generation ?? 0} unit="MWh" Icon={ChartBarIcon} />
+          <KpiCard k="unit2_plf_percent" label="U2 PLF" value={ek.unit2_plf_percent ?? 0} unit="%" Icon={ChartBarIcon} />
+
+          <KpiCard k="unit1_aux_consumption_mwh" label="U1 Aux Consumption" value={ek.unit1_aux_consumption_mwh ?? 0} unit="Mwh" Icon={BoltIcon} />
+          <KpiCard k="unit2_aux_consumption_mwh" label="U2 Aux Consumption" value={ek.unit2_aux_consumption_mwh ?? 0} unit="Mwh" Icon={BoltIcon} />
+
           <KpiCard k="unit1_aux_percent" label="U1 Aux %" value={ek.unit1_aux_percent ?? 0} unit="%" Icon={BoltIcon} />
           <KpiCard k="unit2_aux_percent" label="U2 Aux %" value={ek.unit2_aux_percent ?? 0} unit="%" Icon={BoltIcon} />
+
+          <KpiCard k="unit1_unit_aux_mwh" label="U1 UAT CONS" value={ek.unit1_unit_aux_mwh ?? 0} unit="Mwh" Icon={BoltIcon} />
+          <KpiCard k="unit2_unit_aux_mwh" label="U2 UAT CONS" value={ek.unit2_unit_aux_mwh ?? 0} unit="Mwh" Icon={BoltIcon} />
+
+          <KpiCard k="total_station_aux_mwh" label="Station Aux" value={ek.total_station_aux_mwh ?? 0} unit="Mwh" Icon={BoltIcon} />
+          <KpiCard k="total_station_tie_mwh" label="Station Tie" value={ek.total_station_tie_mwh ?? 0} unit="Mwh" Icon={BoltIcon} />
+
           <KpiCard k="station_plf_percent" label="Station PLF" value={ek.station_plf_percent ?? 0} unit="%" Icon={ChartBarIcon} />
         </div>
       );

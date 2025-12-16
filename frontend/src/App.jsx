@@ -22,10 +22,11 @@ import LogicDiagramPage from "./pages/LogicDiagramPage";
 import FloatingMessageBox from "./components/FloatingMessageBox";
 import TotalizerEntry from "./pages/TotalizerEntry";
 
-// DM Plant Module
+// DM Plant Pages
 import DMPlantPage from "./pages/UniversalPIMSPage";
+import ChemicalStockPage from "./pages/ChemicalStockPage";
 
-// Decode JWT Helper
+/* ================= JWT DECODE ================= */
 function decodeJWT(token) {
   try {
     const base64 = token.split(".")[1];
@@ -64,108 +65,123 @@ export default function App() {
 }
 
 /* ======================================================
-   PREMIUM CORPORATE GREY–ORANGE UI LAYOUT
-   ====================================================== */
-
-/* ======================================================
-   THEME: "CONCRETE & STEEL" (Zinc-300 Industrial)
-   ====================================================== */
+   MAIN LAYOUT
+====================================================== */
 
 function Layout({ authHeader, onLogout }) {
   const decoded = decodeJWT(authHeader.replace("Bearer ", ""));
   const username = decoded?.sub || "User";
   const roleId = decoded?.role_id || null;
 
-  const location = useLocation();
   const dmRoles = [1, 2, 3, 5, 7, 8];
 
   return (
-    // MAIN WRAPPER: Gradient from Light Zinc (200) to Mid Zinc (300)
-    // This creates the "Zinc-300 level" feel without being too dark to read.
-    <div className="min-h-screen flex flex-col bg-gradient-to-br from-zinc-50 via-zinc-50 to-zinc-50 text-zinc-800">
+    <div className="min-h-screen flex flex-col bg-zinc-50 text-zinc-800">
 
       {/* ================= HEADER ================= */}
-      {/* Dark Charcoal Header for contrast */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-zinc-800 shadow-md border-b border-zinc-900">
+      <header className="fixed top-0 left-0 right-0 z-50 bg-zinc-800 border-b border-zinc-900">
 
-        {/* Top Branding Bar */}
-        <div className="h-14 flex items-center justify-between px-6 bg-zinc-800 text-zinc-100">
-
-          {/* LOGO */}
+        {/* TOP BAR */}
+        <div className="h-14 flex items-center justify-between px-6 text-zinc-100">
           <div className="flex items-center gap-3">
-             {/* Ensure logo is visible on dark bg */}
             <img src="/jsl-logo.JPG" alt="JSL Logo" className="h-12 brightness-110" />
           </div>
 
-          {/* CENTER TITLE */}
-          <div className="absolute left-1/2 -translate-x-1/2 hidden xl:block text-center">
-            <span className="text-[26px] font-bold tracking-wide text-zinc-400">
-              <span className="text-orange-500 font-extrabold">2×125 MW CPP</span> 
-              <span className="mx-2 text-zinc-600">|</span> 
+          <div className="absolute left-1/2 -translate-x-1/2 hidden xl:block">
+            <span className="text-[26px] font-bold tracking-wide">
+              <span className="text-orange-500">2×125 MW CPP</span>
+              <span className="mx-2 text-zinc-600">|</span>
               <span className="text-white">PIMS</span>
             </span>
           </div>
 
-          {/* USER MENU - Text forced to white/light for the dark header */}
-          <div className="text-zinc-200">
-            <UserMenu username={username} onLogout={onLogout} />
-          </div>
+          <UserMenu username={username} onLogout={onLogout} />
         </div>
 
-        {/* ORANGE ACCENT STRIP */}
         <div className="h-[3px] bg-gradient-to-r from-[#E06A1B] via-[#F6A65A] to-[#E06A1B]" />
-        
-        {/* ================= NAVIGATION ================= */}
-        {/* Zinc-300 Navbar (The specific grey you requested) */}
+
+        {/* ================= NAV BAR ================= */}
         <nav className="h-8 bg-zinc-200 border-b border-zinc-400 shadow-inner">
           <div className="max-w-7xl mx-auto flex items-center h-full gap-5 px-6">
 
-            {/* --- Navigation Items --- */}
-            {[
-              { to: "/TotalizerEntry", label: "125MW" },
-              ...(dmRoles.includes(roleId) ? [{ to: "/dm-plant", label: "DM Plant" }] : []),
-              { to: "/reports", label: "Reports" },
-              { to: "/shutdowns", label: "Shutdown Log" },
-              { to: "/charts", label: "KPI Charts" },
-              { to: "/DesignDataPage", label: "Design Data" },
-              { to: "/LogicDiagramPage", label: "Logic Diagrams" },
-              ...(username === "admin" ? [{ to: "/admin", label: "Admin Panel" }] : []),
-            ].map((item) => (
-              <NavItem key={item.to} to={item.to} label={item.label} />
-            ))}
+            <NavItem to="/TotalizerEntry" label="125MW" />
+
+            {/* ===== DM PLANT DROPDOWN ===== */}
+            {dmRoles.includes(roleId) && (
+              <div className="relative group h-full flex items-center">
+
+                <div className="relative flex items-center h-full px-3 text-[13px] font-bold uppercase tracking-wide
+                                text-zinc-600 hover:text-[#E06A1B] cursor-pointer">
+                  DM Plant
+                  <span className="ml-1 text-[10px]">▼</span>
+                  <span className="absolute bottom-0 left-0 h-[3px] bg-[#E06A1B]
+                                   w-0 group-hover:w-full transition-all" />
+                </div>
+
+                <div className="absolute top-full left-0 mt-[2px] w-52
+                                bg-white border border-zinc-300 shadow-lg rounded
+                                opacity-0 invisible group-hover:opacity-100 group-hover:visible
+                                transition-all z-50">
+
+                  <NavLink
+                    to="/dm-plant"
+                    className={({ isActive }) =>
+                      `block px-4 py-2 text-xs font-semibold uppercase
+                      ${isActive ? "bg-orange-50 text-orange-700" : "text-zinc-700 hover:bg-zinc-100"}`
+                    }
+                  >
+                    DM Data Entry
+                  </NavLink>
+
+                  <NavLink
+                    to="/dm-chemical-stock"
+                    className={({ isActive }) =>
+                      `block px-4 py-2 text-xs font-semibold uppercase
+                      ${isActive ? "bg-orange-50 text-orange-700" : "text-zinc-700 hover:bg-zinc-100"}`
+                    }
+                  >
+                    Chemical Stock
+                  </NavLink>
+
+                </div>
+              </div>
+            )}
+
+            <NavItem to="/reports" label="Reports" />
+            <NavItem to="/shutdowns" label="Shutdown Log" />
+            <NavItem to="/charts" label="KPI Charts" />
+            <NavItem to="/DesignDataPage" label="Design Data" />
+            <NavItem to="/LogicDiagramPage" label="Logic Diagrams" />
+
+            {username === "admin" && <NavItem to="/admin" label="Admin Panel" />}
 
           </div>
         </nav>
       </header>
 
-      {/* ================= MAIN CONTENT ================= */}
+      {/* ================= CONTENT ================= */}
       <main className="flex-1 pt-[110px] px-3 pb-6">
-        <div className="h-full">
-          <Routes>
-            <Route path="/" element={<Navigate to="/entry" />} />
-            
-            <Route path="/reports" element={<Reports auth={authHeader} />} />
-            <Route path="/shutdowns" element={<PlantShutdownPage auth={authHeader} />} />
-            <Route path="/charts" element={<KpiChartsPage auth={authHeader} />} />
-            <Route path="/kpi-data" element={<KpiRangeViewer auth={authHeader} />} />
-            <Route path="/admin" element={<AdminPanel auth={authHeader} />} />
+        <Routes>
+          <Route path="/" element={<Navigate to="/TotalizerEntry" />} />
 
-            {/* DM Plant */}
-            <Route path="/dm-plant" element={<DMPlantPage auth={authHeader} />} />
+          <Route path="/TotalizerEntry" element={<TotalizerEntry auth={authHeader} />} />
 
-            {/* Technical Pages */}
-            <Route path="/DesignDataPage" element={<DesignDataPage auth={authHeader} />} />
-            <Route path="/LogicDiagramPage" element={<LogicDiagramPage auth={authHeader} />} />
+          <Route path="/dm-plant" element={<DMPlantPage auth={authHeader} />} />
+          <Route path="/dm-chemical-stock" element={<ChemicalStockPage auth={authHeader} />} />
 
-            {/* Totalizer Entry */}
-            <Route path="/TotalizerEntry" element={<TotalizerEntry auth={authHeader} />} />
-          </Routes>
-        </div>
+          <Route path="/reports" element={<Reports auth={authHeader} />} />
+          <Route path="/shutdowns" element={<PlantShutdownPage auth={authHeader} />} />
+          <Route path="/charts" element={<KpiChartsPage auth={authHeader} />} />
+          <Route path="/kpi-data" element={<KpiRangeViewer auth={authHeader} />} />
+          <Route path="/DesignDataPage" element={<DesignDataPage auth={authHeader} />} />
+          <Route path="/LogicDiagramPage" element={<LogicDiagramPage auth={authHeader} />} />
+          <Route path="/admin" element={<AdminPanel auth={authHeader} />} />
+        </Routes>
       </main>
 
       {/* ================= FOOTER ================= */}
-      <footer className="bg-zinc-300 border-t border-zinc-400 py-4 mt-auto">
-        <div className="max-w-7xl mx-auto px-6 text-sm text-zinc-600 flex items-center justify-between">
+      <footer className="bg-zinc-300 border-t border-zinc-400 py-4">
+        <div className="max-w-7xl mx-auto px-6 text-sm text-zinc-600 flex justify-between">
           <span>© {new Date().getFullYear()} Jindal Stainless Ltd.</span>
           <a href="mailto:cppsupport@jsl.com" className="text-[#E06A1B] font-bold hover:underline">
             Contact Support
@@ -178,9 +194,7 @@ function Layout({ authHeader, onLogout }) {
   );
 }
 
-/* -----------------------------------------------------
-   NAVIGATION LINK COMPONENT (Adapted for Zinc-300)
------------------------------------------------------ */
+/* ================= NAV ITEM ================= */
 function NavItem({ to, label }) {
   return (
     <NavLink
@@ -188,24 +202,14 @@ function NavItem({ to, label }) {
       className={({ isActive }) =>
         `
         relative flex items-center h-full px-3 text-[13px] font-bold uppercase tracking-wide
-        transition-all duration-300
-
-        /* Text Colors for Zinc-300 Background */
-        ${isActive 
-          ? "text-black" // Active: Sharp Black
-          : "text-zinc-600 hover:text-[#E06A1B]" // Inactive: Dark Grey -> Orange
-        }
-
-        /* Bottom Orange Line */
-        after:absolute after:bottom-0 after:left-0
-        after:h-[3px] after:bg-[#E06A1B]
+        ${isActive ? "text-black" : "text-zinc-600 hover:text-[#E06A1B]"}
+        after:absolute after:bottom-0 after:left-0 after:h-[3px] after:bg-[#E06A1B]
         after:transition-all after:duration-300
-        ${isActive ? "after:w-full" : "after:w-0 group-hover:after:w-full"}
-      `
+        ${isActive ? "after:w-full" : "after:w-0 hover:after:w-full"}
+        `
       }
     >
       {label}
     </NavLink>
   );
 }
-

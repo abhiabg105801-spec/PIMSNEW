@@ -88,8 +88,10 @@ const PIMS_CONFIG = {
     ],
 
     locationPanel: [
-      { key: "plant", label: "Plant", type: "text" },
-      { key: "broad_area", label: "Broad Area", type: "text" },
+      { key: "plant", label: "Plant", type: "select",
+    options: ["2x125MW", "14MW"] },
+      { key: "broad_area", label: "Broad Area",type: "select",
+    options: ["Unit-1", "Unit-2", "14MW"]},
       { key: "main_area", label: "Main Area", type: "text" },
       { key: "main_collection_area", label: "Main Collection Area", type: "text" },
       { key: "exact_area", label: "Sample Point", type: "text" }
@@ -314,6 +316,13 @@ const PIMS_CONFIG = {
 
     tableColumns: ["Plant", "Area", "Parameter", "Condensate", "Feed Water", "Drum", "Boiler"]
   },
+
+
+
+
+
+
+
 
   chemical_coolingtower: {
     label: "Chemical Parameters - Cooling Tower",

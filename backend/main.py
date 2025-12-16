@@ -98,6 +98,9 @@ app.include_router(dpr.router)
 from dm.dm_router import router as dm_router
 app.include_router(dm_router)
 
+from dm.chemical_routes import router as chemical_router
+app.include_router(chemical_router)
+
 
 
 
