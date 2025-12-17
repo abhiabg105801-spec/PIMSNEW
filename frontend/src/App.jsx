@@ -21,6 +21,7 @@ import DesignDataPage from "./pages/DesignDataPage";
 import LogicDiagramPage from "./pages/LogicDiagramPage";
 import FloatingMessageBox from "./components/FloatingMessageBox";
 import TotalizerEntry from "./pages/TotalizerEntry";
+import FuelUnloadingPage from "./pages/FuelUnloadingPage";
 
 // DM Plant Pages
 import DMPlantPage from "./pages/UniversalPIMSPage";
@@ -104,7 +105,53 @@ function Layout({ authHeader, onLogout }) {
         <nav className="h-8 bg-zinc-200 border-b border-zinc-400 shadow-inner">
           <div className="max-w-7xl mx-auto flex items-center h-full gap-5 px-6">
 
-            <NavItem to="/TotalizerEntry" label="125MW" />
+            {/* ===== 125 MW DROPDOWN ===== */}
+<div className="relative group h-full flex items-center">
+
+  <div
+    className="relative flex items-center h-full px-3 text-[13px] font-bold uppercase tracking-wide
+               text-zinc-600 hover:text-[#E06A1B] cursor-pointer"
+  >
+    125MW
+    <span className="ml-1 text-[10px]">▼</span>
+
+    <span
+      className="absolute bottom-0 left-0 h-[3px] bg-[#E06A1B]
+                 w-0 group-hover:w-full transition-all"
+    />
+  </div>
+
+  <div
+    className="absolute top-full left-0 mt-[2px] w-56
+               bg-white border border-zinc-300 shadow-lg rounded
+               opacity-0 invisible group-hover:opacity-100 group-hover:visible
+               transition-all z-50"
+  >
+    <NavLink
+      to="/TotalizerEntry"
+      className={({ isActive }) =>
+        `block px-4 py-2 text-xs font-semibold uppercase
+         ${isActive
+           ? "bg-orange-50 text-orange-700"
+           : "text-zinc-700 hover:bg-zinc-100"}`
+      }
+    >
+      Totalizer Entry
+    </NavLink>
+
+    <NavLink
+      to="/fuel-unloading"
+      className={({ isActive }) =>
+        `block px-4 py-2 text-xs font-semibold uppercase
+         ${isActive
+           ? "bg-orange-50 text-orange-700"
+           : "text-zinc-700 hover:bg-zinc-100"}`
+      }
+    >
+      Fuel Unloading
+    </NavLink>
+  </div>
+</div>
 
             {/* ===== DM PLANT DROPDOWN ===== */}
             {dmRoles.includes(roleId) && (
@@ -165,6 +212,8 @@ function Layout({ authHeader, onLogout }) {
           <Route path="/" element={<Navigate to="/TotalizerEntry" />} />
 
           <Route path="/TotalizerEntry" element={<TotalizerEntry auth={authHeader} />} />
+          <Route path="/fuel-unloading" element={<FuelUnloadingPage auth={authHeader} />} />
+
 
           <Route path="/dm-plant" element={<DMPlantPage auth={authHeader} />} />
           <Route path="/dm-chemical-stock" element={<ChemicalStockPage auth={authHeader} />} />

@@ -82,8 +82,10 @@ app.add_middleware(
 
 from routers import messages
 app.include_router(messages.router, prefix="/messages")
-from routers import fuel_inventory
-app.include_router(fuel_inventory.router)
+
+from oil.oil_router import router as oil_router
+app.include_router(oil_router)
+
 from routers.router_logic import router as logic_router
 app.include_router(logic_router)
 
