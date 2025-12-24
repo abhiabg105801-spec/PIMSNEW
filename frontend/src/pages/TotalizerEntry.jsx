@@ -259,9 +259,10 @@ export default function TotalizerEntryPage({ auth }) {
             rec.adjust = rowMap[t.id].adjust;
             rec._orig = { today: rec.today, adjust: rec.adjust };
           } else {
-            rec.today = "";
-            rec.adjust = rec._orig?.adjust ?? 0;
-          }
+  rec.today = "";
+  rec.adjust = 0;                 // ✅ reset adjustment for new date
+  rec._orig = { today: "", adjust: 0 };
+}
           if (rec.yesterday === "—" || rec.today === "" || rec.today === null) rec.difference = "—";
           updated[t.id] = { ...rec };
         });
@@ -741,24 +742,84 @@ export default function TotalizerEntryPage({ auth }) {
 
   // KPI card component
   const KpiCard = ({ k, label, value, unit = "", Icon = ChartBarIcon }) => {
-    const isHighlighted = !!highlightedKPIs[k];
-    return (
-      <div className={`flex items-center justify-between p-1 rounded-lg transition-all duration-200 border ${isHighlighted ? "border-orange-400 bg-orange-50 shadow-[0_6px_18px_rgba(249,115,22,0.08)] scale-[1.02]" : "border-gray-200 bg-white"} `}>
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-md bg-gray-100 text-orange-600">
-            <Icon className="w-5 h-5" />
-          </div>
-          <div className="text-xs text-gray-600">{label}</div>
-        </div>
-        <div className="text-right ml-3">
-          <div className="font-bold text-sm text-gray-900">
-            {value === null || value === undefined ? "—" : (typeof value === "number" ? (unit === "%" ? value.toFixed(2) : value.toFixed(3)) : value)}
-          </div>
-          <div className="text-xs text-orange-600">{unit}</div>
-        </div>
+  const isHighlighted = !!highlightedKPIs[k];
+
+  return (
+    <div
+      className={`
+        flex items-center
+        h-6
+        px-2
+        border-l-[4px]
+        border
+        transition-all duration-150
+        ${
+          isHighlighted
+            ? `
+              border-orange-600
+              bg-orange-200
+              shadow-[0_1px_3px_rgba(0,0,0,0.35)]
+            `
+            : `
+             border-orange-600
+              bg-white
+              hover:bg-zinc-200
+            `
+        }
+      `}
+    >
+      {/* ICON */}
+      <div
+        className="
+          w-4 h-4
+          flex items-center justify-center
+          rounded
+          bg-zinc-300
+          text-orange-700
+          mr-2
+        "
+      >
+        <Icon className="w-3 h-3" />
       </div>
-    );
-  };
+
+      {/* LABEL */}
+      <div className="flex-1 text-[10px] text-zinc-950 truncate font-extrabold">
+        {label}
+      </div>
+
+      {/* VALUE */}
+      <div className="ml-2 flex items-baseline gap-1 font-mono">
+        <span
+          className={`
+            text-[12px] font-black
+            ${
+              typeof value === "number" && value < 0
+                ? "text-red-800"
+                : "text-zinc-950"
+            }
+          `}
+        >
+          {value === null || value === undefined
+            ? "—"
+            : typeof value === "number"
+              ? value.toFixed(3)
+              : value}
+        </span>
+
+        {unit && (
+          <span className="text-[9px] text-orange-800 font-extrabold tracking-wide">
+            {unit}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+};
+
+
+
+
+
 
  const renderLeftKPIList = () => {
     // Compose KPI cards compactly — grouped and arranged
@@ -768,7 +829,7 @@ export default function TotalizerEntryPage({ auth }) {
       const sKPI = shutdownKPIs[activeTab] || {};
       return (
         <div className="space-y-3">
-          <div className="text-xs font-semibold text-gray-700">Unit Performance</div>
+          
           <KpiCard k="daily_generation" label="Daily Generation" value={(activeTab === "Unit-1" ? (s?.unit1_generation ?? null) : (s?.unit2_generation ?? null)) ?? null} unit="MWh" Icon={ChartBarIcon} />
           <KpiCard k="plf" label="PLF" value={(activeTab === "Unit-1" ? s?.unit1_plf_percent : s?.unit2_plf_percent) ?? null} unit="%" Icon={ChartBarIcon} />
           <KpiCard k="running_hour" label="Running Hour" value={sKPI.running_hour !== null ? Number(sKPI.running_hour) : null} unit="hr" Icon={BoltIcon} />
@@ -789,7 +850,7 @@ export default function TotalizerEntryPage({ auth }) {
       const local = localStationKPI || { total_raw_water: 0, avg_raw_per_hr: 0, total_dm: 0 };
       return (
         <div className="space-y-3">
-          <div className="text-xs font-semibold text-gray-700">Station KPIs</div>
+          
           <KpiCard k="station_plf_percent" label="Station PLF" value={s?.station_plf_percent ?? (((Number(s?.unit1_generation || 0) + Number(s?.unit2_generation || 0)) > 0) ? (((Number(s.unit1_generation || 0) + Number(s.unit2_generation || 0)) / 3000) * 100) : null)} unit="%" Icon={ChartBarIcon} />
           <KpiCard k="total_raw_water_used_m3" label="Total Raw Water" value={renderKpiValue("total_raw_water_used_m3") ?? local.total_raw_water} unit="m3" Icon={CloudIcon} />
           <KpiCard k="avg_raw_water_m3_per_hr" label="Avg Raw Water/hr" value={renderKpiValue("avg_raw_water_m3_per_hr") ?? local.avg_raw_per_hr} unit="m3/hr" Icon={CloudIcon} />
@@ -802,7 +863,7 @@ export default function TotalizerEntryPage({ auth }) {
       const ek = liveEnergyKPI || {};
       return (
         <div className="space-y-3">
-          <div className="text-xs font-semibold text-gray-700">Energy (live)</div>
+          
           <KpiCard k="unit1_generation" label="U1 Gen" value={ek.unit1_generation ?? 0} unit="MWh" Icon={ChartBarIcon} />
           <KpiCard k="unit1_plf_percent" label="U1 PLF" value={ek.unit1_plf_percent ?? 0} unit="%" Icon={ChartBarIcon} />
 
@@ -838,46 +899,48 @@ export default function TotalizerEntryPage({ auth }) {
   const renderTotalizerTable = () => (
   <div
     className="
-      max-h-[65vh] overflow-auto 
-      bg-white
+      max-h-[65vh] overflow-auto
+      relative
+      bg-white/80
+      backdrop-blur-sm
       border border-zinc-300
-      shadow-sm
+      ring-1 ring-white/60
+      
     "
   >
     <table className="min-w-full table-fixed border-collapse">
 
-      {/* ---------- FIXED HEADER (Zinc-100 & Orange-400 Theme) ---------- */}
+      {/* ================= HEADER ================= */}
       <thead className="sticky top-0 z-20">
-        <tr className="bg-zinc-100 text-zinc-700 text-[11px] uppercase tracking-wider font-bold">
-          <th className="px-3 py-2 text-left w-[240px] border-r border-zinc-200 align-middle">
+        <tr className="
+          bg-gradient-to-b from-zinc-100 to-zinc-200
+          text-zinc-800 text-[11px] uppercase tracking-widest font-extrabold
+        ">
+          <th className="px-3 py-2 text-left w-[240px] border-r border-zinc-300">
             Totalizer
           </th>
-          <th className="px-2 py-2 text-right w-[110px] border-r border-zinc-200 align-middle">
+          <th className="px-2 py-2 text-right w-[110px] border-r border-zinc-300">
             Today
           </th>
-          <th className="px-2 py-2 text-right w-[110px] border-r border-zinc-200 align-middle">
+          <th className="px-2 py-2 text-right w-[110px] border-r border-zinc-300">
             Yesterday
           </th>
-          <th className="px-2 py-2 text-right w-[90px] align-middle">
-            Diff
+          <th className="px-2 py-2 text-right w-[90px]">
+            Δ
           </th>
         </tr>
-        
-        {/* Accent Line: Orange-400 */}
-        <tr className="h-[2px] bg-orange-400 w-full absolute left-0 right-0 bottom-0 z-30 block"></tr>
+
+        {/* Header accent rail */}
+        <tr className="h-[3px] bg-gradient-to-r from-orange-500 to-amber-400" />
       </thead>
 
-      {/* ---------- TABLE BODY ---------- */}
-      <tbody className="text-[12px] bg-white">
+      {/* ================= BODY ================= */}
+      <tbody className="text-[12px] text-zinc-800">
         {currentTotalizers.filter(t => canView(t.name)).map((t) => {
           const rec = readingsForm[t.id];
           if (!rec) return null;
 
           const isEditable = canEdit(t.name);
-          
-          // --- FIXED LOGIC HERE ---
-          // 1. Convert to Number to handle string "0" from API
-          // 2. Check if it is NOT zero and NOT NaN
           const adjustVal = Number(rec.adjust);
           const hasAdjustment = !isNaN(adjustVal) && adjustVal !== 0;
 
@@ -886,76 +949,96 @@ export default function TotalizerEntryPage({ auth }) {
               key={t.id}
               className="
                 group
-                hover:bg-orange-50 
-                transition-colors duration-150
-                border-b border-zinc-100
+                border-b border-zinc-200
+                hover:bg-amber-50/60
+                transition-colors
               "
             >
               {/* NAME */}
-              <td className="px-3 py-1 text-zinc-800 font-medium truncate align-middle border-r border-zinc-100">
+              <td className="
+                px-3 py-1.5
+                font-semibold text-zinc-900
+                truncate
+                border-r border-zinc-200
+                relative
+              ">
+                {/* row focus rail */}
+                <span className="
+                  absolute left-0 top-0 h-full w-[3px]
+                  bg-transparent group-hover:bg-orange-400
+                " />
                 {t.display_name}
               </td>
-              
-              {/* TODAY INPUT (Compact & Sharp) */}
-              <td className="px-1 py-1 text-right align-middle border-r border-zinc-100 bg-zinc-50/30">
+
+              {/* TODAY */}
+              <td className="px-1 py-1 text-right border-r border-zinc-200 bg-zinc-50/40">
                 <input
                   type="number"
                   step="1"
                   value={rec.today === "" ? "" : rec.today}
                   onChange={(e) => updateField(t.id, "today", e.target.value)}
                   onDoubleClick={() =>
-                    // Only allow adjust click if we have permissions
                     canAdjust && handleAdjustClick({ id: t.id, adjust: rec.adjust || 0 })
                   }
                   readOnly={!isEditable}
-                  placeholder="0.00"
+                  placeholder="—"
                   className={`
-                    w-full h-7
-                    px-2
-                    font-mono text-[13px] text-right font-semibold
-                    outline-none
-                    transition-all duration-150
-                    rounded-none
-                    ${isEditable 
-                      ? `
-                        bg-zinc-50 
-                        text-zinc-900
-                        border border-zinc-300
-                        shadow-[inset_0_1px_2px_rgba(0,0,0,0.06)]
-                        focus:bg-white 
-                        focus:shadow-none
-                        focus:border-orange-400
-                        focus:ring-1 focus:ring-orange-400
-                        ` 
-                      : "bg-zinc-100 text-zinc-400 cursor-not-allowed border-none shadow-none"
+                    w-full h-7 px-2
+                    text-right font-mono text-[13px] font-bold
+                    outline-none transition-all
+                    ${
+                      isEditable
+                        ? `
+                          bg-white
+                          text-zinc-900
+                          border border-zinc-300
+                          shadow-[inset_0_1px_2px_rgba(0,0,0,0.08)]
+                          focus:border-orange-500
+                          focus:ring-1 focus:ring-orange-400
+                        `
+                        : `
+                          bg-zinc-100
+                          text-zinc-400
+                          cursor-not-allowed
+                          border-none
+                        `
                     }
                   `}
                 />
               </td>
 
               {/* YESTERDAY */}
-              <td className="px-2 py-1 text-right font-mono text-[12px] text-zinc-500 whitespace-nowrap align-middle border-r border-zinc-100">
+              <td className="
+                px-2 py-1.5
+                text-right font-mono text-[12px]
+                text-zinc-500
+                border-r border-zinc-200
+              ">
                 {rec.yesterday}
               </td>
 
               {/* DIFF */}
-              <td className="px-2 py-1 text-right align-middle">
+              <td className="px-2 py-1.5 text-right">
                 <div className="flex items-center justify-end gap-1">
-                  <span className={`font-bold font-mono text-[13px] ${Number(rec.difference) < 0 ? 'text-red-600' : 'text-zinc-700'}`}>
+                  <span
+                    className={`
+                      font-mono text-[13px] font-extrabold
+                      ${Number(rec.difference) < 0 ? "text-red-700" : "text-zinc-800"}
+                    `}
+                  >
                     {rec.difference}
                   </span>
-                  
-                  {/* --- ONLY SHOW INDICATOR IF VALUE EXISTS AND IS NOT 0 --- */}
+
                   {hasAdjustment && (
                     <span
-                      className="
-                        flex items-center justify-center 
-                        w-3 h-3 
-                        bg-orange-100 text-orange-600 
-                        text-[9px] font-bold 
-                        rounded-none cursor-help
-                      "
                       title={`Adjustment: ${adjustVal}`}
+                      className="
+                        w-3.5 h-3.5
+                        flex items-center justify-center
+                        bg-orange-200 text-orange-800
+                        text-[9px] font-black
+                        border border-orange-300
+                      "
                     >
                       *
                     </span>
@@ -967,17 +1050,23 @@ export default function TotalizerEntryPage({ auth }) {
         })}
       </tbody>
 
-      {/* ---------- FOOTER ---------- */}
+      {/* ================= FOOTER ================= */}
       <tfoot>
-        <tr className="bg-zinc-50 border-t border-zinc-300">
-          <td colSpan="4" className="px-3 py-1 text-right text-[10px] text-zinc-500">
+        <tr className="bg-zinc-100 border-t border-zinc-300">
+          <td colSpan="4" className="px-3 py-2 text-right text-[10px] text-zinc-600">
             {lastUpdatedInfo ? (
               <>
-                Updated: <strong>{new Date(lastUpdatedInfo.at).toLocaleString()}</strong> by{" "}
-                <span className="text-orange-500 font-bold uppercase">{lastUpdatedInfo.by}</span>
+                Updated:
+                <span className="font-bold ml-1">
+                  {new Date(lastUpdatedInfo.at).toLocaleString()}
+                </span>
+                {" by "}
+                <span className="text-orange-600 font-extrabold uppercase">
+                  {lastUpdatedInfo.by}
+                </span>
               </>
             ) : (
-              <span>No data</span>
+              "No data"
             )}
           </td>
         </tr>
@@ -986,6 +1075,7 @@ export default function TotalizerEntryPage({ auth }) {
     </table>
   </div>
 );
+
 
 
   /* ---------------- confirm & adjust popups ---------------- */
@@ -1137,329 +1227,241 @@ export default function TotalizerEntryPage({ auth }) {
   /* ---------------- render ---------------- */
 
   return (
-  <div className="min-h-screen  flex p-2 gap-4 overflow-visible">
+  <div className="min-h-screen flex bg-gradient-to-br from-amber-50 via-white to-orange-100">
 
-    {/* LEFT CONTROL PANEL (STYLISH, COMPACT, NO SCROLL) */}
-
-  <div
-  className="
-    w-64 p-4 flex flex-col gap-4
-    
-
-    /* PURE WHITE BG */
-    bg-white
-
-    /* Strong contrast border */
-    border border-[#D5D5D5]
-
-    /* Deep 3D shadows */
-    shadow-[0_3px_6px_rgba(0,0,0,0.48),0_10px_22px_rgba(0,0,0,0.22)]
-
-   
-
-    
-  "
->
-
-
-  {/* --- 1. Tabs --- */}
-  <div className="flex flex-col gap-5">
-    {["Unit-1", "Unit-2", "Station", "Energy-Meter"].map((tab) => {
-      const isActive = activeTab === tab;
-      return (
-        <button
-          key={tab}
-          onClick={() => setActiveTab(tab)}
-          className={`
-  relative px-4 py-2.5 text-xs font-bold uppercase tracking-wider rounded-xl
-  transition-all duration-300 flex items-center justify-between group
-  border
-
-  ${
-    isActive
-      ? `
-        bg-gradient-to-br from-orange-400 via-orange-600 to-amber-500
-        text-white
-        shadow-[0_2px_4px_rgba(0,0,0,0.15),0_6px_12px_rgba(0,0,0,0.2)]
-        border-orange-300
-        before:absolute before:inset-0 before:rounded-xl
-        before:bg-white/30 before:blur-[2px] before:opacity-40 before:pointer-events-none
-      `
-      : `
-        bg-gradient-to-br from-[#fafafa] via-[#f2f2f2] to-[#e8e8e8]
-        text-gray-600
-        border-gray-300
-        shadow-[0_2px_3px_rgba(0,0,0,0.1)]
-        hover:bg-gradient-to-br hover:from-white hover:to-[#f7f7f7]
-        hover:border-orange-300 hover:text-orange-600
-        hover:shadow-[0_3px_6px_rgba(0,0,0,0.15)]
-      `
-  }
-`}
-
-        >
-          {tab}
-          {isActive ? (
-            <span className="w-2 h-2 rounded-full bg-white animate-pulse shadow-sm" />
-          ) : (
-            <span className="w-1.5 h-1.5 rounded-full bg-gray-300 group-hover:bg-orange-200 transition-colors" />
-          )}
-        </button>
-      );
-    })}
-  </div>
-
-  {/* Divider */}
-  <div className="h-px w-full bg-gradient-to-r from-transparent via-gray-300/50 to-transparent my-1" />
-
-  {/* --- 2. Date Controls (Immediately below tabs) --- */}
-  <div className="flex flex-col gap-1.5">
-    <label className="text-[10px] font-bold text-gray-400 uppercase ml-1 tracking-wider">Configuration</label>
-    <div
+    {/* ================= LEFT MENU BAR ================= */}
+    <aside
       className="
-  flex items-center p-1.5 gap-1.5 rounded-xl
-  bg-gradient-to-br from-white via-[#f6f6f6] to-[#eaeaea]
-  border border-gray-300
-
-  shadow-[inset_0_1px_2px_rgba(255,255,255,0.7),0_2px_4px_rgba(0,0,0,0.08)]
-"
-    >
-      <button
-        onClick={() => handleDateChange(-1)}
-        className="
-  p-2 rounded-lg
-  bg-gradient-to-br from-[#ffffff] via-[#f3f3f3] to-[#e5e5e5]
-  border border-gray-300
-  shadow-[0_2px_3px_rgba(0,0,0,0.12)]
-  text-gray-500
-  hover:shadow-[0_3px_6px_rgba(0,0,0,0.2)]
-  hover:text-orange-600 hover:border-orange-300
-  active:scale-95
-  transition-all duration-200
-"
-      >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
-      </button>
-
-      <input
-        type="date"
-        value={reportDate}
-        onChange={(e) => setReportDate(e.target.value)}
-        className="
-  flex-1 min-w-0 bg-transparent text-center text-sm font-bold font-mono
-  text-gray-700
-  outline-none
-"
-
-      />
-
-      <button
-        onClick={() => handleDateChange(1)}
-        className="
-  p-2 rounded-lg
-  bg-gradient-to-br from-[#ffffff] via-[#f3f3f3] to-[#e5e5e5]
-  border border-gray-300
-  shadow-[0_2px_3px_rgba(0,0,0,0.12)]
-  text-gray-500
-  hover:shadow-[0_3px_6px_rgba(0,0,0,0.2)]
-  hover:text-orange-600 hover:border-orange-300
-  active:scale-95
-  transition-all duration-200
-"
-      >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-      </button>
-    </div>
-  </div>
-
-  {/* --- 3. Utility Buttons (Seed/Reset) --- */}
-  <div className="grid grid-cols-2 gap-2">
-    <button
-      onClick={handleSeedMaster}
-      disabled={loading}
-      className="
-        px-3 py-2 text-[11px] font-bold uppercase tracking-wide rounded-xl
-        bg-white text-gray-500 border border-gray-200
-        hover:bg-gray-50 hover:text-indigo-600 hover:border-indigo-200 hover:shadow-sm
-        disabled:opacity-50 disabled:cursor-not-allowed
-        transition-all duration-200
+        w-64 h-screen flex flex-col
+        bg-gradient-to-b from-orange-50 via-white to-orange-100
+        border-r border-orange-200
+        shadow-[4px_0_18px_rgba(249,115,22,0.18)]
       "
     >
-      Seed Data
-    </button>
+      {/* Header */}
+      <div className="px-4 py-4 border-b border-orange-200">
+        <h3 className="text-sm font-extrabold text-orange-700 tracking-wide uppercase">
+          Plant Sections
+        </h3>
+      </div>
 
-    <button
-      onClick={handleResetForm}
-      className="
-        px-3 py-2 text-[11px] font-bold uppercase tracking-wide rounded-xl
-        bg-white text-gray-500 border border-gray-200
-        hover:bg-gray-50 hover:text-red-500 hover:border-red-200 hover:shadow-sm
-        transition-all duration-200
-      "
-    >
-      Reset
-    </button>
-  </div>
+      {/* Tabs */}
+      <div className="p-3 flex flex-col gap-2">
+        {["Unit-1", "Unit-2", "Station", "Energy-Meter"].map(tab => {
+          const isActive = activeTab === tab;
+          return (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`
+                relative px-4 py-3 rounded-lg text-xs font-bold uppercase tracking-wide
+                transition-all border
+                ${
+                  isActive
+                    ? `
+                      bg-orange-600 text-white
+                      border-orange-700
+                      shadow-[0_6px_14px_rgba(249,115,22,0.45)]
+                    `
+                    : `
+                      bg-white/80 text-zinc-800
+                      border-orange-200
+                      hover:bg-orange-50 hover:text-orange-700
+                    `
+                }
+              `}
+            >
+              {tab}
+              {isActive && (
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 w-2 h-2 bg-white rounded-full animate-pulse" />
+              )}
+            </button>
+          );
+        })}
+      </div>
 
-  {/* --- 4. Primary Actions (Stacked below) --- */}
-  <div className="flex flex-col gap-3 mt-1">
-    {(activeTab === "Unit-1" ||
-      activeTab === "Unit-2" ||
-      activeTab === "Station") && (
-      <button
-        onClick={() => calculateKPIsForUnit(activeTab)}
-        disabled={loading}
+      {/* Footer */}
+      <div className="mt-auto p-4 border-t border-orange-200 text-xs">
+        <div className="text-zinc-500">Logged in as</div>
+        <div className="font-bold text-zinc-900 truncate">{userName}</div>
+      </div>
+    </aside>
+
+    {/* ================= CENTER PANEL ================= */}
+    <main className="flex-1 flex flex-col h-screen bg-white">
+
+      {/* ===== FIXED TOP BAR ===== */}
+      <div
         className="
-          w-full px-3 py-2.5 text-xs font-bold rounded-xl
-          bg-indigo-50 text-indigo-600 border border-indigo-100
-          hover:bg-indigo-100 hover:shadow-md hover:border-indigo-200 hover:-translate-y-0.5
-          flex items-center justify-center gap-2 transition-all duration-200
+          sticky top-0 z-30
+          flex items-center justify-between
+          px-5 py-3
+          bg-white
+          border-b border-zinc-300
+          shadow-[0_2px_8px_rgba(0,0,0,0.08)]
         "
       >
-        {loading ? <Spinner size={14} /> : (
-          <>
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
-            Calculate KPIs
-          </>
-        )}
-      </button>
-    )}
+        {/* Date */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => handleDateChange(-1)}
+            className="px-2 py-1 rounded border bg-zinc-50 hover:bg-zinc-100"
+          >
+            ◀
+          </button>
 
-    <button
-      onClick={handleSubmitClick}
-      className="
-        w-full px-4 py-3 text-sm font-bold tracking-wide text-white rounded-xl
-        bg-gradient-to-r from-orange-600 to-amber-600
-        shadow-lg shadow-orange-500/20 border border-white/20
-        hover:shadow-orange-500/40 hover:-translate-y-0.5 hover:scale-[1.02]
-        active:scale-95
-        transition-all duration-200
-        flex items-center justify-center gap-2
-      "
-    >
-      {submitting ? "Saving..." : (
-        <>
-          <span>Submit Readings</span>
-          <svg className="w-4 h-4 text-orange-100" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
-        </>
-      )}
-    </button>
-  </div>
+          <input
+            type="date"
+            value={reportDate}
+            onChange={(e) => setReportDate(e.target.value)}
+            className="px-3 py-1 text-sm font-bold border rounded"
+          />
 
-  {/* --- Message Toast --- */}
-  {message && (
-    <div
-      className={`
-        mt-1 px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 shadow-sm
-        ${
-          message.startsWith("❌")
-            ? "bg-red-50 text-red-600 border border-red-100"
-            : message.startsWith("✅")
-            ? "bg-emerald-50 text-emerald-600 border border-emerald-100"
-            : "bg-amber-50 text-amber-600 border border-amber-100"
-        }
-      `}
-    >
-      {message.startsWith("✅") && <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/></svg>}
-      {message.startsWith("❌") && <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd"/></svg>}
-      <span className="flex-1 leading-tight">{message.replace(/^[❌✅⚠️]\s*/, '')}</span>
-    </div>
-  )}
-</div>
+          <button
+            onClick={() => handleDateChange(1)}
+            className="px-2 py-1 rounded border bg-zinc-50 hover:bg-zinc-100"
+          >
+            ▶
+          </button>
+        </div>
 
+        {/* Actions */}
+        <div className="flex gap-2">
+          <button
+            onClick={handleResetForm}
+            className="
+              px-4 py-2 text-xs font-bold
+              border rounded
+              bg-white
+              text-red-600
+              hover:bg-red-50
+            "
+          >
+            Reset
+          </button>
 
-    {/* CENTER FORM PANEL (NO SCROLL) */}
-    <div
-  className="
-    flex-1 p-6
-    bg-gradient-to-b from-white to-[#F7F7F7]
-    border border-[#DCDCDC]
-    shadow-[inset_0_1px_1px_rgba(255,255,255,0.8),0_4px_12px_rgba(0,0,0,0.46)]
-  "
->
-
-      <h2 className="text-base font-semibold text-gray-800 mb-3">
-        {activeTab} Readings
-      </h2>
-
-      {/* Totalizer Table */}
-      <div className="mb-4">
-        {currentTotalizers.length > 0 ? (
-          renderTotalizerTable()
-        ) : (
-          <div className="p-4 text-center text-gray-500 border border-dashed rounded">
-            No totalizers found for {activeTab}
-          </div>
-        )}
-      </div>
-
-      {/* Manual KPIs */}
-      <div className="mt-4 border-t pt-4">
-        <h3 className="text-sm font-semibold text-gray-700 mb-3">Manual KPIs</h3>
-
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          {Object.entries(manualKPI[activeTab] || {}).map(([kname, val]) => (
-            <div key={kname} className="p-2 border rounded bg-white">
-              <div className="text-xs text-gray-600 mb-1 font-medium">
-                {kname.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
-                <span className="text-xs text-gray-400 ml-1">
-                  ({manualUnits[activeTab]?.[kname] || ""})
-                </span>
-              </div>
-
-              <input
-                type="number"
-                step="0.001"
-                value={val ?? ""}
-                onChange={(e) =>
-                  updateManualField(activeTab, kname, e.target.value)
-                }
-                className="w-full px-2 py-1 text-sm border rounded focus:border-orange-500 outline-none"
-              />
-            </div>
-          ))}
+          <button
+            onClick={handleSubmitClick}
+            className="
+              px-5 py-2 text-xs font-bold
+              rounded
+              bg-gradient-to-r from-orange-600 to-amber-600
+              text-white
+              shadow-lg
+              hover:shadow-orange-500/40
+            "
+          >
+            {submitting ? "Saving..." : "Submit"}
+          </button>
         </div>
       </div>
-    </div>
 
-    {/* RIGHT KPI PANEL (NO SCROLL) */}
-    <div
-  className="
-    w-80 p-4 
-    bg-gradient-to-br from-white to-[#F5F5F5]
-    border border-[#E2E2E2]
-    shadow-[0_3px_6px_rgba(0,0,0,0.35),0_10px_20px_rgba(0,0,0,0.26)]
-    relative
-    before:absolute before:inset-0 before:rounded-2xl
-    before:border before:border-white/50 before:pointer-events-none
-  "
->
+      {/* ===== CONTENT ===== */}
+      <div className="flex-1 overflow-auto p-4">
+        <h2 className="text-sm font-bold text-zinc-900 mb-2">
+          {activeTab} Readings
+        </h2>
 
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="text-sm font-semibold text-gray-700">KPIs</h3>
+        {renderTotalizerTable()}
+
+        {/* Manual KPI */}
+        <div className="mt-6">
+          <h3 className="text-sm font-bold text-zinc-800 mb-2">
+            Manual KPIs
+          </h3>
+
+          <div className="border rounded bg-white">
+            <table className="min-w-full text-xs">
+              <thead className="bg-zinc-100 border-b">
+                <tr>
+                  <th className="px-3 py-2 text-left">Parameter</th>
+                  <th className="px-3 py-2 text-right">Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(manualKPI[activeTab] || {}).map(([k, v]) => (
+                  <tr key={k} className="border-b hover:bg-orange-50">
+                    <td className="px-3 py-2 font-semibold">
+                      {k.replace(/_/g, " ").toUpperCase()}
+                    </td>
+                    <td className="px-3 py-2">
+                      <input
+                        type="number"
+                        value={v ?? ""}
+                        onChange={(e) =>
+                          updateManualField(activeTab, k, e.target.value)
+                        }
+                        className="w-full px-2 py-1 text-right border rounded font-mono"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    {/* ================= RIGHT KPI BAR ================= */}
+    <aside
+      className="
+        w-80 h-screen
+        bg-gradient-to-b from-zinc-100 via-white to-zinc-200
+        border-l border-zinc-300
+        shadow-[-4px_0_18px_rgba(0,0,0,0.12)]
+        p-4 overflow-auto
+      "
+    >
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-extrabold text-zinc-800 uppercase tracking-wide">
+          KPIs
+        </h3>
+
         {(activeTab === "Unit-1" ||
           activeTab === "Unit-2" ||
           activeTab === "Station") && (
           <button
             onClick={() => calculateKPIsForUnit(activeTab)}
-            disabled={loading}
-            className="px-2 py-1 text-xs bg-orange-50 rounded border text-orange-700"
+            className="
+              px-2 py-1 text-xs font-bold
+              rounded border
+              bg-orange-50 text-orange-700
+              hover:bg-orange-100
+            "
           >
-            {loading ? <Spinner size={12} /> : "Calc"}
+            Calc
           </button>
         )}
       </div>
 
-      <div className="h-px bg-gray-200 mb-2" />
-
       {renderLeftKPIList()}
-    </div>
+    </aside>
 
-    {/* Popups */}
+    {/* ================= MESSAGE ================= */}
+    {message && (
+      <div
+        className={`
+          fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999]
+          px-6 py-3 rounded-xl text-sm font-bold shadow-xl
+          ${
+            message.startsWith("❌")
+              ? "bg-red-50 text-red-700 border border-red-200"
+              : message.startsWith("✅")
+              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+              : "bg-amber-50 text-amber-700 border border-amber-200"
+          }
+        `}
+      >
+        {message.replace(/^[❌✅⚠️]\s*/, "")}
+      </div>
+    )}
+
     {renderConfirmPopup()}
     {renderAdjustPopup()}
   </div>
 );
+
 
 
 }

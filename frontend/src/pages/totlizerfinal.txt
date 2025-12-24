@@ -2,23 +2,26 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import axios from "axios";
 
-// HeroIcons
-import { 
-  ChartBarIcon, 
-  FireIcon, 
-  CloudIcon, 
-  BoltIcon, 
-  FunnelIcon,
-  CalendarDaysIcon,
-  ArrowPathIcon,
-  CheckCircleIcon,
-  TrashIcon,
-  BeakerIcon // Added for seed
-} from "@heroicons/react/24/solid";
+// HeroIcons (approved)
+import { ChartBarIcon, FireIcon, CloudIcon, BoltIcon, FunnelIcon } from "@heroicons/react/24/solid";
 
 /**
- * TotalizerEntryPage — Professional Sidebar Layout
- * Theme: Corporate Grey / White / Orange
+ * TotalizerEntryPage — Compact STYLE 2 (white / grey / orange theme)
+ *
+ * Backend endpoints expected:
+ *  GET  /totalizers/{unit}/master
+ *  GET  /totalizers/{unit}/readings?date=YYYY-MM-DD
+ *  GET  /kpi/manual?date=YYYY-MM-DD&unit=Unit-1
+ *  GET  /kpi/energy?date=YYYY-MM-DD
+ *  GET  /kpi/shutdown/{unit}?date=YYYY-MM-DD
+ *  POST /kpi/calc
+ *  POST /totalizers/submit
+ *
+ * Behavior highlights:
+ * - Left: stylish KPI cards (compact) — grouped and with icons.
+ * - Right: compact totalizer entry table grouped to related KPIs.
+ * - When a totalizer is edited, related KPI cards pulse (highlight).
+ * - Submit flow: show changed inputs in confirmation popup -> Preview KPIs (calls /kpi/calc) -> Confirm & Save (calls /totalizers/submit).
  */
 
 const API_URL = "http://localhost:8080/api";
@@ -42,7 +45,9 @@ const Spinner = ({ size = 14 }) => (
   <div style={{ width: size, height: size }} className="inline-block animate-spin border-2 border-t-transparent rounded-full border-current" />
 );
 
-/* ---------------- KPI dependency map ---------------- */
+/* ---------------- KPI dependency map (which totalizer impacts which KPIs) ----------------
+   Add mapping entries for additional totalizer names as necessary.
+*/
 const KPI_DEPENDENCY_MAP = {
   feeder_a: ["coal_consumption", "specific_coal"],
   feeder_b: ["coal_consumption", "specific_coal"],
@@ -56,6 +61,7 @@ const KPI_DEPENDENCY_MAP = {
   raw_water: ["total_raw_water_used_m3", "avg_raw_water_m3_per_hr", "sp_raw_water_l_per_kwh"],
   unit1_gen: ["unit1_generation", "unit1_plf_percent", "station_plf_percent"],
   unit2_gen: ["unit2_generation", "unit2_plf_percent", "station_plf_percent"],
+  // add more mappings if you have more totalizer master names
 };
 
 export default function TotalizerEntryPage({ auth }) {
@@ -94,7 +100,7 @@ export default function TotalizerEntryPage({ auth }) {
     "Energy-Meter": [],
   });
 
-  const [readingsForm, setReadingsForm] = useState({}); 
+  const [readingsForm, setReadingsForm] = useState({}); // keyed by master.id
   const [lastUpdatedInfo, setLastUpdatedInfo] = useState(null);
 
   const [serverKPIs, setServerKPIs] = useState({ "Unit-1": null, "Unit-2": null, Station: null });
@@ -104,6 +110,7 @@ export default function TotalizerEntryPage({ auth }) {
     "Unit-2": { running_hour: null, plant_availability_percent: null, planned_outage_hour: null, planned_outage_percent: null, strategic_outage_hour: null },
   });
 
+  // Highlight state for KPI cards { kpiName: true }
   const [highlightedKPIs, setHighlightedKPIs] = useState({});
 
   // Confirmation / preview state
@@ -173,12 +180,15 @@ export default function TotalizerEntryPage({ auth }) {
           pmap[p.field_name] = { can_edit: !!p.can_edit, can_view: !!p.can_view };
         });
         setPermissionMap(pmap);
-      } catch (e) { }
+      } catch (e) {
+        // ignore permission errors
+      }
     }
     loadPerm();
   }, [api]);
 
   /* ---------------- master + readings load ---------------- */
+
   const loadMasterForUnit = useCallback(async (unit) => {
     try {
       const r = await api.get(`/totalizers/${encodeURIComponent(unit)}/master`);
@@ -209,6 +219,7 @@ export default function TotalizerEntryPage({ auth }) {
         return updated;
       });
 
+      // load today's/yesterday's readings for this unit/date
       await loadTodayReadings(reportDate, unit, items);
       await loadYesterdayReadings(reportDate, unit, items);
     } catch (e) {
@@ -221,6 +232,7 @@ export default function TotalizerEntryPage({ auth }) {
     loadMasterForUnit("Unit-2");
     loadMasterForUnit("Station");
     loadMasterForUnit("Energy-Meter");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadTodayReadings = useCallback(async (forDate, unit, itemsParam = null) => {
@@ -375,6 +387,7 @@ export default function TotalizerEntryPage({ auth }) {
   const updateField = (id, field, value) => {
     setReadingsForm((prev) => {
       const rec = { ...prev[id] };
+      // preserve name for KPI mapping usage
       const name = rec.name;
       rec[field] = value === "" ? "" : Number(value);
 
@@ -384,11 +397,13 @@ export default function TotalizerEntryPage({ auth }) {
         rec.difference = Number(rec.today - rec.yesterday + adj).toFixed(3);
       }
 
+      // highlight KPIs impacted by this totalizer (if any)
       const impacted = KPI_DEPENDENCY_MAP[name] || [];
       if (impacted.length > 0) {
         const newState = {};
         impacted.forEach(k => newState[k] = true);
         setHighlightedKPIs(newState);
+        // fade
         setTimeout(() => setHighlightedKPIs({}), 1400);
       }
 
@@ -411,7 +426,7 @@ export default function TotalizerEntryPage({ auth }) {
     return Number(rec.difference) || 0;
   };
 
-  /* ---------------- Local KPI computations ---------------- */
+  /* ---------------- Local KPI computations (unchanged) ---------------- */
   const localUnitKPI = useMemo(() => {
     if (!(activeTab === "Unit-1" || activeTab === "Unit-2")) return null;
     try {
@@ -447,14 +462,15 @@ export default function TotalizerEntryPage({ auth }) {
   const liveEnergyKPI = useMemo(() => {
     const d = (k) => getDiff(k, "Energy-Meter");
     try {
-      const unit1_unit_aux_mwh = d("1lsr01_ic1") + d("1lsr02_ic1");
-      const unit2_unit_aux_mwh = d("2lsr01_ic1") + d("2lsr02_ic1");
-      const total_station_aux_mwh = d("rlsr01") + d("rlsr02") + d("rlsr03") + d("rlsr04") + d("SST_10") + d("UST_15") + d("UST_25");
+      const unit1_unit_aux_mwh = d("1lsr01_ic1") + d("1lsr02_ic1") + d("1lsr01_ic2_tie")-d("SST_10")-d("UST_15");
+      const unit2_unit_aux_mwh = d("2lsr01_ic1") + d("2lsr02_ic1")+ d("2lsr01_ic2_tie")-d("UST_25");
+      const total_station_aux_mwh = d("rlsr01") + d("rlsr02") + d("rlsr03") + d("rlsr04") -d("1lsr01_ic2_tie") 
+      - d("1lsr02_ic2_tie") - d("2lsr01_ic2_tie") - d("2lsr02_ic2_tie")+d("SST_10")+d("UST_15")+d("UST_25")+d("SST_10")+d("UST_15");
       const total_station_tie_mwh = d("1lsr01_ic2_tie") + d("1lsr02_ic2_tie") + d("2lsr01_ic2_tie") + d("2lsr02_ic2_tie");
       const unit1_gen = d("unit1_gen");
       const unit2_gen = d("unit2_gen");
-      const unit1_aux_consumption_mwh = unit1_unit_aux_mwh + (total_station_aux_mwh + total_station_tie_mwh) / 2.0;
-      const unit2_aux_consumption_mwh = unit2_unit_aux_mwh + (total_station_aux_mwh + total_station_tie_mwh) / 2.0;
+      const unit1_aux_consumption_mwh = unit1_unit_aux_mwh + (total_station_aux_mwh ) / 2.0;
+      const unit2_aux_consumption_mwh = unit2_unit_aux_mwh + (total_station_aux_mwh ) / 2.0;
       const unit1_aux_percent = unit1_gen > 0 ? (unit1_aux_consumption_mwh / unit1_gen) * 100.0 : 0.0;
       const unit2_aux_percent = unit2_gen > 0 ? (unit2_aux_consumption_mwh / unit2_gen) * 100.0 : 0.0;
       const unit1_plf_percent = unit1_gen > 0 ? (unit1_gen / 3000.0) * 100.0 : 0.0;
@@ -482,6 +498,7 @@ export default function TotalizerEntryPage({ auth }) {
   }, [readingsForm]);
 
   /* ---------------- Submit flow ---------------- */
+
   const getChangedList = (unit) => {
     const list = [];
     const items = totalizersByUnit[unit] || [];
@@ -505,6 +522,7 @@ export default function TotalizerEntryPage({ auth }) {
       return;
     }
 
+    // non-admin can't modify existing values
     if (!isAdmin && !isHOD) {
       for (const ch of changed) {
         const rec = readingsForm[ch.id];
@@ -516,7 +534,7 @@ export default function TotalizerEntryPage({ auth }) {
     }
 
     setConfirmList(changed);
-    setPreviewAutoKPIs(null); 
+    setPreviewAutoKPIs(null); // reset preview
     setShowConfirmPopup(true);
   };
 
@@ -525,6 +543,7 @@ export default function TotalizerEntryPage({ auth }) {
     return Object.values(currentManuals).some((v) => v !== "" && v !== null && v !== undefined);
   };
 
+  // Confirm submit will actually save after preview or directly if user confirms
   const confirmSubmit = async () => {
     setShowConfirmPopup(false);
     setSubmitting(true);
@@ -532,6 +551,7 @@ export default function TotalizerEntryPage({ auth }) {
 
     try {
       const items = totalizersByUnit[activeTab] || [];
+
       const payload = {
         date: reportDate,
         username: userName,
@@ -554,8 +574,10 @@ export default function TotalizerEntryPage({ auth }) {
         })).filter(m => m.value !== null),
       };
 
+      // submit to backend
       await api.post("/totalizers/submit", payload);
 
+      // update local _orig to current values
       setReadingsForm((prev) => {
         const updated = { ...prev };
         items.forEach((t) => {
@@ -568,11 +590,14 @@ export default function TotalizerEntryPage({ auth }) {
       setLastUpdatedInfo({ at: new Date().toISOString(), by: userName });
       setMessage("✅ Readings saved");
 
+      // reload yesterday, manual KPIs and shutdown and server KPIs for active tab.
       await loadYesterdayReadings(reportDate, activeTab, totalizersByUnit[activeTab]);
       await loadManualKPIForActiveTab();
       if (activeTab === "Unit-1" || activeTab === "Unit-2") {
         await loadShutdownKPIsForUnitDate(activeTab, reportDate);
       }
+
+      // refresh server KPIs for the active tab (final)
       await calculateKPIsForUnit(activeTab);
     } catch (err) {
       console.error(err);
@@ -583,6 +608,7 @@ export default function TotalizerEntryPage({ auth }) {
   };
 
   /* ---------------- Reset / Seed ---------------- */
+
   const handleResetForm = () => {
     const items = totalizersByUnit[activeTab] || [];
     setReadingsForm((prev) => {
@@ -600,6 +626,7 @@ export default function TotalizerEntryPage({ auth }) {
       return updated;
     });
 
+    // reset manual KPI values to initial or last loaded
     setManualKPI((prev) => ({ ...prev, [activeTab]: { ...(initialManualKPI[activeTab] || {}), ...(prev[activeTab] || {}) } }));
     setMessage("⚠️ Inputs reset.");
   };
@@ -642,6 +669,7 @@ export default function TotalizerEntryPage({ auth }) {
   };
 
   /* ---------------- Adjust popup ---------------- */
+
   const handleAdjustClick = (record) => {
     setAdjustPopupRecord(record);
     setShowAdjustPopup(true);
@@ -656,11 +684,13 @@ export default function TotalizerEntryPage({ auth }) {
   };
 
   /* ---------------- Manual KPI loader ---------------- */
+
   const loadManualKPIForActiveTab = useCallback(async () => {
     try {
       const r = await api.get("/kpi/manual", { params: { date: reportDate, unit: activeTab } });
       const fetched = {};
       (r.data?.kpis || []).forEach((k) => {
+        // backend returns kpi records: { kpi_name, kpi_value, ... } or similar
         if (k.kpi_name) fetched[k.kpi_name] = k.kpi_value;
         else if (k.kpi) fetched[k.kpi] = k.value;
       });
@@ -674,12 +704,15 @@ export default function TotalizerEntryPage({ auth }) {
       }));
     } catch (err) {
       console.error("Manual KPI load failed", err);
+      // fallback to initial
       setManualKPI((prev) => ({ ...prev, [activeTab]: { ...(initialManualKPI[activeTab] || {}) } }));
     }
   }, [api, activeTab, reportDate]);
 
   /* ---------------- KPI panel helpers & rendering ---------------- */
+
   const renderKpiValue = (k) => {
+    // prefer local simple calculations for immediacy
     if ((activeTab === "Unit-1" || activeTab === "Unit-2") && localUnitKPI) {
       const map = {
         coal_consumption: localUnitKPI.coal,
@@ -706,34 +739,96 @@ export default function TotalizerEntryPage({ auth }) {
     return null;
   };
 
+  // KPI card component
   const KpiCard = ({ k, label, value, unit = "", Icon = ChartBarIcon }) => {
-    const isHighlighted = !!highlightedKPIs[k];
-    return (
-      <div className={`flex items-center justify-between p-1 rounded-lg transition-all duration-200 border ${isHighlighted ? "border-orange-400 bg-orange-50 shadow-[0_6px_18px_rgba(249,115,22,0.08)] scale-[1.02]" : "border-gray-200 bg-white"} `}>
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-md bg-gray-100 text-orange-600">
-            <Icon className="w-5 h-5" />
-          </div>
-          <div className="text-xs text-gray-600">{label}</div>
-        </div>
-        <div className="text-right ml-3">
-          <div className="font-bold text-sm text-gray-900">
-            {value === null || value === undefined ? "—" : (typeof value === "number" ? (unit === "%" ? value.toFixed(2) : value.toFixed(3)) : value)}
-          </div>
-          <div className="text-xs text-orange-600">{unit}</div>
-        </div>
+  const isHighlighted = !!highlightedKPIs[k];
+
+  return (
+    <div
+      className={`
+        flex items-center
+        h-6
+        px-2
+        border-l-[4px]
+        border
+        transition-all duration-150
+        ${
+          isHighlighted
+            ? `
+              border-orange-600
+              bg-orange-200
+              shadow-[0_1px_3px_rgba(0,0,0,0.35)]
+            `
+            : `
+             border-orange-600
+              bg-zinc-100
+              hover:bg-zinc-200
+            `
+        }
+      `}
+    >
+      {/* ICON */}
+      <div
+        className="
+          w-4 h-4
+          flex items-center justify-center
+          rounded
+          bg-zinc-300
+          text-orange-700
+          mr-2
+        "
+      >
+        <Icon className="w-3 h-3" />
       </div>
-    );
-  };
+
+      {/* LABEL */}
+      <div className="flex-1 text-[10px] text-zinc-950 truncate font-extrabold">
+        {label}
+      </div>
+
+      {/* VALUE */}
+      <div className="ml-2 flex items-baseline gap-1 font-mono">
+        <span
+          className={`
+            text-[12px] font-black
+            ${
+              typeof value === "number" && value < 0
+                ? "text-red-800"
+                : "text-zinc-950"
+            }
+          `}
+        >
+          {value === null || value === undefined
+            ? "—"
+            : typeof value === "number"
+              ? value.toFixed(3)
+              : value}
+        </span>
+
+        {unit && (
+          <span className="text-[9px] text-orange-800 font-extrabold tracking-wide">
+            {unit}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+};
+
+
+
+
+
 
  const renderLeftKPIList = () => {
+    // Compose KPI cards compactly — grouped and arranged
     if (activeTab === "Unit-1" || activeTab === "Unit-2") {
       const s = serverKPIs[activeTab] || {};
       const local = localUnitKPI || { coal: 0, ldo: 0, dm: 0, steam: 0 };
       const sKPI = shutdownKPIs[activeTab] || {};
       return (
         <div className="space-y-3">
-          <div className="text-xs font-semibold text-gray-700">Unit Performance</div>
+          
           <KpiCard k="daily_generation" label="Daily Generation" value={(activeTab === "Unit-1" ? (s?.unit1_generation ?? null) : (s?.unit2_generation ?? null)) ?? null} unit="MWh" Icon={ChartBarIcon} />
           <KpiCard k="plf" label="PLF" value={(activeTab === "Unit-1" ? s?.unit1_plf_percent : s?.unit2_plf_percent) ?? null} unit="%" Icon={ChartBarIcon} />
           <KpiCard k="running_hour" label="Running Hour" value={sKPI.running_hour !== null ? Number(sKPI.running_hour) : null} unit="hr" Icon={BoltIcon} />
@@ -754,7 +849,7 @@ export default function TotalizerEntryPage({ auth }) {
       const local = localStationKPI || { total_raw_water: 0, avg_raw_per_hr: 0, total_dm: 0 };
       return (
         <div className="space-y-3">
-          <div className="text-xs font-semibold text-gray-700">Station KPIs</div>
+          
           <KpiCard k="station_plf_percent" label="Station PLF" value={s?.station_plf_percent ?? (((Number(s?.unit1_generation || 0) + Number(s?.unit2_generation || 0)) > 0) ? (((Number(s.unit1_generation || 0) + Number(s.unit2_generation || 0)) / 3000) * 100) : null)} unit="%" Icon={ChartBarIcon} />
           <KpiCard k="total_raw_water_used_m3" label="Total Raw Water" value={renderKpiValue("total_raw_water_used_m3") ?? local.total_raw_water} unit="m3" Icon={CloudIcon} />
           <KpiCard k="avg_raw_water_m3_per_hr" label="Avg Raw Water/hr" value={renderKpiValue("avg_raw_water_m3_per_hr") ?? local.avg_raw_per_hr} unit="m3/hr" Icon={CloudIcon} />
@@ -767,11 +862,25 @@ export default function TotalizerEntryPage({ auth }) {
       const ek = liveEnergyKPI || {};
       return (
         <div className="space-y-3">
-          <div className="text-xs font-semibold text-gray-700">Energy (live)</div>
+          
           <KpiCard k="unit1_generation" label="U1 Gen" value={ek.unit1_generation ?? 0} unit="MWh" Icon={ChartBarIcon} />
+          <KpiCard k="unit1_plf_percent" label="U1 PLF" value={ek.unit1_plf_percent ?? 0} unit="%" Icon={ChartBarIcon} />
+
           <KpiCard k="unit2_generation" label="U2 Gen" value={ek.unit2_generation ?? 0} unit="MWh" Icon={ChartBarIcon} />
+          <KpiCard k="unit2_plf_percent" label="U2 PLF" value={ek.unit2_plf_percent ?? 0} unit="%" Icon={ChartBarIcon} />
+
+          <KpiCard k="unit1_aux_consumption_mwh" label="U1 Aux Consumption" value={ek.unit1_aux_consumption_mwh ?? 0} unit="Mwh" Icon={BoltIcon} />
+          <KpiCard k="unit2_aux_consumption_mwh" label="U2 Aux Consumption" value={ek.unit2_aux_consumption_mwh ?? 0} unit="Mwh" Icon={BoltIcon} />
+
           <KpiCard k="unit1_aux_percent" label="U1 Aux %" value={ek.unit1_aux_percent ?? 0} unit="%" Icon={BoltIcon} />
           <KpiCard k="unit2_aux_percent" label="U2 Aux %" value={ek.unit2_aux_percent ?? 0} unit="%" Icon={BoltIcon} />
+
+          <KpiCard k="unit1_unit_aux_mwh" label="U1 UAT CONS" value={ek.unit1_unit_aux_mwh ?? 0} unit="Mwh" Icon={BoltIcon} />
+          <KpiCard k="unit2_unit_aux_mwh" label="U2 UAT CONS" value={ek.unit2_unit_aux_mwh ?? 0} unit="Mwh" Icon={BoltIcon} />
+
+          <KpiCard k="total_station_aux_mwh" label="Station Aux" value={ek.total_station_aux_mwh ?? 0} unit="Mwh" Icon={BoltIcon} />
+          <KpiCard k="total_station_tie_mwh" label="Station Tie" value={ek.total_station_tie_mwh ?? 0} unit="Mwh" Icon={BoltIcon} />
+
           <KpiCard k="station_plf_percent" label="Station PLF" value={ek.station_plf_percent ?? 0} unit="%" Icon={ChartBarIcon} />
         </div>
       );
@@ -780,80 +889,198 @@ export default function TotalizerEntryPage({ auth }) {
     return null;
   };
 
+
+
   /* ---------------- Table render ---------------- */
+
   const currentTotalizers = totalizersByUnit[activeTab] || [];
 
   const renderTotalizerTable = () => (
-    <div className="max-h-[65vh] overflow-auto bg-white border border-zinc-300 shadow-sm">
-      <table className="min-w-full table-fixed border-collapse">
-        <thead className="sticky top-0 z-20">
-          <tr className="bg-zinc-100 text-zinc-700 text-[11px] uppercase tracking-wider font-bold">
-            <th className="px-3 py-2 text-left w-[240px] border-r border-zinc-200 align-middle">Totalizer</th>
-            <th className="px-2 py-2 text-right w-[110px] border-r border-zinc-200 align-middle">Today</th>
-            <th className="px-2 py-2 text-right w-[110px] border-r border-zinc-200 align-middle">Yesterday</th>
-            <th className="px-2 py-2 text-right w-[90px] align-middle">Diff</th>
-          </tr>
-          <tr className="h-[2px] bg-orange-400 w-full absolute left-0 right-0 bottom-0 z-30 block"></tr>
-        </thead>
-        <tbody className="text-[12px] bg-white">
-          {currentTotalizers.filter(t => canView(t.name)).map((t) => {
-            const rec = readingsForm[t.id];
-            if (!rec) return null;
-            const isEditable = canEdit(t.name);
-            const adjustVal = Number(rec.adjust);
-            const hasAdjustment = !isNaN(adjustVal) && adjustVal !== 0;
+  <div
+    className="
+      max-h-[65vh] overflow-auto
+      relative
+      bg-white/80
+      backdrop-blur-sm
+      border border-zinc-300
+      ring-1 ring-white/60
+      
+    "
+  >
+    <table className="min-w-full table-fixed border-collapse">
 
-            return (
-              <tr key={t.id} className="group hover:bg-orange-50 transition-colors duration-150 border-b border-zinc-100">
-                <td className="px-3 py-1 text-zinc-800 font-medium truncate align-middle border-r border-zinc-100">
-                  {t.display_name}
-                </td>
-                <td className="px-1 py-1 text-right align-middle border-r border-zinc-100 bg-zinc-50/30">
-                  <input
-                    type="number"
-                    step="1"
-                    value={rec.today === "" ? "" : rec.today}
-                    onChange={(e) => updateField(t.id, "today", e.target.value)}
-                    onDoubleClick={() => canAdjust && handleAdjustClick({ id: t.id, adjust: rec.adjust || 0 })}
-                    readOnly={!isEditable}
-                    placeholder="0.00"
-                    className={`w-full h-7 px-2 font-mono text-[13px] text-right font-semibold outline-none transition-all duration-150 rounded-none
-                      ${isEditable ? "bg-zinc-50 text-zinc-900 border border-zinc-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.06)] focus:bg-white focus:shadow-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400" 
-                      : "bg-zinc-100 text-zinc-400 cursor-not-allowed border-none shadow-none"}`}
-                  />
-                </td>
-                <td className="px-2 py-1 text-right font-mono text-[12px] text-zinc-500 whitespace-nowrap align-middle border-r border-zinc-100">
-                  {rec.yesterday}
-                </td>
-                <td className="px-2 py-1 text-right align-middle">
-                  <div className="flex items-center justify-end gap-1">
-                    <span className={`font-bold font-mono text-[13px] ${Number(rec.difference) < 0 ? 'text-red-600' : 'text-zinc-700'}`}>
-                      {rec.difference}
+      {/* ================= HEADER ================= */}
+      <thead className="sticky top-0 z-20">
+        <tr className="
+          bg-gradient-to-b from-zinc-100 to-zinc-200
+          text-zinc-800 text-[11px] uppercase tracking-widest font-extrabold
+        ">
+          <th className="px-3 py-2 text-left w-[240px] border-r border-zinc-300">
+            Totalizer
+          </th>
+          <th className="px-2 py-2 text-right w-[110px] border-r border-zinc-300">
+            Today
+          </th>
+          <th className="px-2 py-2 text-right w-[110px] border-r border-zinc-300">
+            Yesterday
+          </th>
+          <th className="px-2 py-2 text-right w-[90px]">
+            Δ
+          </th>
+        </tr>
+
+        {/* Header accent rail */}
+        <tr className="h-[3px] bg-gradient-to-r from-orange-500 to-amber-400" />
+      </thead>
+
+      {/* ================= BODY ================= */}
+      <tbody className="text-[12px] text-zinc-800">
+        {currentTotalizers.filter(t => canView(t.name)).map((t) => {
+          const rec = readingsForm[t.id];
+          if (!rec) return null;
+
+          const isEditable = canEdit(t.name);
+          const adjustVal = Number(rec.adjust);
+          const hasAdjustment = !isNaN(adjustVal) && adjustVal !== 0;
+
+          return (
+            <tr
+              key={t.id}
+              className="
+                group
+                border-b border-zinc-200
+                hover:bg-amber-50/60
+                transition-colors
+              "
+            >
+              {/* NAME */}
+              <td className="
+                px-3 py-1.5
+                font-semibold text-zinc-900
+                truncate
+                border-r border-zinc-200
+                relative
+              ">
+                {/* row focus rail */}
+                <span className="
+                  absolute left-0 top-0 h-full w-[3px]
+                  bg-transparent group-hover:bg-orange-400
+                " />
+                {t.display_name}
+              </td>
+
+              {/* TODAY */}
+              <td className="px-1 py-1 text-right border-r border-zinc-200 bg-zinc-50/40">
+                <input
+                  type="number"
+                  step="1"
+                  value={rec.today === "" ? "" : rec.today}
+                  onChange={(e) => updateField(t.id, "today", e.target.value)}
+                  onDoubleClick={() =>
+                    canAdjust && handleAdjustClick({ id: t.id, adjust: rec.adjust || 0 })
+                  }
+                  readOnly={!isEditable}
+                  placeholder="—"
+                  className={`
+                    w-full h-7 px-2
+                    text-right font-mono text-[13px] font-bold
+                    outline-none transition-all
+                    ${
+                      isEditable
+                        ? `
+                          bg-white
+                          text-zinc-900
+                          border border-zinc-300
+                          shadow-[inset_0_1px_2px_rgba(0,0,0,0.08)]
+                          focus:border-orange-500
+                          focus:ring-1 focus:ring-orange-400
+                        `
+                        : `
+                          bg-zinc-100
+                          text-zinc-400
+                          cursor-not-allowed
+                          border-none
+                        `
+                    }
+                  `}
+                />
+              </td>
+
+              {/* YESTERDAY */}
+              <td className="
+                px-2 py-1.5
+                text-right font-mono text-[12px]
+                text-zinc-500
+                border-r border-zinc-200
+              ">
+                {rec.yesterday}
+              </td>
+
+              {/* DIFF */}
+              <td className="px-2 py-1.5 text-right">
+                <div className="flex items-center justify-end gap-1">
+                  <span
+                    className={`
+                      font-mono text-[13px] font-extrabold
+                      ${Number(rec.difference) < 0 ? "text-red-700" : "text-zinc-800"}
+                    `}
+                  >
+                    {rec.difference}
+                  </span>
+
+                  {hasAdjustment && (
+                    <span
+                      title={`Adjustment: ${adjustVal}`}
+                      className="
+                        w-3.5 h-3.5
+                        flex items-center justify-center
+                        bg-orange-200 text-orange-800
+                        text-[9px] font-black
+                        border border-orange-300
+                      "
+                    >
+                      *
                     </span>
-                    {hasAdjustment && (
-                      <span className="flex items-center justify-center w-3 h-3 bg-orange-100 text-orange-600 text-[9px] font-bold rounded-none cursor-help" title={`Adjustment: ${adjustVal}`}>*</span>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-        <tfoot>
-          <tr className="bg-zinc-50 border-t border-zinc-300">
-            <td colSpan="4" className="px-3 py-1 text-right text-[10px] text-zinc-500">
-              {lastUpdatedInfo ? (
-                <>Updated: <strong>{new Date(lastUpdatedInfo.at).toLocaleString()}</strong> by <span className="text-orange-500 font-bold uppercase">{lastUpdatedInfo.by}</span></>
-              ) : <span>No data</span>}
-            </td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
-  );
+                  )}
+                </div>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+
+      {/* ================= FOOTER ================= */}
+      <tfoot>
+        <tr className="bg-zinc-100 border-t border-zinc-300">
+          <td colSpan="4" className="px-3 py-2 text-right text-[10px] text-zinc-600">
+            {lastUpdatedInfo ? (
+              <>
+                Updated:
+                <span className="font-bold ml-1">
+                  {new Date(lastUpdatedInfo.at).toLocaleString()}
+                </span>
+                {" by "}
+                <span className="text-orange-600 font-extrabold uppercase">
+                  {lastUpdatedInfo.by}
+                </span>
+              </>
+            ) : (
+              "No data"
+            )}
+          </td>
+        </tr>
+      </tfoot>
+
+    </table>
+  </div>
+);
+
+
 
   /* ---------------- confirm & adjust popups ---------------- */
+
   const previewChangedKPIs = async () => {
+    // call /kpi/calc with readings to preview auto KPIs that will change
     setPreviewLoading(true);
     try {
       const readings = buildReadingsArrayForUnit(activeTab);
@@ -870,6 +1097,7 @@ export default function TotalizerEntryPage({ auth }) {
 
   const renderConfirmPopup = () => {
     if (!showConfirmPopup) return null;
+
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
         <div className="bg-white rounded-lg shadow-lg w-full max-w-2xl p-4">
@@ -877,8 +1105,10 @@ export default function TotalizerEntryPage({ auth }) {
             <h3 className="text-lg font-semibold text-orange-600">Confirm changed inputs</h3>
             <button onClick={() => setShowConfirmPopup(false)} className="text-sm text-gray-500">Close</button>
           </div>
+
           <div className="max-h-64 overflow-auto border rounded p-2 bg-gray-50">
             <div className="text-sm text-gray-700 mb-2">Date: <strong>{reportDate}</strong> — <strong>{activeTab}</strong></div>
+
             <div className="mb-2">
               <div className="font-medium text-gray-800 text-sm mb-1">Changed Totalizer Readings</div>
               {confirmList.length > 0 ? (
@@ -891,6 +1121,7 @@ export default function TotalizerEntryPage({ auth }) {
                 </ul>
               ) : <div className="text-sm text-gray-500 italic">No totalizer changes</div>}
             </div>
+
             <div className="mt-3">
               <div className="flex items-center justify-between">
                 <div className="font-medium text-gray-800 text-sm">Preview Auto KPIs</div>
@@ -898,6 +1129,7 @@ export default function TotalizerEntryPage({ auth }) {
                   {previewLoading ? <Spinner size={12} /> : "Preview"}
                 </button>
               </div>
+
               <div className="mt-2">
                 {previewAutoKPIs ? (
                   <div className="grid grid-cols-2 gap-2">
@@ -908,10 +1140,13 @@ export default function TotalizerEntryPage({ auth }) {
                       </div>
                     ))}
                   </div>
-                ) : <div className="text-xs text-gray-400 italic">No preview. Click Preview to compute auto KPIs for changed inputs.</div>}
+                ) : (
+                  <div className="text-xs text-gray-400 italic">No preview. Click Preview to compute auto KPIs for changed inputs.</div>
+                )}
               </div>
             </div>
           </div>
+
           <div className="mt-4 flex justify-end gap-3">
             <button onClick={() => setShowConfirmPopup(false)} className="px-4 py-2 border rounded text-sm">Cancel</button>
             <button onClick={confirmSubmit} disabled={submitting} className="px-4 py-2 bg-orange-600 text-white rounded text-sm">
@@ -927,6 +1162,7 @@ export default function TotalizerEntryPage({ auth }) {
     if (!showAdjustPopup || !adjustPopupRecord) return null;
     const rec = readingsForm[adjustPopupRecord.id];
     if (!rec) return null;
+
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
         <div className="bg-white rounded-lg w-full max-w-md p-4">
@@ -956,6 +1192,7 @@ export default function TotalizerEntryPage({ auth }) {
   };
 
   /* ---------------- lifecycle effects ---------------- */
+
   useEffect(() => {
     (async () => {
       const items = totalizersByUnit[activeTab] || [];
@@ -965,7 +1202,9 @@ export default function TotalizerEntryPage({ auth }) {
       if (activeTab === "Unit-1" || activeTab === "Unit-2") {
         await loadShutdownKPIsForUnitDate(activeTab, reportDate);
       }
+      // keep serverKPIs (calculate explicit)
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportDate, activeTab, totalizersByUnit]);
 
   useEffect(() => {
@@ -984,189 +1223,400 @@ export default function TotalizerEntryPage({ auth }) {
     setReportDate(d.toLocaleDateString("en-CA"));
   };
 
-  /* ---------------- Main Render (Sidebar Layout) ---------------- */
-
-  const navItems = [
-    { id: "Unit-1", label: "Unit-1", icon: BoltIcon },
-    { id: "Unit-2", label: "Unit-2", icon: BoltIcon },
-    { id: "Station", label: "Station", icon: CloudIcon },
-    { id: "Energy-Meter", label: "Energy Meter", icon: ChartBarIcon },
-  ];
+  /* ---------------- render ---------------- */
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#F5F5F7] font-sans">
-      
-      {/* ---------------- LEFT SIDEBAR NAVIGATION ---------------- */}
-      <aside className="w-64 flex-shrink-0 flex flex-col bg-white border-r border-gray-200 shadow-[2px_0_10px_rgba(0,0,0,0.03)] z-30">
-        
-        {/* -- Header: Date & Config -- */}
-        <div className="p-4 border-b border-gray-100 bg-gray-50/50">
-          <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Configuration</div>
-          
-          <div className="flex items-center gap-1 mb-1">
-             <button onClick={() => handleDateChange(-1)} className="p-1.5 text-gray-500 hover:text-orange-600 hover:bg-white rounded transition-colors">
-               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M15 19l-7-7 7-7" /></svg>
-             </button>
-             <div className="flex-1 relative">
-                <input
-                    type="date"
-                    value={reportDate}
-                    onChange={(e) => setReportDate(e.target.value)}
-                    className="w-full text-center text-sm font-bold text-gray-800 bg-transparent border-none outline-none focus:ring-0 p-0"
-                />
-             </div>
-             <button onClick={() => handleDateChange(1)} className="p-1.5 text-gray-500 hover:text-orange-600 hover:bg-white rounded transition-colors">
-               <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7" /></svg>
-             </button>
-          </div>
-          <div className="text-[10px] text-center text-gray-400">{new Date(reportDate).toLocaleDateString('en-US', { weekday: 'long' })}</div>
-        </div>
+  <div className="
+  min-h-screen flex p-4 gap-8 overflow-visible
+  bg-gradient-to-br
+  from-amber-50
+  via-white
+  to-orange-100
+">
 
-        {/* -- Navigation Items -- */}
-        <nav className="flex-1 overflow-y-auto py-4 px-2 space-y-1">
-          <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-3 mb-2">Plants</div>
-          {navItems.map((item) => {
-            const isActive = activeTab === item.id;
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.id}
-                onClick={() => setActiveTab(item.id)}
-                className={`
-                  w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-200
-                  ${isActive 
-                    ? "bg-orange-50 text-orange-700 shadow-sm ring-1 ring-orange-200" 
-                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"}
-                `}
-              >
-                <Icon className={`w-5 h-5 ${isActive ? "text-orange-500" : "text-gray-400"}`} />
-                <span>{item.label}</span>
-                {isActive && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-orange-500" />}
-              </button>
-            );
-          })}
-        </nav>
 
-        {/* -- Footer Actions -- */}
-        <div className="p-4 bg-gray-50 border-t border-gray-200 space-y-3">
-            
-            {/* Calc & Utility Row */}
-            <div className="flex gap-2">
-                {(activeTab === "Unit-1" || activeTab === "Unit-2" || activeTab === "Station") && (
-                    <button 
-                        onClick={() => calculateKPIsForUnit(activeTab)} 
-                        disabled={loading}
-                        className="flex-1 flex items-center justify-center gap-1 py-2 bg-white border border-gray-200 rounded-md text-xs font-bold text-indigo-600 hover:border-indigo-300 hover:bg-indigo-50 transition-all"
-                        title="Calculate KPIs"
-                    >
-                        {loading ? <Spinner size={12}/> : <ArrowPathIcon className="w-3.5 h-3.5" />}
-                        Calc
-                    </button>
-                )}
-                <button 
-                    onClick={handleSeedMaster} 
-                    disabled={loading}
-                    className="flex-1 flex items-center justify-center gap-1 py-2 bg-white border border-gray-200 rounded-md text-xs font-bold text-gray-600 hover:border-gray-300 hover:bg-gray-100 transition-all"
-                    title="Seed Previous Day"
-                >
-                    <BeakerIcon className="w-3.5 h-3.5" /> Seed
-                </button>
-                <button 
-                    onClick={handleResetForm} 
-                    className="flex items-center justify-center px-2.5 py-2 bg-white border border-gray-200 rounded-md text-gray-500 hover:text-red-500 hover:border-red-200 hover:bg-red-50 transition-all"
-                    title="Reset Form"
-                >
-                   <TrashIcon className="w-3.5 h-3.5" />
-                </button>
-            </div>
+    {/* LEFT CONTROL PANEL (STYLISH, COMPACT, NO SCROLL) */}
 
-            {/* Primary Submit */}
-            <button
-                onClick={handleSubmitClick}
-                disabled={submitting}
-                className="w-full flex items-center justify-center gap-2 py-3 bg-gradient-to-r from-orange-600 to-amber-600 text-white rounded-lg shadow-md hover:shadow-lg hover:-translate-y-0.5 active:scale-95 transition-all text-sm font-bold tracking-wide"
-            >
-                {submitting ? <Spinner size={16}/> : (
-                    <>
-                        <span>Submit Data</span>
-                        <CheckCircleIcon className="w-4 h-4 opacity-80" />
-                    </>
-                )}
-            </button>
+  <div
+  className="
+    w-64 p-4 flex flex-col gap-4
+    relative rounded-xl
 
-            {/* Message Toast (Embedded in Sidebar) */}
-            {message && (
-                <div className={`mt-2 p-2 rounded text-xs flex items-start gap-2 animate-pulse ${message.startsWith("❌") ? "bg-red-50 text-red-600" : "bg-emerald-50 text-emerald-600"}`}>
-                   <span className="flex-1">{message.replace(/^[❌✅⚠️]\s*/, '')}</span>
-                </div>
-            )}
-        </div>
-      </aside>
+    /* Warm glass base */
+    bg-white/55
+    backdrop-blur-md
+    backdrop-saturate-125
 
-      {/* ---------------- MAIN CONTENT AREA ---------------- */}
-      <main className="flex-1 flex overflow-hidden">
-        
-        {/* CENTER: Data Entry Form */}
-        <div className="flex-1 overflow-y-auto p-6 scroll-smooth">
-          <div className="max-w-5xl mx-auto">
-             <div className="flex items-center justify-between mb-4">
-                 <h2 className="text-xl font-bold text-gray-800 tracking-tight">{activeTab} Readings</h2>
-                 {lastUpdatedInfo && <span className="text-xs text-gray-400">Last edit by {lastUpdatedInfo.by}</span>}
-             </div>
+    /* Glass edge */
+    border border-white/60
+    ring-1 ring-orange-200/60
 
-             {/* Totalizer Table */}
-             {currentTotalizers.length > 0 ? (
-                renderTotalizerTable()
-             ) : (
-                <div className="p-8 text-center text-gray-400 border-2 border-dashed border-gray-200 rounded-xl">No totalizers configured for this unit.</div>
-             )}
+    /* Depth */
+    shadow-[0_10px_28px_rgba(249,115,22,0.18),0_6px_16px_rgba(0,0,0,0.25)]
 
-             {/* Manual KPIs Section */}
-             <div className="mt-8 pt-6 border-t border-gray-200">
-                <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-4 flex items-center gap-2">
-                    <span className="w-1 h-4 bg-orange-500 rounded-full"></span>
-                    Manual Parameters
-                </h3>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  {Object.entries(manualKPI[activeTab] || {}).map(([kname, val]) => (
-                    <div key={kname} className="p-3 border border-gray-200 rounded-lg bg-white shadow-sm hover:shadow-md transition-shadow">
-                      <div className="text-xs text-gray-500 mb-1.5 font-medium uppercase truncate" title={kname}>
-                        {kname.replace(/_/g, " ")}
-                      </div>
-                      <div className="flex items-center gap-2">
-                          <input
-                            type="number"
-                            step="0.001"
-                            value={val ?? ""}
-                            onChange={(e) => updateManualField(activeTab, kname, e.target.value)}
-                            placeholder="-"
-                            className="w-full text-base font-semibold text-gray-800 border-b border-gray-200 focus:border-orange-500 outline-none pb-0.5 bg-transparent"
-                          />
-                          <span className="text-[10px] text-gray-400 font-medium">{manualUnits[activeTab]?.[kname] || ""}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-             </div>
-          </div>
-        </div>
+    /* Light reflection */
+    before:absolute before:inset-0 before:rounded-xl
+    before:bg-gradient-to-br before:from-white/70 before:via-white/20 before:to-transparent
+    before:pointer-events-none
+  "
+>
+  
+  <h3 className="text-sm font-bold text-black tracking-wide">
+  {activeTab} Selection
+</h3>
+<div className="h-[4px] bg-gradient-to-r from-orange-600 via-amber-400 to-transparent " />
 
-        {/* RIGHT: KPI Panel (Fixed width) */}
-        <div className="w-80 bg-white border-l border-gray-200 flex flex-col shadow-[-4px_0_15px_rgba(0,0,0,0.02)] z-10">
-            <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex justify-between items-center">
-                <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide">Live KPIs</h3>
-                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 bg-gray-50/30">
-                {renderLeftKPIList()}
-            </div>
-        </div>
 
-      </main>
 
-      {/* Popups */}
-      {renderConfirmPopup()}
-      {renderAdjustPopup()}
+  {/* --- 1. Tabs --- */}
+  <div className="flex flex-col gap-5 ">
+    {["Unit-1", "Unit-2", "Station", "Energy-Meter"].map((tab) => {
+      const isActive = activeTab === tab;
+      return (
+        <button
+          key={tab}
+          onClick={() => setActiveTab(tab)}
+          className={`
+  relative px-4 py-2.5 text-xs font-bold uppercase tracking-wider rounded-xl
+  transition-all duration-300 flex items-center justify-between group
+  border
+
+  ${
+    isActive
+      ? `
+        bg-gradient-to-br from-orange-400 via-orange-600 to-amber-500
+        text-white
+        shadow-[0_2px_4px_rgba(0,0,0,0.15),0_6px_12px_rgba(0,0,0,0.2)]
+        border-orange-700
+        before:absolute before:inset-0 before:rounded-xl
+        before:bg-white/30 before:blur-[2px] before:opacity-40 before:pointer-events-none
+      `
+      : `
+        bg-gradient-to-br from-[#ffffff] via-[#f2f2f2] to-[#ffffff]
+        text-gray-900
+        border-gray-300
+        shadow-[0_2px_3px_rgba(0,0,0,0.1)]
+        hover:bg-gradient-to-br hover:from-white hover:to-[#f7f7f7]
+        hover:border-orange-300 hover:text-orange-600
+        hover:shadow-[0_3px_6px_rgba(0,0,0,0.15)]
+      `
+  }
+`}
+
+        >
+          {tab}
+          {isActive ? (
+            <span className="w-2 h-2 rounded-full bg-white animate-pulse shadow-sm" />
+          ) : (
+            <span className="w-1.5 h-1.5 rounded-full bg-gray-300 group-hover:bg-orange-200 transition-colors" />
+          )}
+        </button>
+      );
+    })}
+  </div>
+
+  {/* Divider */}
+  <div className="h-px w-full bg-gradient-to-r from-transparent via-gray-300/50 to-transparent my-1" />
+
+  {/* --- 2. Date Controls (Immediately below tabs) --- */}
+  <div className="flex flex-col gap-1.5">
+    <label className="text-[10px] font-bold text-gray-400 uppercase ml-1 tracking-wider">Configuration</label>
+    <div
+      className="
+  flex items-center p-1.5 gap-1.5 rounded-xl
+  bg-gradient-to-br from-white via-[#f6f6f6] to-[#eaeaea]
+  border border-gray-300
+
+  shadow-[inset_0_1px_2px_rgba(255,255,255,0.7),0_2px_4px_rgba(0,0,0,0.08)]
+"
+    >
+      <button
+        onClick={() => handleDateChange(-1)}
+        className="
+  p-2 rounded-lg
+  bg-gradient-to-br from-[#ffffff] via-[#f3f3f3] to-[#e5e5e5]
+  border border-gray-300
+  shadow-[0_2px_3px_rgba(0,0,0,0.12)]
+  text-gray-500
+  hover:shadow-[0_3px_6px_rgba(0,0,0,0.2)]
+  hover:text-orange-600 hover:border-orange-300
+  active:scale-95
+  transition-all duration-200
+"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+      </button>
+
+      <input
+        type="date"
+        value={reportDate}
+        onChange={(e) => setReportDate(e.target.value)}
+        className="
+  flex-1 min-w-0 bg-transparent text-center text-sm font-bold font-mono
+  text-gray-700
+  outline-none
+"
+
+      />
+
+      <button
+        onClick={() => handleDateChange(1)}
+        className="
+  p-2 rounded-lg
+  bg-gradient-to-br from-[#ffffff] via-[#f3f3f3] to-[#e5e5e5]
+  border border-gray-300
+  shadow-[0_2px_3px_rgba(0,0,0,0.12)]
+  text-gray-500
+  hover:shadow-[0_3px_6px_rgba(0,0,0,0.2)]
+  hover:text-orange-600 hover:border-orange-300
+  active:scale-95
+  transition-all duration-200
+"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
+      </button>
     </div>
-  );
+  </div>
+
+  {/* --- 3. Utility Buttons (Seed/Reset) --- */}
+  <div className="grid grid-cols-2 gap-2">
+    <button
+      onClick={handleSeedMaster}
+      disabled={loading}
+      className="
+        px-3 py-2 text-[11px] font-bold uppercase tracking-wide rounded-xl
+        bg-white text-gray-500 border border-gray-200
+        hover:bg-gray-50 hover:text-indigo-600 hover:border-indigo-200 hover:shadow-sm
+        disabled:opacity-50 disabled:cursor-not-allowed
+        transition-all duration-200
+      "
+    >
+      Seed Data
+    </button>
+
+    <button
+      onClick={handleResetForm}
+      className="
+        px-3 py-2 text-[11px] font-bold uppercase tracking-wide rounded-xl
+        bg-white text-gray-500 border border-gray-200
+        hover:bg-gray-50 hover:text-red-500 hover:border-red-200 hover:shadow-sm
+        transition-all duration-200
+      "
+    >
+      Reset
+    </button>
+  </div>
+
+  {/* --- 4. Primary Actions (Stacked below) --- */}
+  <div className="flex flex-col gap-3 mt-1">
+    {(activeTab === "Unit-1" ||
+      activeTab === "Unit-2" ||
+      activeTab === "Station") && (
+      <button
+        onClick={() => calculateKPIsForUnit(activeTab)}
+        disabled={loading}
+        className="
+          w-full px-3 py-2.5 text-xs font-bold rounded-xl
+          bg-indigo-50 text-indigo-600 border border-indigo-100
+          hover:bg-indigo-100 hover:shadow-md hover:border-indigo-200 hover:-translate-y-0.5
+          flex items-center justify-center gap-2 transition-all duration-200
+        "
+      >
+        {loading ? <Spinner size={14} /> : (
+          <>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+            Calculate KPIs
+          </>
+        )}
+      </button>
+    )}
+
+    <button
+      onClick={handleSubmitClick}
+      className="
+        w-full px-4 py-3 text-sm font-bold tracking-wide text-white rounded-xl
+        bg-gradient-to-r from-orange-600 to-amber-600
+        shadow-lg shadow-orange-500/20 border border-white/20
+        hover:shadow-orange-500/40 hover:-translate-y-0.5 hover:scale-[1.02]
+        active:scale-95
+        transition-all duration-200
+        flex items-center justify-center gap-2
+      "
+    >
+      {submitting ? "Saving..." : (
+        <>
+          <span>Submit Readings</span>
+          <svg className="w-4 h-4 text-orange-100" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
+        </>
+      )}
+    </button>
+  </div>
+
+  {/* --- Message Toast --- */}
+  {message && (
+    <div
+      className={`
+        mt-1 px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2 shadow-sm
+        ${
+          message.startsWith("❌")
+            ? "bg-red-50 text-red-600 border border-red-100"
+            : message.startsWith("✅")
+            ? "bg-emerald-50 text-emerald-600 border border-emerald-100"
+            : "bg-amber-50 text-amber-600 border border-amber-100"
+        }
+      `}
+    >
+      {message.startsWith("✅") && <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/></svg>}
+      {message.startsWith("❌") && <svg className="w-4 h-4 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd"/></svg>}
+      <span className="flex-1 leading-tight">{message.replace(/^[❌✅⚠️]\s*/, '')}</span>
+    </div>
+  )}
+</div>
+
+
+    {/* CENTER FORM PANEL (NO SCROLL) */}
+    <div
+  className="
+    flex-1 p-5
+    relative rounded-2xl
+
+    /* Primary glass surface */
+    bg-white/65
+    backdrop-blur-lg
+    backdrop-saturate-150
+
+    /* Structural edge */
+    border border-white/70
+    ring-1 ring-orange-300/50
+
+    /* Depth & dominance */
+    shadow-[0_14px_36px_rgba(249,115,22,0.22),0_8px_24px_rgba(0,0,0,0.28)]
+
+    /* Glass light reflection */
+    before:absolute before:inset-0 before:rounded-2xl
+    before:bg-gradient-to-br before:from-white/80 before:via-white/25 before:to-transparent
+    before:pointer-events-none
+  "
+>
+
+
+      <h2 className="text-sm font-bold text-black tracking-wide">
+  {activeTab} Readings
+</h2>
+<div className="h-[4px] bg-gradient-to-r from-orange-400 via-amber-400 to-transparent my-3" />
+
+      {/* Totalizer Table */}
+      <div className="mb-4">
+        {currentTotalizers.length > 0 ? (
+          renderTotalizerTable()
+        ) : (
+          <div className="p-4 text-center text-gray-500 border border-dashed rounded">
+            No totalizers found for {activeTab}
+          </div>
+        )}
+      </div>
+
+      {/* Manual KPIs */}
+      <div className="mt-4 border-t pt-4">
+        <h3 className="text-sm font-semibold text-gray-700 mb-3">Manual KPIs</h3>
+
+        <div className="border border-zinc-300 bg-white/80 backdrop-blur-sm">
+  <table className="min-w-full text-[12px] border-collapse">
+    <thead className="bg-zinc-100 border-b border-zinc-300">
+      <tr className="text-zinc-700 uppercase text-[11px] font-bold">
+        <th className="px-3 py-2 text-left">Parameter</th>
+        <th className="px-3 py-2 text-right w-[140px]">Value</th>
+      </tr>
+    </thead>
+    <tbody>
+          {Object.entries(manualKPI[activeTab] || {}).map(([kname, val]) => (
+  <tr key={kname} className="border-b border-zinc-200 hover:bg-amber-50/50">
+    <td className="px-3 py-2 text-zinc-800 font-medium">
+      {kname.replace(/_/g, " ").toUpperCase()}
+      <span className="text-zinc-400 text-[11px] ml-2">
+        ({manualUnits[activeTab]?.[kname] || ""})
+      </span>
+    </td>
+    <td className="px-2 py-1">
+      <input
+        type="number"
+        step="0.001"
+        value={val ?? ""}
+        onChange={(e) => updateManualField(activeTab, kname, e.target.value)}
+        className="
+          w-full px-2 py-1 text-right font-mono text-[13px] font-bold
+          bg-white border border-zinc-300
+          focus:border-orange-500 focus:ring-1 focus:ring-orange-400
+          outline-none
+        "
+      />
+    </td>
+  </tr>
+))}
+
+</tbody>
+  </table>
+</div>
+        </div>
+      </div>
+    
+
+    {/* RIGHT KPI PANEL (GLASS, NO SCROLL) */}
+<div
+  className="
+    w-80 p-4
+    relative rounded-xl
+
+    /* Secondary glass surface */
+    bg-white/55
+    backdrop-blur-md
+    backdrop-saturate-125
+
+    /* Glass edge */
+    border border-white/60
+    ring-1 ring-orange-200/50
+
+    /* Lifted depth */
+    shadow-[0_10px_26px_rgba(249,115,22,0.16),0_6px_18px_rgba(0,0,0,0.26)]
+
+    /* Light reflection layer */
+    before:absolute before:inset-0 before:rounded-xl
+    before:bg-gradient-to-br before:from-white/65 before:via-white/15 before:to-transparent
+    before:pointer-events-none
+  "
+>
+
+
+
+      <div className="flex items-center justify-between mb-2">
+        <h2 className="text-sm font-bold text-black tracking-wide">
+  {activeTab} KPIs
+</h2>
+
+
+        {(activeTab === "Unit-1" ||
+          activeTab === "Unit-2" ||
+          activeTab === "Station") && (
+          <button
+            onClick={() => calculateKPIsForUnit(activeTab)}
+            disabled={loading}
+            className="px-2 py-1 text-xs bg-orange-50 rounded border text-orange-700"
+          >
+            {loading ? <Spinner size={12} /> : "Calc"}
+          </button>
+        )}
+      </div>
+
+      <div className="h-[4px] bg-gradient-to-r from-orange-400 via-amber-400 to-transparent my-3" />
+
+      {renderLeftKPIList()}
+    </div>
+
+    {/* Popups */}
+    {renderConfirmPopup()}
+    {renderAdjustPopup()}
+  </div>
+);
+
+
 }

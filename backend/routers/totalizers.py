@@ -101,50 +101,126 @@ def compute_unit_auto_kpis(diffs: Dict[str, float], generation: float = 0.0) -> 
         "specific_dm_percent": round(specific_dm_percent, 3),
     }
 
-def compute_energy_meter_auto_kpis(diffs: Dict[str, float], station_gen_cache: Dict[str, float] = None) -> Dict[str, float]:
+def compute_energy_meter_auto_kpis(
+    diffs: Dict[str, float],
+    station_gen_cache: Dict[str, float] = None
+) -> Dict[str, float]:
+
     station_gen_cache = station_gen_cache or {}
 
-    def g(k):
-        return diffs.get(k, 0.0)
+    def d(k: str) -> float:
+        return float(diffs.get(k, 0.0) or 0.0)
 
-    unit1_unit_aux_mwh = g("1lsr01_ic1") + g("1lsr02_ic1")
-    unit2_unit_aux_mwh = g("2lsr01_ic1") + g("2lsr02_ic1")
-
-    total_station_aux = (
-        g("rlsr01") + g("rlsr02") + g("rlsr03") + g("rlsr04") + g("SST_10") + g("UST_15") + g("UST_25")
+    # -------------------------------------------------
+    # UNIT AUX (EXACT MATCH WITH FRONTEND)
+    # -------------------------------------------------
+    unit1_unit_aux_mwh = (
+        d("1lsr01_ic1")
+        + d("1lsr02_ic1")
+        + d("1lsr01_ic2_tie")
+        - d("SST_10")
+        - d("UST_15")
     )
 
-    total_station_tie = (
-        g("1lsr01_ic2_tie") + g("1lsr02_ic2_tie") + g("2lsr01_ic2_tie") + g("2lsr02_ic2_tie")
+    unit2_unit_aux_mwh = (
+        d("2lsr01_ic1")
+        + d("2lsr02_ic1")
+        + d("2lsr01_ic2_tie")
+        - d("UST_25")
     )
 
-    unit1_aux_consumption = unit1_unit_aux_mwh + (total_station_aux + total_station_tie) / 2.0
-    unit2_aux_consumption = unit2_unit_aux_mwh + (total_station_aux + total_station_tie) / 2.0
+    # -------------------------------------------------
+    # STATION AUX (EXACT MATCH WITH FRONTEND)
+    # -------------------------------------------------
+    total_station_aux_mwh = (
+        d("rlsr01")
+        + d("rlsr02")
+        + d("rlsr03")
+        + d("rlsr04")
+        - d("1lsr01_ic2_tie")
+        - d("1lsr02_ic2_tie")
+        - d("2lsr01_ic2_tie")
+        - d("2lsr02_ic2_tie")
+        + d("SST_10")
+        + d("UST_15")
+        + d("UST_25")
+        + d("SST_10")   # repeated intentionally (as per frontend)
+        + d("UST_15")   # repeated intentionally (as per frontend)
+    )
 
-    unit1_gen = float(station_gen_cache.get("unit1_generation", diffs.get("unit1_gen", 0.0) or 0.0))
-    unit2_gen = float(station_gen_cache.get("unit2_generation", diffs.get("unit2_gen", 0.0) or 0.0))
+    # -------------------------------------------------
+    # STATION TIE
+    # -------------------------------------------------
+    total_station_tie_mwh = (
+        d("1lsr01_ic2_tie")
+        + d("1lsr02_ic2_tie")
+        + d("2lsr01_ic2_tie")
+        + d("2lsr02_ic2_tie")
+    )
 
-    unit1_plf = (unit1_gen / 3000.0) * 100.0 if unit1_gen > 0 else 0.0
-    unit2_plf = (unit2_gen / 3000.0) * 100.0 if unit2_gen > 0 else 0.0
-    station_plf = ((unit1_gen + unit2_gen) / 3000.0) * 100.0 if (unit1_gen + unit2_gen) > 0 else 0.0
+    # -------------------------------------------------
+    # GENERATION
+    # -------------------------------------------------
+    unit1_gen = float(
+        station_gen_cache.get("unit1_generation", d("unit1_gen"))
+    )
 
-    unit1_aux_percent = (unit1_aux_consumption / unit1_gen * 100.0) if unit1_gen > 0 else 0.0
-    unit2_aux_percent = (unit2_aux_consumption / unit2_gen * 100.0) if unit2_gen > 0 else 0.0
+    unit2_gen = float(
+        station_gen_cache.get("unit2_generation", d("unit2_gen"))
+    )
 
+    # -------------------------------------------------
+    # AUX CONSUMPTION (HALF STATION AUX)
+    # -------------------------------------------------
+    unit1_aux_consumption_mwh = unit1_unit_aux_mwh + (total_station_aux_mwh / 2.0)
+    unit2_aux_consumption_mwh = unit2_unit_aux_mwh + (total_station_aux_mwh / 2.0)
+
+    # -------------------------------------------------
+    # AUX %
+    # -------------------------------------------------
+    unit1_aux_percent = (
+        (unit1_aux_consumption_mwh / unit1_gen) * 100.0
+        if unit1_gen > 0 else 0.0
+    )
+
+    unit2_aux_percent = (
+        (unit2_aux_consumption_mwh / unit2_gen) * 100.0
+        if unit2_gen > 0 else 0.0
+    )
+
+    # -------------------------------------------------
+    # PLF
+    # -------------------------------------------------
+    unit1_plf_percent = (unit1_gen / 3000.0) * 100.0 if unit1_gen > 0 else 0.0
+    unit2_plf_percent = (unit2_gen / 3000.0) * 100.0 if unit2_gen > 0 else 0.0
+
+    station_plf_percent = (
+        ((unit1_gen + unit2_gen) / 3000.0) * 100.0
+        if (unit1_gen + unit2_gen) > 0 else 0.0
+    )
+
+    # -------------------------------------------------
+    # FINAL OUTPUT (ROUNDING SAME AS FRONTEND)
+    # -------------------------------------------------
     return {
         "unit1_generation": round(unit1_gen, 3),
         "unit2_generation": round(unit2_gen, 3),
+
         "unit1_unit_aux_mwh": round(unit1_unit_aux_mwh, 3),
         "unit2_unit_aux_mwh": round(unit2_unit_aux_mwh, 3),
-        "total_station_aux_mwh": round(total_station_aux, 3),
-        "total_station_tie_mwh": round(total_station_tie, 3),
-        "unit1_aux_consumption_mwh": round(unit1_aux_consumption, 3),
+
+        "total_station_aux_mwh": round(total_station_aux_mwh, 3),
+        "total_station_tie_mwh": round(total_station_tie_mwh, 3),
+
+        "unit1_aux_consumption_mwh": round(unit1_aux_consumption_mwh, 3),
         "unit1_aux_percent": round(unit1_aux_percent, 3),
-        "unit2_aux_consumption_mwh": round(unit2_aux_consumption, 3),
+
+        "unit2_aux_consumption_mwh": round(unit2_aux_consumption_mwh, 3),
         "unit2_aux_percent": round(unit2_aux_percent, 3),
-        "unit1_plf_percent": round(unit1_plf, 3),
-        "unit2_plf_percent": round(unit2_plf, 3),
-        "station_plf_percent": round(station_plf, 3),
+
+        "unit1_plf_percent": round(unit1_plf_percent, 3),
+        "unit2_plf_percent": round(unit2_plf_percent, 3),
+        "station_plf_percent": round(station_plf_percent, 3),
     }
 
 def compute_station_auto_kpis(diffs: Dict[str, float], generation_cache: Dict[str, float] = None) -> Dict[str, float]:

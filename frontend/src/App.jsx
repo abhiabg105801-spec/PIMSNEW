@@ -80,7 +80,20 @@ function Layout({ authHeader, onLogout }) {
     <div className="min-h-screen flex flex-col bg-zinc-50 text-zinc-800">
 
       {/* ================= HEADER ================= */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-zinc-800 border-b border-zinc-900">
+      <header
+  className="
+    fixed top-0 left-0 right-0 z-50
+    bg-gradient-to-r
+    from-white
+    via-zinc-100
+    to-orange-100
+    border-b border-zinc-300
+    shadow-[0_2px_8px_rgba(0,0,0,0.12)]
+  "
+>
+
+
+
 
         {/* TOP BAR */}
         <div className="h-14 flex items-center justify-between px-6 text-zinc-100">
@@ -89,20 +102,22 @@ function Layout({ authHeader, onLogout }) {
           </div>
 
           <div className="absolute left-1/2 -translate-x-1/2 hidden xl:block">
-            <span className="text-[26px] font-bold tracking-wide">
-              <span className="text-orange-500">2×125 MW CPP</span>
-              <span className="mx-2 text-zinc-600">|</span>
-              <span className="text-white">PIMS</span>
-            </span>
+            <span className="text-[26px] font-extrabold tracking-wide">
+  <span className="text-orange-600">2×125 MW CPP</span>
+  <span className="mx-2 text-zinc-400">|</span>
+  <span className="text-zinc-900">PIMS</span>
+</span>
           </div>
 
           <UserMenu username={username} onLogout={onLogout} />
         </div>
 
-        <div className="h-[3px] bg-gradient-to-r from-[#E06A1B] via-[#F6A65A] to-[#E06A1B]" />
+        <div className="h-[4px] bg-gradient-to-r from-[#b34700] via-[#ff8c1a] to-[#b34700]" />
+
 
         {/* ================= NAV BAR ================= */}
-        <nav className="h-8 bg-zinc-200 border-b border-zinc-400 shadow-inner">
+        <nav className="h-8 bg-zinc-100 border-b border-orange-300">
+
           <div className="max-w-7xl mx-auto flex items-center h-full gap-5 px-6">
 
             {/* ===== 125 MW DROPDOWN ===== */}
@@ -207,7 +222,7 @@ function Layout({ authHeader, onLogout }) {
       </header>
 
       {/* ================= CONTENT ================= */}
-      <main className="flex-1 pt-[110px] px-3 pb-6">
+      <main className="flex-1 pt-[90px]  pb-1">
         <Routes>
           <Route path="/" element={<Navigate to="/TotalizerEntry" />} />
 
