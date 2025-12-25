@@ -451,7 +451,8 @@ export default function TotalizerEntryPage({ auth }) {
   const updateManualField = (unit, field, value) => {
     setManualKPI((prev) => ({
       ...prev,
-      [unit]: { ...prev[unit], [field]: value === "" ? "" : Number(value) },
+      [unit]: { ...prev[unit], [field]: value === "" ? "" : parseFloat(value)
+ },
     }));
   };
 
@@ -496,43 +497,98 @@ export default function TotalizerEntryPage({ auth }) {
     }
   }, [readingsForm, activeTab]);
 
-  const liveEnergyKPI = useMemo(() => {
-    const d = (k) => getDiff(k, "Energy-Meter");
-    try {
-      const unit1_unit_aux_mwh = d("1lsr01_ic1") + d("1lsr02_ic1") + d("1lsr01_ic2_tie")-d("SST_10")-d("UST_15");
-      const unit2_unit_aux_mwh = d("2lsr01_ic1") + d("2lsr02_ic1")+ d("2lsr01_ic2_tie")-d("UST_25");
-      const total_station_aux_mwh = d("rlsr01") + d("rlsr02") + d("rlsr03") + d("rlsr04") -d("1lsr01_ic2_tie") 
-      - d("1lsr02_ic2_tie") - d("2lsr01_ic2_tie") - d("2lsr02_ic2_tie")+d("SST_10")+d("UST_15")+d("UST_25")+d("SST_10")+d("UST_15");
-      const total_station_tie_mwh = d("1lsr01_ic2_tie") + d("1lsr02_ic2_tie") + d("2lsr01_ic2_tie") + d("2lsr02_ic2_tie");
-      const unit1_gen = d("unit1_gen");
-      const unit2_gen = d("unit2_gen");
-      const unit1_aux_consumption_mwh = unit1_unit_aux_mwh + (total_station_aux_mwh ) / 2.0;
-      const unit2_aux_consumption_mwh = unit2_unit_aux_mwh + (total_station_aux_mwh ) / 2.0;
-      const unit1_aux_percent = unit1_gen > 0 ? (unit1_aux_consumption_mwh / unit1_gen) * 100.0 : 0.0;
-      const unit2_aux_percent = unit2_gen > 0 ? (unit2_aux_consumption_mwh / unit2_gen) * 100.0 : 0.0;
-      const unit1_plf_percent = unit1_gen > 0 ? (unit1_gen / 3000.0) * 100.0 : 0.0;
-      const unit2_plf_percent = unit2_gen > 0 ? (unit2_gen / 3000.0) * 100.0 : 0.0;
-      const station_plf_percent = (unit1_gen + unit2_gen) > 0 ? ((unit1_gen + unit2_gen) / 3000.0) * 100.0 : 0.0;
+  /* ================= ENERGY LIVE KPI (FIXED) ================= */
+/* ❗ DO NOT FILTER BY UNIT – ENERGY TOTALIZERS HAVE NO UNIT FIELD */
 
-      return {
-        unit1_generation: Number(unit1_gen.toFixed(3)),
-        unit2_generation: Number(unit2_gen.toFixed(3)),
-        unit1_unit_aux_mwh: Number(unit1_unit_aux_mwh.toFixed(3)),
-        unit2_unit_aux_mwh: Number(unit2_unit_aux_mwh.toFixed(3)),
-        total_station_aux_mwh: Number(total_station_aux_mwh.toFixed(3)),
-        total_station_tie_mwh: Number(total_station_tie_mwh.toFixed(3)),
-        unit1_aux_consumption_mwh: Number(unit1_aux_consumption_mwh.toFixed(3)),
-        unit1_aux_percent: Number(unit1_aux_percent.toFixed(3)),
-        unit2_aux_consumption_mwh: Number(unit2_aux_consumption_mwh.toFixed(3)),
-        unit2_aux_percent: Number(unit2_aux_percent.toFixed(3)),
-        unit1_plf_percent: Number(unit1_plf_percent.toFixed(3)),
-        unit2_plf_percent: Number(unit2_plf_percent.toFixed(3)),
-        station_plf_percent: Number(station_plf_percent.toFixed(3)),
-      };
-    } catch {
-      return {};
-    }
-  }, [readingsForm]);
+const liveEnergyKPI = useMemo(() => {
+  const d = (name) => {
+    const rec = Object.values(readingsForm).find(
+      (r) => r.name === name
+    );
+    if (!rec || rec.difference === "—" || rec.difference === null) return 0;
+    return Number(rec.difference) || 0;
+  };
+
+  try {
+    const unit1_unit_aux_mwh =
+      d("1lsr01_ic1") +
+      d("1lsr02_ic1") +
+      d("1lsr01_ic2_tie") -
+      d("SST_10") -
+      d("UST_15");
+
+    const unit2_unit_aux_mwh =
+      d("2lsr01_ic1") +
+      d("2lsr02_ic1") +
+      d("2lsr01_ic2_tie") -
+      d("UST_25");
+
+    const total_station_aux_mwh =
+      d("rlsr01") +
+      d("rlsr02") +
+      d("rlsr03") +
+      d("rlsr04") -
+      d("1lsr01_ic2_tie") -
+      d("1lsr02_ic2_tie") -
+      d("2lsr01_ic2_tie") -
+      d("2lsr02_ic2_tie") +
+      d("SST_10") +
+      d("UST_15") +
+      d("UST_25");
+
+    const total_station_tie_mwh =
+      d("1lsr01_ic2_tie") +
+      d("1lsr02_ic2_tie") +
+      d("2lsr01_ic2_tie") +
+      d("2lsr02_ic2_tie");
+
+    const unit1_gen = d("unit1_gen");
+    const unit2_gen = d("unit2_gen");
+
+    const unit1_aux_consumption_mwh =
+      unit1_unit_aux_mwh + total_station_aux_mwh / 2;
+
+    const unit2_aux_consumption_mwh =
+      unit2_unit_aux_mwh + total_station_aux_mwh / 2;
+
+    return {
+      unit1_generation: unit1_gen,
+      unit2_generation: unit2_gen,
+
+      unit1_unit_aux_mwh: Number(unit1_unit_aux_mwh.toFixed(3)),
+      unit2_unit_aux_mwh: Number(unit2_unit_aux_mwh.toFixed(3)),
+
+      total_station_aux_mwh: Number(total_station_aux_mwh.toFixed(3)),
+      total_station_tie_mwh: Number(total_station_tie_mwh.toFixed(3)),
+
+      unit1_aux_consumption_mwh: Number(unit1_aux_consumption_mwh.toFixed(3)),
+      unit2_aux_consumption_mwh: Number(unit2_aux_consumption_mwh.toFixed(3)),
+
+      unit1_aux_percent:
+        unit1_gen > 0
+          ? Number(((unit1_aux_consumption_mwh / unit1_gen) * 100).toFixed(3))
+          : 0,
+
+      unit2_aux_percent:
+        unit2_gen > 0
+          ? Number(((unit2_aux_consumption_mwh / unit2_gen) * 100).toFixed(3))
+          : 0,
+
+      unit1_plf_percent:
+        unit1_gen > 0 ? Number(((unit1_gen / 3000) * 100).toFixed(3)) : 0,
+
+      unit2_plf_percent:
+        unit2_gen > 0 ? Number(((unit2_gen / 3000) * 100).toFixed(3)) : 0,
+
+      station_plf_percent:
+        unit1_gen + unit2_gen > 0
+          ? Number((((unit1_gen + unit2_gen) / 3000) * 100).toFixed(3))
+          : 0,
+    };
+  } catch {
+    return {};
+  }
+}, [readingsForm]);
 
   /* ---------------- Submit flow ---------------- */
 
@@ -612,7 +668,30 @@ export default function TotalizerEntryPage({ auth }) {
       };
 
       // submit to backend
-      await api.post("/totalizers/submit", payload);
+      // 1️⃣ Submit totalizers ONLY
+await api.post("/totalizers/submit", {
+  date: reportDate,
+  plant_name: activeTab,
+  readings: payload.readings
+});
+
+// 2️⃣ Submit manual KPIs separately (if any)
+const manualList = Object.entries(manualKPI[activeTab] || {})
+  .map(([name, value]) => ({
+    name,
+    value,
+    unit: manualUnits[activeTab]?.[name]
+  }))
+  .filter(m => m.value !== "" && m.value !== null && m.value !== undefined);
+
+if (manualList.length > 0) {
+  await api.post("/kpi/manual", {
+    date: reportDate,
+    plant_name: activeTab,
+    kpis: manualList
+  });
+}
+
 
       // update local _orig to current values
       setReadingsForm((prev) => {
@@ -664,7 +743,11 @@ export default function TotalizerEntryPage({ auth }) {
     });
 
     // reset manual KPI values to initial or last loaded
-    setManualKPI((prev) => ({ ...prev, [activeTab]: { ...(initialManualKPI[activeTab] || {}), ...(prev[activeTab] || {}) } }));
+   setManualKPI(prev => ({
+  ...prev,
+  [activeTab]: { ...(initialManualKPI[activeTab] || {}) }
+}));
+
     setMessage("⚠️ Inputs reset.");
   };
 
@@ -723,28 +806,56 @@ export default function TotalizerEntryPage({ auth }) {
   /* ---------------- Manual KPI loader ---------------- */
 
   const loadManualKPIForActiveTab = useCallback(async () => {
-    try {
-      const r = await api.get("/kpi/manual", { params: { date: reportDate, unit: activeTab } });
-      const fetched = {};
-      (r.data?.kpis || []).forEach((k) => {
-        // backend returns kpi records: { kpi_name, kpi_value, ... } or similar
-        if (k.kpi_name) fetched[k.kpi_name] = k.kpi_value;
-        else if (k.kpi) fetched[k.kpi] = k.value;
-      });
+  try {
+    const r = await api.get("/kpi/manual", {
+      params: { date: reportDate, unit: activeTab },
+    });
 
-      setManualKPI((prev) => ({
-        ...prev,
-        [activeTab]: {
-          ...(initialManualKPI[activeTab] || {}),
-          ...fetched
-        }
-      }));
-    } catch (err) {
-      console.error("Manual KPI load failed", err);
-      // fallback to initial
-      setManualKPI((prev) => ({ ...prev, [activeTab]: { ...(initialManualKPI[activeTab] || {}) } }));
-    }
-  }, [api, activeTab, reportDate]);
+    const fetched = {};
+    (r.data?.kpis || []).forEach((k) => {
+      const name = k.kpi_name || k.kpi;
+      const value = k.kpi_value ?? k.value;
+      if (name) fetched[name] = value;
+    });
+
+    setManualKPI((prev) => ({
+      ...prev,
+      [activeTab]: {
+        ...(initialManualKPI[activeTab] || {}),
+        ...fetched,
+      },
+    }));
+  } catch {
+    setManualKPI((prev) => ({
+      ...prev,
+      [activeTab]: { ...(initialManualKPI[activeTab] || {}) },
+    }));
+  }
+}, [api, activeTab, reportDate]);
+
+
+  const loadSavedEnergyKPIs = useCallback(async () => {
+  try {
+    const r = await api.get("/kpi/auto", {
+      params: { date: reportDate, unit: "Station" }
+    });
+
+    const out = {};
+    (r.data?.kpis || []).forEach(k => {
+      out[k.kpi_name] = Number(k.kpi_value || 0);
+    });
+
+    setServerKPIs(prev => ({ ...prev, "Energy-Meter": out }));
+  } catch (e) {
+    console.error("Energy KPI load failed", e);
+  }
+}, [api, reportDate]);
+
+useEffect(() => {
+  if (activeTab === "Energy-Meter") {
+    loadSavedEnergyKPIs();
+  }
+}, [activeTab, reportDate]);
 
   /* ---------------- KPI panel helpers & rendering ---------------- */
 

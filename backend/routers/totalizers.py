@@ -283,6 +283,49 @@ def compute_station_auto_kpis(diffs: Dict[str, float], generation_cache: Dict[st
         "total_dm_water_used_m3": round(dm_total, 3),
     }
 
+# -------------------- HELPER (OUTSIDE endpoint) --------------------
+async def upsert_kpi(
+    db: AsyncSession,
+    reading_date: date,
+    kpi_type: str,
+    plant: str,
+    name: str,
+    value: float,
+    unit: str,
+):
+    if value is None:
+        return
+
+    insert_stmt = sqlite_upsert(KPIRecordDB).values(
+        report_date=reading_date,
+        kpi_type=kpi_type,
+        plant_name=plant,
+        kpi_name=name,
+        kpi_value=float(value),
+        unit=unit,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+
+    update_stmt = insert_stmt.on_conflict_do_update(
+        index_elements=[
+            "report_date",
+            "kpi_type",
+            "plant_name",
+            "kpi_name",
+        ],
+        set_={
+            "kpi_value": insert_stmt.excluded.kpi_value,
+            "unit": insert_stmt.excluded.unit,
+            "updated_at": datetime.now(timezone.utc),
+        },
+    )
+
+    await db.execute(update_stmt)
+
+
+
+
 # ---------------------------
 # TOTALIZERS endpoints (new)
 # ---------------------------
@@ -434,42 +477,69 @@ async def submit_readings(
     )
 
     # -------------------- PERSIST KPIs --------------------
-    async def upsert_kpi(kpi_type, plant, name, value, unit):
-        stmt = sqlite_upsert(KPIRecordDB).values(
-            report_date=reading_date,
-            kpi_type=kpi_type,
-            plant_name=plant,
-            kpi_name=name,
-            kpi_value=float(value),
-            unit=unit,
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
-        ).on_conflict_do_update(
-            index_elements=["report_date", "kpi_type", "plant_name", "kpi_name"],
-            set_={
-                "kpi_value": stmt.excluded.kpi_value,
-                "unit": stmt.excluded.unit,
-                "updated_at": datetime.now(timezone.utc),
-            },
-        )
-        await db.execute(stmt)
+
+
+
+    # -------------------- PERSIST KPIs --------------------
 
     for k, v in energy_kpis.items():
-        await upsert_kpi("energy", "Station", k, v, "%" if "percent" in k else "MWh")
+      await upsert_kpi(
+        db,
+        reading_date,
+        "energy",
+        "Station",
+        k,
+        v,
+        "%" if "percent" in k else "MWh",
+    )
 
     for k, v in unit1_kpis.items():
-        await upsert_kpi("Unit", "Unit-1", k, v, "%")
+      await upsert_kpi(
+        db,
+        reading_date,
+        "Unit",
+        "Unit-1",
+        k,
+        v,
+        "%",
+    )
 
     for k, v in unit2_kpis.items():
-        await upsert_kpi("Unit", "Unit-2", k, v, "%")
+      await upsert_kpi(
+        db,
+        reading_date,
+        "Unit",
+        "Unit-2",
+        k,
+        v,
+        "%",
+    )
 
     for k, v in station_kpis.items():
-        await upsert_kpi("manual", "Station", k, v, "%")
+      await upsert_kpi(
+        db,
+        reading_date,
+        "auto",
+        "Station",
+        k,
+        v,
+        "%",
+    )
 
+# manual KPIs from frontend
     for m in manual_kpis:
-        await upsert_kpi("manual", plant_name, m["name"], m["value"], m.get("unit"))
+      await upsert_kpi(
+        db,
+        reading_date,
+        "manual",
+        plant_name,
+        m["name"],
+        m["value"],
+        m.get("unit"),
+    )
 
     await db.commit()
+
 
     return {
         "message": "Saved successfully and KPIs recalculated",
@@ -567,6 +637,41 @@ async def get_saved_manual_kpis(date: str = Query(...), unit: str = Query(...), 
     q = await db.execute(select(KPIRecordDB).where(KPIRecordDB.report_date == rpt_date, KPIRecordDB.kpi_type == "manual", KPIRecordDB.plant_name == unit))
     rows = q.scalars().all()
     return {"date": rpt_date.isoformat(), "unit": unit, "kpis": [orm_to_dict_kpi(r) for r in rows]}
+@router.post("/kpi/manual", dependencies=[Depends(get_current_user)])
+async def save_manual_kpis(
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    payload:
+    {
+      "date": "YYYY-MM-DD",
+      "plant_name": "Unit-1" | "Unit-2" | "Station",
+      "kpis": [
+        { "name": "stack_emission", "value": 45, "unit": "mg/Nm3" },
+        { "name": "clarifier_level", "value": 78, "unit": "%" }
+      ]
+    }
+    """
+
+    reading_date = parse_iso_date(payload["date"])
+    plant = payload["plant_name"]
+    kpis = payload.get("kpis", [])
+
+    for k in kpis:
+        await upsert_kpi(
+            db=db,
+            reading_date=reading_date,
+            kpi_type="manual",
+            plant=plant,
+            name=k["name"],
+            value=k["value"],
+            unit=k.get("unit"),
+        )
+
+    await db.commit()
+
+    return {"message": "Manual KPIs saved successfully"}
 
 @router.get("/kpi/shutdown/{unit}", dependencies=[Depends(get_current_user)])
 async def get_shutdown_kpis(unit: str, date: str = Query(...), db: AsyncSession = Depends(get_db)):
