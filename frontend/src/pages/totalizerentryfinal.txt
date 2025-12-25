@@ -64,66 +64,6 @@ const KPI_DEPENDENCY_MAP = {
   // add more mappings if you have more totalizer master names
 };
 
-
-
-
-/* ================= HARDCODED TOTALIZER MASTER ================= */
-
-const TOTALIZER_MASTER = {
-  "Unit-1": [
-    { id: 1,  name: "feeder_a",    display_name: "Feeder1A Totalizer", unit: "Unit-1", seq: 1 },
-    { id: 2,  name: "feeder_b",    display_name: "Feeder1B Totalizer", unit: "Unit-1", seq: 2 },
-    { id: 3,  name: "feeder_c",    display_name: "Feeder1C Totalizer", unit: "Unit-1", seq: 3 },
-    { id: 4,  name: "feeder_d",    display_name: "Feeder1D Totalizer", unit: "Unit-1", seq: 4 },
-    { id: 5,  name: "feeder_e",    display_name: "Feeder1E Totalizer", unit: "Unit-1", seq: 5 },
-    { id: 6,  name: "ldo_flow",    display_name: "Unit-1 : LDO FLOW", unit: "Unit-1", seq: 6 },
-    { id: 7,  name: "dm7",         display_name: "Unit-1 : DM7 Water", unit: "Unit-1", seq: 7 },
-    { id: 8,  name: "dm11",        display_name: "Unit-1 : DM11 Water", unit: "Unit-1", seq: 8 },
-    { id: 9,  name: "main_steam",  display_name: "Unit-1 : Main Steam Used", unit: "Unit-1", seq: 9 },
-    { id: 10, name: "feed_water",  display_name: "Unit-1 : Feed Water Totalizer", unit: "Unit-1", seq: 10 },
-  ],
-
-  "Unit-2": [
-    { id: 11, name: "feeder_a",    display_name: "Feeder2A Totalizer", unit: "Unit-2", seq: 1 },
-    { id: 12, name: "feeder_b",    display_name: "Feeder2B Totalizer", unit: "Unit-2", seq: 2 },
-    { id: 13, name: "feeder_c",    display_name: "Feeder2C Totalizer", unit: "Unit-2", seq: 3 },
-    { id: 14, name: "feeder_d",    display_name: "Feeder2D Totalizer", unit: "Unit-2", seq: 4 },
-    { id: 15, name: "feeder_e",    display_name: "Feeder2E Totalizer", unit: "Unit-2", seq: 5 },
-    { id: 16, name: "ldo_flow",    display_name: "Unit-2 : LDO FLOW", unit: "Unit-2", seq: 6 },
-    { id: 17, name: "dm7",         display_name: "Unit-2 : DM7 Water", unit: "Unit-2", seq: 7 },
-    { id: 18, name: "dm11",        display_name: "Unit-2 : DM11 Water", unit: "Unit-2", seq: 8 },
-    { id: 19, name: "main_steam",  display_name: "Unit-2 : Main Steam Used", unit: "Unit-2", seq: 9 },
-    { id: 20, name: "feed_water",  display_name: "Unit-2 : Feed Water Totalizer", unit: "Unit-2", seq: 10 },
-  ],
-
-  "Station": [
-    { id: 21, name: "raw_water", display_name: "Station : Raw Water Totalizer", unit: "Station", seq: 1 },
-  ],
-
-  "Energy-Meter": [
-    { id: 22, name: "unit1_gen", display_name: "Unit-1 Generation", seq: 1 },
-    { id: 23, name: "unit2_gen", display_name: "Unit-2 Generation", seq: 2 },
-    { id: 24, name: "1lsr01_ic1", display_name: "1LSR01 I/C-1", seq: 3 },
-    { id: 25, name: "1lsr02_ic1", display_name: "1LSR02 I/C-1", seq: 4 },
-    { id: 26, name: "2lsr01_ic1", display_name: "2LSR01 I/C-1", seq: 5 },
-    { id: 27, name: "2lsr02_ic1", display_name: "2LSR02 I/C-1", seq: 6 },
-    { id: 28, name: "rlsr01", display_name: "RLSR01", seq: 7 },
-    { id: 29, name: "rlsr02", display_name: "RLSR02", seq: 8 },
-    { id: 30, name: "rlsr03", display_name: "RLSR03", seq: 9 },
-    { id: 31, name: "rlsr04", display_name: "RLSR04", seq: 10 },
-    { id: 32, name: "1lsr01_ic2_tie", display_name: "1LSR01 I/C-2 (TIE)", seq: 11 },
-    { id: 33, name: "1lsr02_ic2_tie", display_name: "1LSR02 I/C-2 (TIE)", seq: 12 },
-    { id: 34, name: "2lsr01_ic2_tie", display_name: "2LSR01 I/C-2 (TIE)", seq: 13 },
-    { id: 35, name: "2lsr02_ic2_tie", display_name: "2LSR02 I/C-2 (TIE)", seq: 14 },
-    { id: 36, name: "SST_10", display_name: "SST_10", seq: 15 },
-    { id: 37, name: "UST_15", display_name: "UST_15", seq: 16 },
-    { id: 38, name: "UST_25", display_name: "UST-25", seq: 17 },
-  ],
-};
-
-
-
-
 export default function TotalizerEntryPage({ auth }) {
   const authHeader = useMemo(() => normalizeAuthHeader(auth), [auth]);
 
@@ -153,32 +93,14 @@ export default function TotalizerEntryPage({ auth }) {
   const canView = (field) => permissionMap[field]?.can_view ?? true;
   const canEdit = (field) => permissionMap[field]?.can_edit ?? true;
 
-  const [totalizersByUnit] = useState(() => {
-  const init = {};
-  Object.entries(TOTALIZER_MASTER).forEach(([unit, list]) => {
-    init[unit] = [...list].sort((a, b) => a.seq - b.seq);
+  const [totalizersByUnit, setTotalizersByUnit] = useState({
+    "Unit-1": [],
+    "Unit-2": [],
+    Station: [],
+    "Energy-Meter": [],
   });
-  return init;
-});
 
   const [readingsForm, setReadingsForm] = useState({}); // keyed by master.id
-  useEffect(() => {
-  const init = {};
-  Object.values(TOTALIZER_MASTER).flat().forEach(t => {
-    init[t.id] = {
-      today: "",
-      adjust: 0,
-      yesterday: "—",
-      difference: "—",
-      display_name: t.display_name,
-      name: t.name,
-      unit: t.unit || "",
-      totalizer_id: t.id,
-      _orig: { today: "", adjust: 0 },
-    };
-  });
-  setReadingsForm(init);
-}, []);
   const [lastUpdatedInfo, setLastUpdatedInfo] = useState(null);
 
   const [serverKPIs, setServerKPIs] = useState({ "Unit-1": null, "Unit-2": null, Station: null });
@@ -203,8 +125,8 @@ export default function TotalizerEntryPage({ auth }) {
 
   // Manual KPI state and metadata
   const initialManualKPI = {
-    "Unit-1": { stack_emission: "" , Approx_COP: "Rs" , },
-    "Unit-2": { stack_emission: "", Approx_COP: "Rs" , },
+    "Unit-1": { stack_emission: "" },
+    "Unit-2": { stack_emission: "" },
     Station: {
       clarifier_level: "",
       ro_running_hour: "",
@@ -218,8 +140,8 @@ export default function TotalizerEntryPage({ auth }) {
   };
   const [manualKPI, setManualKPI] = useState(JSON.parse(JSON.stringify(initialManualKPI)));
   const manualUnits = {
-    "Unit-1": { stack_emission: "mg/Nm3", Approx_COP: "Rs" ,},
-    "Unit-2": { stack_emission: "mg/Nm3" , Approx_COP: "Rs" ,},
+    "Unit-1": { stack_emission: "mg/Nm3" },
+    "Unit-2": { stack_emission: "mg/Nm3" },
     Station: {
       clarifier_level: "%",
       ro_running_hour: "hr",
@@ -267,9 +189,51 @@ export default function TotalizerEntryPage({ auth }) {
 
   /* ---------------- master + readings load ---------------- */
 
-  
+  const loadMasterForUnit = useCallback(async (unit) => {
+    try {
+      const r = await api.get(`/totalizers/${encodeURIComponent(unit)}/master`);
+      const items = r.data || [];
+      setTotalizersByUnit((prev) => ({ ...prev, [unit]: items }));
 
-  
+      setReadingsForm((prev) => {
+        const updated = { ...prev };
+        items.forEach((t) => {
+          if (!updated[t.id]) {
+            updated[t.id] = {
+              today: "",
+              adjust: 0,
+              yesterday: "—",
+              difference: "—",
+              display_name: t.display_name,
+              name: t.name,
+              unit: t.unit || unit,
+              totalizer_id: t.id,
+              _orig: { today: "", adjust: 0 },
+            };
+          } else {
+            updated[t.id].display_name = t.display_name;
+            updated[t.id].name = t.name;
+            updated[t.id].unit = t.unit || unit;
+          }
+        });
+        return updated;
+      });
+
+      // load today's/yesterday's readings for this unit/date
+      await loadTodayReadings(reportDate, unit, items);
+      await loadYesterdayReadings(reportDate, unit, items);
+    } catch (e) {
+      console.error("loadMasterForUnit error:", e);
+    }
+  }, [api, reportDate]);
+
+  useEffect(() => {
+    loadMasterForUnit("Unit-1");
+    loadMasterForUnit("Unit-2");
+    loadMasterForUnit("Station");
+    loadMasterForUnit("Energy-Meter");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const loadTodayReadings = useCallback(async (forDate, unit, itemsParam = null) => {
     try {
@@ -784,7 +748,7 @@ export default function TotalizerEntryPage({ auth }) {
     <div
       className={`
         flex items-center
-        h-8
+        h-6
         px-2
         border-l-[4px]
         border
@@ -1269,20 +1233,20 @@ export default function TotalizerEntryPage({ auth }) {
     <aside
       className="
         w-64 h-screen flex flex-col
-        bg-gradient-to-r from-zinc-300 via-zinc-200 to-zinc-100
-        border-r border-zinc-300
+        bg-gradient-to-b from-orange-50 via-white to-orange-100
+        border-r border-orange-200
         shadow-[4px_0_18px_rgba(249,115,22,0.18)]
       "
     >
       {/* Header */}
-      <div className="px-4 py-5 border-b border-orange-200">
+      <div className="px-4 py-4 border-b border-orange-200">
         <h3 className="text-sm font-extrabold text-orange-700 tracking-wide uppercase">
           Plant Sections
         </h3>
       </div>
 
       {/* Tabs */}
-      <div className="p-6 flex flex-col gap-6 ">
+      <div className="p-3 flex flex-col gap-2">
         {["Unit-1", "Unit-2", "Station", "Energy-Meter"].map(tab => {
           const isActive = activeTab === tab;
           return (

@@ -40,6 +40,7 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^5.1.0",
     "autoprefixer": "^10.4.20",
+    "baseline-browser-mapping": "^2.9.11",
     "postcss": "^8.4.41",
     "tailwindcss": "^3.4.13",
     "terser": "^5.44.0",

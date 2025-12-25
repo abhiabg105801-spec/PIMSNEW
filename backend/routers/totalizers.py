@@ -14,6 +14,55 @@ from models import TotalizerMasterDB, TotalizerReadingDB, KPIRecordDB, ShutdownR
 
 router = APIRouter(prefix="/api")  # main.py should include this router
 
+
+
+# ================= HARDCODED TOTALIZER MASTER =================
+
+TOTALIZER_MASTER = {
+    1:  ("feeder_a", "Unit-1"),
+    2:  ("feeder_b", "Unit-1"),
+    3:  ("feeder_c", "Unit-1"),
+    4:  ("feeder_d", "Unit-1"),
+    5:  ("feeder_e", "Unit-1"),
+    6:  ("ldo_flow", "Unit-1"),
+    7:  ("dm7", "Unit-1"),
+    8:  ("dm11", "Unit-1"),
+    9:  ("main_steam", "Unit-1"),
+    10: ("feed_water", "Unit-1"),
+
+    11: ("feeder_a", "Unit-2"),
+    12: ("feeder_b", "Unit-2"),
+    13: ("feeder_c", "Unit-2"),
+    14: ("feeder_d", "Unit-2"),
+    15: ("feeder_e", "Unit-2"),
+    16: ("ldo_flow", "Unit-2"),
+    17: ("dm7", "Unit-2"),
+    18: ("dm11", "Unit-2"),
+    19: ("main_steam", "Unit-2"),
+    20: ("feed_water", "Unit-2"),
+
+    21: ("raw_water", "Station"),
+
+    22: ("unit1_gen", "Energy-Meter"),
+    23: ("unit2_gen", "Energy-Meter"),
+    24: ("1lsr01_ic1", "Energy-Meter"),
+    25: ("1lsr02_ic1", "Energy-Meter"),
+    26: ("2lsr01_ic1", "Energy-Meter"),
+    27: ("2lsr02_ic1", "Energy-Meter"),
+    28: ("rlsr01", "Energy-Meter"),
+    29: ("rlsr02", "Energy-Meter"),
+    30: ("rlsr03", "Energy-Meter"),
+    31: ("rlsr04", "Energy-Meter"),
+    32: ("1lsr01_ic2_tie", "Energy-Meter"),
+    33: ("1lsr02_ic2_tie", "Energy-Meter"),
+    34: ("2lsr01_ic2_tie", "Energy-Meter"),
+    35: ("2lsr02_ic2_tie", "Energy-Meter"),
+    36: ("SST_10", "Energy-Meter"),
+    37: ("UST_15", "Energy-Meter"),
+    38: ("UST_25", "Energy-Meter"),
+}
+
+
 # ---------------------------
 # Utilities
 # ---------------------------
@@ -30,15 +79,6 @@ def parse_iso_date(s: str) -> date:
         except Exception:
             raise HTTPException(status_code=422, detail="Invalid date format. Expect YYYY-MM-DD")
 
-def orm_to_dict_totalizer(m: TotalizerMasterDB) -> Dict[str, Any]:
-    return {
-        "id": m.id,
-        "unit": m.unit,
-        "name": m.name,
-        "display_name": m.display_name,
-        "sequence": m.sequence,
-        "unit_label": getattr(m, "unit_label", None)
-    }
 
 def orm_to_dict_reading(r: TotalizerReadingDB) -> Dict[str, Any]:
     return {
@@ -247,352 +287,198 @@ def compute_station_auto_kpis(diffs: Dict[str, float], generation_cache: Dict[st
 # TOTALIZERS endpoints (new)
 # ---------------------------
 
-@router.get("/totalizers/{unit}/master", dependencies=[Depends(get_current_user)])
-async def get_master_for_unit(unit: str, db: AsyncSession = Depends(get_db)):
-    """
-    Return master totalizers for a unit.
-    unit examples: "Unit-1", "Unit-2", "Station", "Energy-Meter"
-    """
-    q = await db.execute(select(TotalizerMasterDB).where(TotalizerMasterDB.unit == unit).order_by(TotalizerMasterDB.sequence))
-    rows = q.scalars().all()
-    return [orm_to_dict_totalizer(r) for r in rows]
+
 
 @router.get("/totalizers/{unit}/readings", dependencies=[Depends(get_current_user)])
 async def get_readings_for_unit_date(unit: str, date: str = Query(...), db: AsyncSession = Depends(get_db)):
-    """
-    Return readings for all totalizers for the given unit and date.
-    Query param: date=YYYY-MM-DD
-    """
     rpt_date = parse_iso_date(date)
-    # find master ids for this unit
-    q = await db.execute(select(TotalizerMasterDB.id).where(TotalizerMasterDB.unit == unit))
-    mids = [r[0] for r in q.all()]  # list of ids
+
+    mids = [tid for tid, (_, u) in TOTALIZER_MASTER.items() if u == unit]
     if not mids:
-        # return empty list if no totalizers configured for this unit
         return []
 
-    q2 = await db.execute(select(TotalizerReadingDB).where(TotalizerReadingDB.totalizer_id.in_(mids), TotalizerReadingDB.date == rpt_date))
-    rows = q2.scalars().all()
+    q = await db.execute(
+        select(TotalizerReadingDB)
+        .where(
+            TotalizerReadingDB.totalizer_id.in_(mids),
+            TotalizerReadingDB.date == rpt_date
+        )
+    )
+    rows = q.scalars().all()
     return [orm_to_dict_reading(r) for r in rows]
 
+
 @router.post("/totalizers/submit", dependencies=[Depends(get_current_user)])
-async def submit_readings(payload: dict = Body(...), db: AsyncSession = Depends(get_db), current_user: UserDB = Depends(get_current_user)):
+async def submit_readings(
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user),
+):
     """
-    Submit readings payload:
+    Submit readings payload (masterless):
     {
       date: "YYYY-MM-DD",
-      username: "...",            # optional
-      plant_name: "Unit-1",      # required
-      readings: [{ totalizer_id, reading_value, adjust_value }, ...],
-      manual_kpis: [{ name, value, unit }, ...]   # optional
+      plant_name: "Unit-1",
+      readings: [{ totalizer_id, reading_value, adjust_value }],
+      manual_kpis: [{ name, value, unit }]
     }
-    Returns saved computed_auto_kpis (all recalculated and persisted).
     """
-    # validate date
+
+    # -------------------- VALIDATION --------------------
     try:
         reading_date = parse_iso_date(payload["date"])
     except Exception:
         raise HTTPException(status_code=422, detail="Invalid date")
 
     readings = payload.get("readings", [])
-    role_id = current_user.role_id
-    plant_name = payload.get("plant_name")
     manual_kpis = payload.get("manual_kpis", [])
+    role_id = current_user.role_id
 
+    plant_name = payload.get("plant_name")
     if not plant_name:
-        # try infer from first reading
         if readings:
-            first_tid = readings[0].get("totalizer_id")
-            q = await db.execute(select(TotalizerMasterDB).where(TotalizerMasterDB.id == first_tid))
-            m = q.scalars().first()
-            plant_name = m.unit if m else None
+            meta = TOTALIZER_MASTER.get(readings[0]["totalizer_id"])
+            plant_name = meta[1] if meta else None
 
     if not plant_name:
         raise HTTPException(status_code=422, detail="plant_name required")
 
-    # 1) save readings and build diffs for submitted items (we'll compute global diffs later)
+    # -------------------- SAVE READINGS --------------------
     for item in readings:
-        tid = item.get("totalizer_id")
+        tid = item["totalizer_id"]
         today_val = float(item.get("reading_value") or 0.0)
         adjust = float(item.get("adjust_value") or 0.0)
 
         if role_id not in (7, 8):
             adjust = 0.0
 
-        # yesterday reading
         y = yesterday(reading_date)
-        q = select(TotalizerReadingDB).where(TotalizerReadingDB.totalizer_id == tid, TotalizerReadingDB.date == y)
-        r = await db.execute(q)
-        yrow = r.scalars().first()
-        yvalue = float(yrow.reading_value) if yrow else 0.0
+        q = await db.execute(
+            select(TotalizerReadingDB)
+            .where(
+                TotalizerReadingDB.totalizer_id == tid,
+                TotalizerReadingDB.date == y
+            )
+        )
+        yrow = q.scalars().first()
+        yval = float(yrow.reading_value or 0.0) if yrow else 0.0
 
-        diff = (today_val - yvalue) + adjust
+        diff = (today_val - yval) + adjust
 
-        # upsert reading record
-        q3 = select(TotalizerReadingDB).where(TotalizerReadingDB.totalizer_id == tid, TotalizerReadingDB.date == reading_date)
-        existing = (await db.execute(q3)).scalars().first()
+        q2 = await db.execute(
+            select(TotalizerReadingDB)
+            .where(
+                TotalizerReadingDB.totalizer_id == tid,
+                TotalizerReadingDB.date == reading_date
+            )
+        )
+        existing = q2.scalars().first()
+
         if existing:
             existing.reading_value = today_val
             existing.adjust_value = adjust
             existing.difference_value = diff
             existing.updated_at = datetime.now(timezone.utc)
         else:
-            new = TotalizerReadingDB(
-                totalizer_id=tid,
-                date=reading_date,
-                reading_value=today_val,
-                adjust_value=adjust,
-                difference_value=diff
+            db.add(
+                TotalizerReadingDB(
+                    totalizer_id=tid,
+                    date=reading_date,
+                    reading_value=today_val,
+                    adjust_value=adjust,
+                    difference_value=diff,
+                )
             )
-            db.add(new)
 
-    # commit readings first
     await db.commit()
 
-    # -------------------------------------------------------
-    # AGGREGATED FULL KPI RECALC & PERSIST (for the whole date)
-    # This calculates Energy + Unit1 + Unit2 + Station KPIs using all totalizers' diffs
-    # and upserts them so all dependent KPIs remain consistent after any submit.
-    # -------------------------------------------------------
-
-    # 1) load all masters to map id -> (name, unit)
-    q = await db.execute(select(TotalizerMasterDB.id, TotalizerMasterDB.name, TotalizerMasterDB.unit))
-    masters = q.all()  # list of tuples (id, name, unit)
-    id_to_name: Dict[int, str] = {}
-    id_to_unit: Dict[int, str] = {}
-    for row in masters:
-        mid, mname, munit = row
-        id_to_name[mid] = mname
-        id_to_unit[mid] = munit
-
-    # 2) load today's readings for the date
-    q = await db.execute(select(TotalizerReadingDB).where(TotalizerReadingDB.date == reading_date))
+    # -------------------- BUILD GLOBAL DIFFS --------------------
+    q = await db.execute(
+        select(TotalizerReadingDB)
+        .where(TotalizerReadingDB.date == reading_date)
+    )
     today_rows = q.scalars().all()
 
-    # 3) load yesterday readings for the date (to compute diffs globally)
     y = yesterday(reading_date)
-    q = await db.execute(select(TotalizerReadingDB).where(TotalizerReadingDB.date == y))
-    yesterday_rows = q.scalars().all()
-    y_map = {r.totalizer_id: float(r.reading_value or 0.0) for r in yesterday_rows}
+    q = await db.execute(
+        select(TotalizerReadingDB)
+        .where(TotalizerReadingDB.date == y)
+    )
+    y_map = {r.totalizer_id: float(r.reading_value or 0.0) for r in q.scalars().all()}
 
-    # build diffs_by_name across all masters
     diffs_by_name: Dict[str, float] = {}
-    # also collect per-totalizer adjust (from today's row) when present
-    today_map = {r.totalizer_id: r for r in today_rows}
+
     for r in today_rows:
-        tid = r.totalizer_id
-        today_val = float(r.reading_value or 0.0)
-        adjust = float(r.adjust_value or 0.0)
-        yval = y_map.get(tid, 0.0)
-        diff = (today_val - yval) + adjust
-        mname = id_to_name.get(tid)
-        if mname:
-            diffs_by_name[mname] = diff
+        meta = TOTALIZER_MASTER.get(r.totalizer_id)
+        if not meta:
+            continue
+        name, _ = meta
+        diff = (float(r.reading_value or 0.0) - y_map.get(r.totalizer_id, 0.0)) + float(r.adjust_value or 0.0)
+        diffs_by_name[name] = diff
 
-    # also ensure missing masters (without today's reading) are present with zero (helps computations)
-    for mid, name in id_to_name.items():
-        if name not in diffs_by_name:
-            diffs_by_name[name] = 0.0
+    # ensure all known names exist
+    for name, _ in TOTALIZER_MASTER.values():
+        diffs_by_name.setdefault(name, 0.0)
 
-    # 4) compute energy KPIs first (energy may provide generation numbers)
-    energy_kpis = compute_energy_meter_auto_kpis(diffs_by_name, station_gen_cache={})
+    # -------------------- KPI COMPUTE --------------------
+    energy_kpis = compute_energy_meter_auto_kpis(diffs_by_name, {})
     unit1_gen = energy_kpis.get("unit1_generation", 0.0)
     unit2_gen = energy_kpis.get("unit2_generation", 0.0)
 
-    # 5) compute unit KPIs using generation from energy_kpis
-    unit1_kpis = compute_unit_auto_kpis(diffs_by_name, generation=unit1_gen)
-    unit2_kpis = compute_unit_auto_kpis(diffs_by_name, generation=unit2_gen)
+    unit1_kpis = compute_unit_auto_kpis(diffs_by_name, unit1_gen)
+    unit2_kpis = compute_unit_auto_kpis(diffs_by_name, unit2_gen)
 
-    # 6) compute station KPIs using generation cache
-    generation_cache = {"unit1_generation": unit1_gen, "unit2_generation": unit2_gen}
-    station_kpis = compute_station_auto_kpis(diffs_by_name, generation_cache=generation_cache)
+    station_kpis = compute_station_auto_kpis(
+        diffs_by_name,
+        {"unit1_generation": unit1_gen, "unit2_generation": unit2_gen},
+    )
 
-    # 7) persist energy KPIs (save as kpi_type="energy", plant_name="Station")
-    try:
-        EM_SAVE_LIST = [
-            ("unit1_generation", "MWh"),
-            ("unit2_generation", "MWh"),
-            ("unit1_unit_aux_mwh", "MWh"),
-            ("unit2_unit_aux_mwh", "MWh"),
-            ("total_station_aux_mwh", "MWh"),
-            ("total_station_tie_mwh", "MWh"),
-            ("unit1_aux_consumption_mwh", "MWh"),
-            ("unit1_aux_percent", "%"),
-            ("unit2_aux_consumption_mwh", "MWh"),
-            ("unit2_aux_percent", "%"),
-            ("unit1_plf_percent", "%"),
-            ("unit2_plf_percent", "%"),
-            ("station_plf_percent", "%"),
-        ]
-        for k, unit in EM_SAVE_LIST:
-            val = float(energy_kpis.get(k, 0.0))
-            stmt = sqlite_upsert(KPIRecordDB).values(
-                report_date=reading_date,
-                kpi_type="energy",
-                plant_name="Station",
-                kpi_name=k,
-                kpi_value=val,
-                unit=unit,
-                created_at=datetime.now(timezone.utc),
-                updated_at=datetime.now(timezone.utc)
-            )
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["report_date", "kpi_type", "plant_name", "kpi_name"],
-                set_={
-                    "kpi_value": stmt.excluded.kpi_value,
-                    "unit": stmt.excluded.unit,
-                    "updated_at": datetime.now(timezone.utc)
-                }
-            )
-            await db.execute(stmt)
-        await db.commit()
-    except Exception:
-        # swallow DB write errors to avoid breaking entire submit; but surface later if needed
-        await db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to persist energy KPIs")
+    # -------------------- PERSIST KPIs --------------------
+    async def upsert_kpi(kpi_type, plant, name, value, unit):
+        stmt = sqlite_upsert(KPIRecordDB).values(
+            report_date=reading_date,
+            kpi_type=kpi_type,
+            plant_name=plant,
+            kpi_name=name,
+            kpi_value=float(value),
+            unit=unit,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        ).on_conflict_do_update(
+            index_elements=["report_date", "kpi_type", "plant_name", "kpi_name"],
+            set_={
+                "kpi_value": stmt.excluded.kpi_value,
+                "unit": stmt.excluded.unit,
+                "updated_at": datetime.now(timezone.utc),
+            },
+        )
+        await db.execute(stmt)
 
-    # 8) persist Unit KPIs (Unit-1 and Unit-2)
-    try:
-        UNIT_SAVE_LIST = [
-            ("coal_consumption", "ton"),
-            ("specific_coal", "ton/MWh"),
-            ("oil_consumption", "L"),
-            ("specific_oil", "L/MWh"),
-            ("dm_water", "m3"),
-            ("steam_consumption", "kg"),
-            ("specific_steam", "kg/MWh"),
-            ("specific_dm_percent", "%"),
-        ]
-        # Unit-1
-        for k, unit in UNIT_SAVE_LIST:
-            val = float(unit1_kpis.get(k, 0.0))
-            stmt = sqlite_upsert(KPIRecordDB).values(
-                report_date=reading_date,
-                kpi_type="Unit",
-                plant_name="Unit-1",
-                kpi_name=k,
-                kpi_value=val,
-                unit=unit,
-                created_at=datetime.now(timezone.utc),
-                updated_at=datetime.now(timezone.utc)
-            )
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["report_date", "kpi_type", "plant_name", "kpi_name"],
-                set_={
-                    "kpi_value": stmt.excluded.kpi_value,
-                    "unit": stmt.excluded.unit,
-                    "updated_at": datetime.now(timezone.utc)
-                }
-            )
-            await db.execute(stmt)
-        # Unit-2
-        for k, unit in UNIT_SAVE_LIST:
-            val = float(unit2_kpis.get(k, 0.0))
-            stmt = sqlite_upsert(KPIRecordDB).values(
-                report_date=reading_date,
-                kpi_type="Unit",
-                plant_name="Unit-2",
-                kpi_name=k,
-                kpi_value=val,
-                unit=unit,
-                created_at=datetime.now(timezone.utc),
-                updated_at=datetime.now(timezone.utc)
-            )
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["report_date", "kpi_type", "plant_name", "kpi_name"],
-                set_={
-                    "kpi_value": stmt.excluded.kpi_value,
-                    "unit": stmt.excluded.unit,
-                    "updated_at": datetime.now(timezone.utc)
-                }
-            )
-            await db.execute(stmt)
+    for k, v in energy_kpis.items():
+        await upsert_kpi("energy", "Station", k, v, "%" if "percent" in k else "MWh")
 
-        await db.commit()
-    except Exception:
-        await db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to persist unit KPIs")
+    for k, v in unit1_kpis.items():
+        await upsert_kpi("Unit", "Unit-1", k, v, "%")
 
-    # 9) persist Station KPIs
-    try:
-        ST_SAVE_LIST = [
-            ("total_raw_water_used_m3", "m3"),
-            ("avg_raw_water_m3_per_hr", "m3/hr"),
-            ("sp_raw_water_l_per_kwh", "L/kWh"),
-            ("total_dm_water_used_m3", "m3"),
-        ]
-        for k, unit in ST_SAVE_LIST:
-            val = float(station_kpis.get(k, 0.0))
-            stmt = sqlite_upsert(KPIRecordDB).values(
-                report_date=reading_date,
-                kpi_type="manual",
-                plant_name="Station",
-                kpi_name=k,
-                kpi_value=val,
-                unit=unit,
-                created_at=datetime.now(timezone.utc),
-                updated_at=datetime.now(timezone.utc)
-            )
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["report_date", "kpi_type", "plant_name", "kpi_name"],
-                set_={
-                    "kpi_value": stmt.excluded.kpi_value,
-                    "unit": stmt.excluded.unit,
-                    "updated_at": datetime.now(timezone.utc)
-                }
-            )
-            await db.execute(stmt)
+    for k, v in unit2_kpis.items():
+        await upsert_kpi("Unit", "Unit-2", k, v, "%")
 
-        await db.commit()
-    except Exception:
-        await db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to persist station KPIs")
+    for k, v in station_kpis.items():
+        await upsert_kpi("manual", "Station", k, v, "%")
 
-    # 10) Save manual KPIs (unchanged behavior)
-    try:
-        for m in manual_kpis:
-            name = m.get("name")
-            value = m.get("value")
-            unit = m.get("unit")
-            if name is None:
-                continue
+    for m in manual_kpis:
+        await upsert_kpi("manual", plant_name, m["name"], m["value"], m.get("unit"))
 
-            stmt = sqlite_upsert(KPIRecordDB).values(
-                report_date=reading_date,
-                kpi_type="manual",
-                plant_name=plant_name,
-                kpi_name=name,
-                kpi_value=value,
-                unit=unit,
-                created_at=datetime.now(timezone.utc),
-                updated_at=datetime.now(timezone.utc)
-            )
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["report_date", "kpi_type", "plant_name", "kpi_name"],
-                set_={
-                    "kpi_value": stmt.excluded.kpi_value,
-                    "unit": stmt.excluded.unit,
-                    "updated_at": datetime.now(timezone.utc)
-                }
-            )
-            await db.execute(stmt)
-
-        await db.commit()
-    except Exception:
-        await db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to persist manual KPIs")
-
-    # 11) Return aggregated computed values (helpful for frontend to immediately show)
-    aggregated = {
-        "energy": energy_kpis,
-        "unit1": unit1_kpis,
-        "unit2": unit2_kpis,
-        "Station": station_kpis,
-    }
+    await db.commit()
 
     return {
         "message": "Saved successfully and KPIs recalculated",
-        "computed_auto_kpis": aggregated
+        "computed_auto_kpis": {
+            "energy": energy_kpis,
+            "unit1": unit1_kpis,
+            "unit2": unit2_kpis,
+            "Station": station_kpis,
+        },
     }
 
 # ---------------------------
@@ -628,10 +514,10 @@ async def calc_kpi_live(payload: dict = Body(...), db: AsyncSession = Depends(ge
 
         diff = (today_val - yval) + adjust
 
-        q2 = await db.execute(select(TotalizerMasterDB).where(TotalizerMasterDB.id == tid))
-        m = q2.scalars().first()
-        if m:
-            diffs[m.name] = diff
+        meta = TOTALIZER_MASTER.get(tid)
+        if meta:
+         name, _ = meta
+         diffs[name] = diff
 
     # load station generation cache permissively
     station_gen_cache: Dict[str, float] = {}

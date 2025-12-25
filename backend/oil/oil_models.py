@@ -8,8 +8,7 @@ class OilUnloading(Base):
 
     plant = Column(String, nullable=False)
     area = Column(String, nullable=False)
-
-    oil_type = Column(String, nullable=False)  # LDO / HSD
+    oil_type = Column(String, nullable=False)
 
     oil_company = Column(String)
     oil_depot = Column(String)
@@ -47,3 +46,14 @@ class OilUnloading(Base):
 
     delay_reason = Column(String)
     remarks = Column(String)
+
+
+class FuelTank(Base):
+    __tablename__ = "fuel_tanks"
+
+    id = Column(Integer, primary_key=True)
+    plant = Column(String, nullable=False)
+    oil_type = Column(String, nullable=False)
+    tank_name = Column(String, nullable=False)
+
+    current_kl = Column(Float, default=0)

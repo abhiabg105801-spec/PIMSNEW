@@ -83,10 +83,10 @@ function Layout({ authHeader, onLogout }) {
       <header
   className="
     fixed top-0 left-0 right-0 z-50
-    bg-gradient-to-r
+    bg-gradient-to-b
     from-white
-    via-zinc-100
-    to-orange-100
+    via-orange-100
+    to-orange-300
     border-b border-zinc-300
     shadow-[0_2px_8px_rgba(0,0,0,0.12)]
   "
@@ -98,15 +98,31 @@ function Layout({ authHeader, onLogout }) {
         {/* TOP BAR */}
         <div className="h-14 flex items-center justify-between px-6 text-zinc-100">
           <div className="flex items-center gap-3">
-            <img src="/jsl-logo.JPG" alt="JSL Logo" className="h-12 brightness-110" />
+            <img src="/jsl-logo.png" alt="JSL Logo" className="h-12 brightness-110" />
           </div>
 
           <div className="absolute left-1/2 -translate-x-1/2 hidden xl:block">
-            <span className="text-[26px] font-extrabold tracking-wide">
-  <span className="text-orange-600">2×125 MW CPP</span>
-  <span className="mx-2 text-zinc-400">|</span>
-  <span className="text-zinc-900">PIMS</span>
+            <span className="flex items-center gap-3">
+  <span className="
+    text-[28px] font-extrabold
+    bg-gradient-to-b from-orange-600 to-orange-400
+    bg-clip-text text-transparent
+    tracking-wide
+  ">
+    CAPTIVE POWER PLANT
+  </span>
+
+  <span className="text-zinc-400 text-xl">|</span>
+
+  
+
+  <span className="
+    text-[28px] font-extrabold text-zinc-500 tracking-[0.2em]
+  ">
+    PIMS
+  </span>
 </span>
+
           </div>
 
           <UserMenu username={username} onLogout={onLogout} />
