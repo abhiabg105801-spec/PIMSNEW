@@ -899,7 +899,7 @@ useEffect(() => {
         px-2
         border-l-[4px]
         border
-        transition-all duration-150
+        transition-all duration-150 rounded
         ${
           isHighlighted
             ? `
