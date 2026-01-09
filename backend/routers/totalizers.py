@@ -324,6 +324,24 @@ async def upsert_kpi(
     await db.execute(update_stmt)
 
 
+async def get_existing_kpi_value(
+    db: AsyncSession,
+    reading_date: date,
+    kpi_type: str,
+    plant: str,
+    name: str,
+):
+    q = await db.execute(
+        select(KPIRecordDB.kpi_value)
+        .where(
+            KPIRecordDB.report_date == reading_date,
+            KPIRecordDB.kpi_type == kpi_type,
+            KPIRecordDB.plant_name == plant,
+            KPIRecordDB.kpi_name == name,
+        )
+    )
+    row = q.first()
+    return float(row[0]) if row else None
 
 
 # ---------------------------
@@ -436,45 +454,94 @@ async def submit_readings(
     await db.commit()
 
     # -------------------- BUILD GLOBAL DIFFS --------------------
+    # -------------------- BUILD UNIT-SCOPED DIFFS --------------------
+    diffs_by_unit = {
+    "Unit-1": {},
+    "Unit-2": {},
+    "Station": {},
+    "Energy-Meter": {},
+    }
+
+# today readings
     q = await db.execute(
-        select(TotalizerReadingDB)
-        .where(TotalizerReadingDB.date == reading_date)
+     select(TotalizerReadingDB)
+     .where(TotalizerReadingDB.date == reading_date)
     )
     today_rows = q.scalars().all()
 
+# yesterday readings
     y = yesterday(reading_date)
     q = await db.execute(
-        select(TotalizerReadingDB)
-        .where(TotalizerReadingDB.date == y)
+      select(TotalizerReadingDB)
+      .where(TotalizerReadingDB.date == y)
     )
     y_map = {r.totalizer_id: float(r.reading_value or 0.0) for r in q.scalars().all()}
 
-    diffs_by_name: Dict[str, float] = {}
-
+# compute diffs per UNIT
     for r in today_rows:
         meta = TOTALIZER_MASTER.get(r.totalizer_id)
         if not meta:
-            continue
-        name, _ = meta
-        diff = (float(r.reading_value or 0.0) - y_map.get(r.totalizer_id, 0.0)) + float(r.adjust_value or 0.0)
-        diffs_by_name[name] = diff
+           continue
 
-    # ensure all known names exist
-    for name, _ in TOTALIZER_MASTER.values():
-        diffs_by_name.setdefault(name, 0.0)
+        name, unit = meta
+        diff = (
+           float(r.reading_value or 0.0)
+           - y_map.get(r.totalizer_id, 0.0)
+           + float(r.adjust_value or 0.0)
+         )
 
-    # -------------------- KPI COMPUTE --------------------
-    energy_kpis = compute_energy_meter_auto_kpis(diffs_by_name, {})
-    unit1_gen = energy_kpis.get("unit1_generation", 0.0)
-    unit2_gen = energy_kpis.get("unit2_generation", 0.0)
+        diffs_by_unit[unit][name] = diff
 
-    unit1_kpis = compute_unit_auto_kpis(diffs_by_name, unit1_gen)
-    unit2_kpis = compute_unit_auto_kpis(diffs_by_name, unit2_gen)
+# ensure missing totalizers are zeroed per unit
+    for tid, (name, unit) in TOTALIZER_MASTER.items():
+        diffs_by_unit[unit].setdefault(name, 0.0)
 
+# -------------------- FLATTEN ENERGY DIFFS (GLOBAL) --------------------
+    energy_diffs = diffs_by_unit["Energy-Meter"].copy()
+
+
+    # -------------------- detect unit --------------------
+
+    entered_units = set()
+
+    for item in readings:
+        meta = TOTALIZER_MASTER.get(item["totalizer_id"])
+        if meta:
+           _, unit = meta
+           entered_units.add(unit)
+    # -------------------- KPI COMPUTE (UNIT SAFE) --------------------
+
+# ENERGY KPIs (isolated)
+    energy_kpis = {}
+    unit1_gen = 0.0
+    unit2_gen = 0.0
+
+    if "Energy-Meter" in entered_units:
+       energy_kpis = compute_energy_meter_auto_kpis(energy_diffs, {})
+       unit1_gen = energy_kpis.get("unit1_generation", 0.0)
+       unit2_gen = energy_kpis.get("unit2_generation", 0.0)
+
+
+# UNIT KPIs (isolated)
+    unit1_kpis = compute_unit_auto_kpis(
+    diffs_by_unit["Unit-1"],
+    unit1_gen,
+    )
+
+    unit2_kpis = compute_unit_auto_kpis(
+    diffs_by_unit["Unit-2"],
+    unit2_gen,
+    )
+
+# STATION KPIs (isolated + generation cache)
     station_kpis = compute_station_auto_kpis(
-        diffs_by_name,
-        {"unit1_generation": unit1_gen, "unit2_generation": unit2_gen},
+    diffs_by_unit["Station"],
+    {
+        "unit1_generation": unit1_gen,
+        "unit2_generation": unit2_gen,
+    },
     )
+
 
     # -------------------- PERSIST KPIs --------------------
 
@@ -482,51 +549,82 @@ async def submit_readings(
 
     # -------------------- PERSIST KPIs --------------------
 
-    for k, v in energy_kpis.items():
-      await upsert_kpi(
-        db,
-        reading_date,
-        "energy",
-        "Station",
-        k,
-        v,
-        "%" if "percent" in k else "MWh",
-    )
+    if "Energy-Meter" in entered_units:
+     for k, v in energy_kpis.items():
+        existing = await get_existing_kpi_value(
+            db, reading_date, "energy", "Station", k
+        )
+        if existing is not None and round(existing, 6) == round(v, 6):
+            continue
 
-    for k, v in unit1_kpis.items():
-      await upsert_kpi(
-        db,
-        reading_date,
-        "Unit",
-        "Unit-1",
-        k,
-        v,
-        "%",
-    )
+        await upsert_kpi(
+            db,
+            reading_date,
+            "energy",
+            "Station",
+            k,
+            v,
+            "%" if "percent" in k else "MWh",
+        )
 
-    for k, v in unit2_kpis.items():
-      await upsert_kpi(
-        db,
-        reading_date,
-        "Unit",
-        "Unit-2",
-        k,
-        v,
-        "%",
-    )
 
-    for k, v in station_kpis.items():
-      await upsert_kpi(
-        db,
-        reading_date,
-        "auto",
-        "Station",
-        k,
-        v,
-        "%",
-    )
+    if "Unit-1" in entered_units:
+     for k, v in unit1_kpis.items():
+        existing = await get_existing_kpi_value(
+            db, reading_date, "Unit", "Unit-1", k
+        )
+        if existing is not None and round(existing, 6) == round(v, 6):
+            continue
 
-# manual KPIs from frontend
+        await upsert_kpi(
+            db,
+            reading_date,
+            "Unit",
+            "Unit-1",
+            k,
+            v,
+            "%",
+        )
+
+# UNIT-2 KPIs
+    if "Unit-2" in entered_units:
+     for k, v in unit2_kpis.items():
+        existing = await get_existing_kpi_value(
+            db, reading_date, "Unit", "Unit-2", k
+        )
+        if existing is not None and round(existing, 6) == round(v, 6):
+            continue
+
+        await upsert_kpi(
+            db,
+            reading_date,
+            "Unit",
+            "Unit-2",
+            k,
+            v,
+            "%",
+        )
+
+# STATION KPIs
+     if "Station" in entered_units:
+      for k, v in station_kpis.items():
+        existing = await get_existing_kpi_value(
+            db, reading_date, "auto", "Station", k
+        )
+        if existing is not None and round(existing, 6) == round(v, 6):
+            continue
+
+        await upsert_kpi(
+            db,
+            reading_date,
+            "auto",
+            "Station",
+            k,
+            v,
+            "%",
+        )
+
+# -------------------- MANUAL KPIs (ALWAYS UPDATE) --------------------
     for m in manual_kpis:
       await upsert_kpi(
         db,
@@ -539,7 +637,6 @@ async def submit_readings(
     )
 
     await db.commit()
-
 
     return {
         "message": "Saved successfully and KPIs recalculated",
@@ -571,23 +668,45 @@ async def calc_kpi_live(payload: dict = Body(...), db: AsyncSession = Depends(ge
     readings = payload.get("readings", [])
 
     # build diffs map by master.name
-    diffs: Dict[str, float] = {}
+    # -------------------- BUILD UNIT-SCOPED DIFFS (LIVE) --------------------
+    diffs_by_unit = {
+    "Unit-1": {},
+    "Unit-2": {},
+    "Station": {},
+    "Energy-Meter": {},
+    }
+
+# yesterday map
+    y = yesterday(rpt_date)
+    q = await db.execute(
+    select(TotalizerReadingDB)
+    .where(TotalizerReadingDB.date == y)
+    )
+    y_map = {
+    r.totalizer_id: float(r.reading_value or 0.0)
+    for r in q.scalars().all()
+    }
+
+# calculate diffs per unit
     for item in readings:
-        tid = item.get("totalizer_id")
-        today_val = float(item.get("reading_value") or 0.0)
-        adjust = float(item.get("adjust_value") or 0.0)
+      tid = item.get("totalizer_id")
+      today_val = float(item.get("reading_value") or 0.0)
+      adjust = float(item.get("adjust_value") or 0.0)
 
-        y = yesterday(rpt_date)
-        q = await db.execute(select(TotalizerReadingDB).where(TotalizerReadingDB.totalizer_id == tid, TotalizerReadingDB.date == y))
-        yrow = q.scalars().first()
-        yval = float(yrow.reading_value) if yrow else 0.0
+      meta = TOTALIZER_MASTER.get(tid)
+      if not meta:
+        continue
 
-        diff = (today_val - yval) + adjust
+      name, unit = meta
+      diff = (today_val - y_map.get(tid, 0.0)) + adjust
+      diffs_by_unit[unit][name] = diff
 
-        meta = TOTALIZER_MASTER.get(tid)
-        if meta:
-         name, _ = meta
-         diffs[name] = diff
+# ensure all known totalizers exist with zero
+    for tid, (name, unit) in TOTALIZER_MASTER.items():
+      diffs_by_unit[unit].setdefault(name, 0.0)
+
+    energy_diffs = diffs_by_unit["Energy-Meter"]
+
 
     # load station generation cache permissively
     station_gen_cache: Dict[str, float] = {}
@@ -600,21 +719,34 @@ async def calc_kpi_live(payload: dict = Body(...), db: AsyncSession = Depends(ge
     except Exception:
         station_gen_cache = {}
 
+    # -------------------- UNIT KPIs (LIVE, ISOLATED) --------------------
     if plant_name in ("Unit-1", "Unit-2"):
-        gen_key = "unit1_generation" if plant_name == "Unit-1" else "unit2_generation"
-        generation = float(station_gen_cache.get(gen_key, diffs.get("unit1_gen" if plant_name == "Unit-1" else "unit2_gen", 0.0) or 0.0))
-        auto = compute_unit_auto_kpis(diffs, generation)
-        return {"auto_kpis": auto}
+      gen_key = "unit1_generation" if plant_name == "Unit-1" else "unit2_generation"
+      generation = float(station_gen_cache.get(gen_key, 0.0))
 
+      auto = compute_unit_auto_kpis(
+        diffs_by_unit[plant_name],
+        generation,
+      )
+      return {"auto_kpis": auto}
+
+
+    # -------------------- ENERGY KPIs (LIVE, GLOBAL) --------------------
     if plant_name == "Energy-Meter":
-        auto = compute_energy_meter_auto_kpis(diffs, station_gen_cache)
-        return {"auto_kpis": auto}
+      auto = compute_energy_meter_auto_kpis(
+        energy_diffs,
+        station_gen_cache,
+      )
+      return {"auto_kpis": auto}
 
+# -------------------- STATION KPIs (LIVE, ISOLATED) --------------------
     if plant_name == "Station":
-        auto = compute_station_auto_kpis(diffs, station_gen_cache)
-        return {"auto_kpis": auto}
+      auto = compute_station_auto_kpis(
+        diffs_by_unit["Station"],
+        station_gen_cache,
+    )
+    return {"auto_kpis": auto}
 
-    raise HTTPException(status_code=422, detail="Unknown plant_name")
 
 @router.get("/kpi/auto", dependencies=[Depends(get_current_user)])
 async def get_saved_auto_kpis(date: str = Query(...), unit: str = Query(...), db: AsyncSession = Depends(get_db)):
