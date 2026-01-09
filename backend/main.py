@@ -74,7 +74,11 @@ origins = [
 ]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:4940",
+        "http://localhost:5173",
+        "http://143.143.1.5:4940",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -94,8 +98,10 @@ app.include_router(totalizers.router)
 
 from routers import shutdowns
 app.include_router(shutdowns.router)
-from routers import dpr
-app.include_router(dpr.router)
+
+from routers import dpr_router
+app.include_router(dpr_router.router)
+
 
 from dm.dm_router import router as dm_router
 app.include_router(dm_router)

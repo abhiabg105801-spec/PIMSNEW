@@ -203,8 +203,8 @@ export default function TotalizerEntryPage({ auth }) {
 
   // Manual KPI state and metadata
   const initialManualKPI = {
-    "Unit-1": { stack_emission: "" , Approx_COP: "Rs" , },
-    "Unit-2": { stack_emission: "", Approx_COP: "Rs" , },
+    "Unit-1": { stack_emission: "" , Approx_COP: "" , },
+    "Unit-2": { stack_emission: "", Approx_COP: "" , },
     Station: {
       clarifier_level: "",
       ro_running_hour: "",
@@ -295,10 +295,10 @@ export default function TotalizerEntryPage({ auth }) {
             rec.adjust = rowMap[t.id].adjust;
             rec._orig = { today: rec.today, adjust: rec.adjust };
           } else {
-  rec.today = "";
-  rec.adjust = 0;                 // ✅ reset adjustment for new date
-  rec._orig = { today: "", adjust: 0 };
-}
+        rec.today = "";
+        rec.adjust = 0;                 // ✅ reset adjustment for new date
+        rec._orig = { today: "", adjust: 0 };
+        }
           if (rec.yesterday === "—" || rec.today === "" || rec.today === null) rec.difference = "—";
           updated[t.id] = { ...rec };
         });
@@ -464,24 +464,49 @@ export default function TotalizerEntryPage({ auth }) {
     return Number(rec.difference) || 0;
   };
 
+  const energyKPIs = useMemo(
+  () => serverKPIs["Energy-Meter"] || {},
+  [serverKPIs]
+);
+
   /* ---------------- Local KPI computations (unchanged) ---------------- */
   const localUnitKPI = useMemo(() => {
-    if (!(activeTab === "Unit-1" || activeTab === "Unit-2")) return null;
-    try {
-      const feederA = getDiff("feeder_a", activeTab);
-      const feederB = getDiff("feeder_b", activeTab);
-      const feederC = getDiff("feeder_c", activeTab);
-      const feederD = getDiff("feeder_d", activeTab);
-      const feederE = getDiff("feeder_e", activeTab);
-      const coal = feederA + feederB + feederC + feederD + feederE;
-      const ldo = getDiff("ldo_flow", activeTab);
-      const dm = getDiff("dm7", activeTab) + getDiff("dm11", activeTab);
-      const steam = getDiff("main_steam", activeTab);
-      return { coal, ldo, dm, steam };
-    } catch {
-      return { coal: 0, ldo: 0, dm: 0, steam: 0 };
-    }
-  }, [readingsForm, activeTab]);
+  if (!(activeTab === "Unit-1" || activeTab === "Unit-2")) return null;
+
+  try {
+    const coal =
+      getDiff("feeder_a", activeTab) +
+      getDiff("feeder_b", activeTab) +
+      getDiff("feeder_c", activeTab) +
+      getDiff("feeder_d", activeTab) +
+      getDiff("feeder_e", activeTab);
+
+    const ldo = getDiff("ldo_flow", activeTab);
+    const dm = getDiff("dm7", activeTab) + getDiff("dm11", activeTab);
+    const steam = getDiff("main_steam", activeTab);
+
+    const gen =
+      activeTab === "Unit-1"
+        ? energyKPIs.unit1_generation
+        : energyKPIs.unit2_generation;
+
+    return {
+      coal,
+      ldo,
+      dm,
+      steam,
+
+      // ✅ generation-dependent KPIs (LIVE)
+      specific_coal: gen > 0 ? coal / gen : null,
+      specific_oil: gen > 0 ? ldo / gen : null,
+      specific_steam: gen > 0 ? steam / gen : null,
+      specific_dm_percent: steam > 0 ? (dm / steam) * 100 : null,
+    };
+  } catch {
+    return null;
+  }
+}, [readingsForm, activeTab, energyKPIs]);
+
 
   const localStationKPI = useMemo(() => {
     if (activeTab !== "Station") return null;
@@ -852,15 +877,28 @@ if (manualList.length > 0) {
 }, [api, reportDate]);
 
 useEffect(() => {
-  if (activeTab === "Energy-Meter") {
+  if (
+    activeTab === "Energy-Meter" ||
+    activeTab === "Unit-1" ||
+    activeTab === "Unit-2"
+  ) {
     loadSavedEnergyKPIs();
   }
-}, [activeTab, reportDate]);
-
+}, [activeTab, reportDate, loadSavedEnergyKPIs]);
   /* ---------------- KPI panel helpers & rendering ---------------- */
 
   const renderKpiValue = (k) => {
     // prefer local simple calculations for immediacy
+
+    // 🔥 LIVE unit KPIs (generation-dependent)
+if (
+  (activeTab === "Unit-1" || activeTab === "Unit-2") &&
+  localUnitKPI &&
+  localUnitKPI[k] !== undefined
+) {
+  return localUnitKPI[k];
+}
+
     if ((activeTab === "Unit-1" || activeTab === "Unit-2") && localUnitKPI) {
       const map = {
         coal_consumption: localUnitKPI.coal,
@@ -899,7 +937,7 @@ useEffect(() => {
         px-2
         border-l-[4px]
         border
-        transition-all duration-150
+        transition-all duration-150 rounded
         ${
           isHighlighted
             ? `
@@ -974,20 +1012,31 @@ useEffect(() => {
       const s = serverKPIs[activeTab] || {};
       const local = localUnitKPI || { coal: 0, ldo: 0, dm: 0, steam: 0 };
       const sKPI = shutdownKPIs[activeTab] || {};
+      const energyKPIs = serverKPIs["Energy-Meter"] || {};
       return (
         <div className="space-y-3">
           
-          <KpiCard k="daily_generation" label="Daily Generation" value={(activeTab === "Unit-1" ? (s?.unit1_generation ?? null) : (s?.unit2_generation ?? null)) ?? null} unit="MWh" Icon={ChartBarIcon} />
-          <KpiCard k="plf" label="PLF" value={(activeTab === "Unit-1" ? s?.unit1_plf_percent : s?.unit2_plf_percent) ?? null} unit="%" Icon={ChartBarIcon} />
-          <KpiCard k="running_hour" label="Running Hour" value={sKPI.running_hour !== null ? Number(sKPI.running_hour) : null} unit="hr" Icon={BoltIcon} />
+          <KpiCard
+  k="daily_generation"
+  label="Daily Generation"
+  value={
+    activeTab === "Unit-1"
+      ? energyKPIs.unit1_generation ?? null
+      : energyKPIs.unit2_generation ?? null
+  }
+  unit="MWh"
+  Icon={ChartBarIcon}
+/>
 
           <div className="text-xs font-semibold text-gray-700 mt-3">Fuel & Utilities</div>
           <KpiCard k="coal_consumption" label="Coal Cons." value={renderKpiValue("coal_consumption") ?? local.coal} unit="ton" Icon={FireIcon} />
-          <KpiCard k="specific_coal" label="Specific Coal" value={renderKpiValue("specific_coal") ?? null} unit="ton/MWh" Icon={ChartBarIcon} />
+          <KpiCard k="specific_coal" label="Specific Coal(SCC)" value={renderKpiValue("specific_coal") ?? null} unit="ton/MWh" Icon={ChartBarIcon} />
           <KpiCard k="oil_consumption" label="LDO Cons." value={renderKpiValue("oil_consumption") ?? local.ldo} unit="L" Icon={FunnelIcon} />
-          <KpiCard k="specific_oil" label="LDO Cons." value={renderKpiValue("specific_oil") ?? local.ldo} unit="L" Icon={FunnelIcon} />
-          <KpiCard k="dm_water" label="DM Water" value={renderKpiValue("dm_water") ?? local.dm} unit="m3" Icon={CloudIcon} />
+          <KpiCard k="specific_oil" label="Specific oil (SOC)" value={renderKpiValue("specific_oil") ?? null} unit="L" Icon={FunnelIcon} />
+          <KpiCard k="dm_water" label="DM Water consumption" value={renderKpiValue("dm_water") ?? local.dm} unit="m3" Icon={CloudIcon} />
+          <KpiCard k="specific_dm_percent" label="Specific water(SWC)" value={renderKpiValue("specific_dm_percent") ?? null} unit="L" Icon={FunnelIcon} />
           <KpiCard k="steam_consumption" label="Steam Cons." value={renderKpiValue("steam_consumption") ?? local.steam} unit="kg" Icon={BoltIcon} />
+          <KpiCard k="specific_steam" label="Specific steam (SSC)" value={renderKpiValue("specific_steam") ?? null} unit="L" Icon={FunnelIcon} />
         </div>
       );
     }
@@ -1364,6 +1413,24 @@ useEffect(() => {
   useEffect(() => {
     setMessage("");
   }, [activeTab, reportDate]);
+
+  // 🔒 CLEAR KPI STATE ON TAB / DATE CHANGE (IMPORTANT)
+useEffect(() => {
+  // Clear calculated KPIs
+  setServerKPIs({
+    "Unit-1": null,
+    "Unit-2": null,
+    Station: null,
+    "Energy-Meter": null,
+  });
+
+  // Clear preview KPIs
+  setPreviewAutoKPIs(null);
+
+  // Clear highlights
+  setHighlightedKPIs({});
+}, [activeTab, reportDate]);
+
 
   const handleDateChange = (days) => {
     const d = new Date(reportDate);
