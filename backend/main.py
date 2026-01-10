@@ -102,6 +102,10 @@ app.include_router(shutdowns.router)
 from routers import dpr_router
 app.include_router(dpr_router.router)
 
+from routers import dpr_pdf_router
+app.include_router(dpr_pdf_router.router)
+
+
 
 from dm.dm_router import router as dm_router
 app.include_router(dm_router)

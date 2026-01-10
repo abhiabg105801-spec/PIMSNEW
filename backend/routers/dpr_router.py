@@ -1,28 +1,21 @@
 from fastapi import APIRouter, Depends, Query
-from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
-
+from sqlalchemy import select, func, desc
 from datetime import datetime, date, time
-from io import BytesIO
-
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib import colors
 
 from database import get_db
 from models import KPIRecordDB, ShutdownRecordDB
 
 router = APIRouter(prefix="/api/dpr", tags=["DPR"])
 
-
-# ================= KPI CLASSIFICATION =================
+# ======================================================
+# KPI GROUPING
+# ======================================================
 
 SUM_KPIS = {
     "generation",
     "coal_consumption",
-    "ldo_consumption",
+    "oil_consumption",
     "aux_power",
     "steam_generation",
     "dm_water",
@@ -31,14 +24,17 @@ SUM_KPIS = {
 AVG_KPIS = {
     "plf_percent",
     "plant_availability_percent",
-    "specific_coal",
-    "specific_oil",
-    "specific_steam",
     "aux_power_percent",
-    "specific_dm_percent",
     "heat_rate",
     "gcv",
     "stack_emission",
+}
+
+SPECIFIC_KPIS = {
+    "specific_coal",
+    "specific_oil",
+    "specific_steam",
+    "specific_dm_percent",
 }
 
 SHUTDOWN_KPIS = {
@@ -61,7 +57,7 @@ ALL_KPIS = [
     "specific_coal",
     "gcv",
     "heat_rate",
-    "ldo_consumption",
+    "oil_consumption",
     "specific_oil",
     "aux_power",
     "aux_power_percent",
@@ -72,89 +68,169 @@ ALL_KPIS = [
     "specific_dm_percent",
 ]
 
+# ======================================================
+# KPI → DB NAME MAPPING (🔥 CRITICAL FIX)
+# ======================================================
 
-# ================= DATE HELPERS =================
+KPI_DB_NAME_MAP = {
+    "generation": None,  # handled separately
+    "plf_percent": None,
 
-def fy_start(d: date) -> date:
+    "coal_consumption": "coal_consumption",
+    "specific_coal": "specific_coal",
+
+    "oil_consumption": "oil_consumption",
+    "specific_oil": "specific_oil",
+
+    "steam_generation": "steam_consumption",
+    "specific_steam": "specific_steam",
+
+    "dm_water": "dm_water",
+    "specific_dm_percent": "specific_dm_percent",
+
+    "aux_power": None,
+    "aux_power_percent": None,
+
+    "gcv": "gcv",
+    "heat_rate": "heat_rate",
+    "stack_emission": "stack_emission",
+}
+
+# ======================================================
+# ENERGY / STATION STORED KPIs
+# ======================================================
+
+KPI_NAME_MAP = {
+    "generation": {
+        "Unit-1": ("Station", "unit1_generation"),
+        "Unit-2": ("Station", "unit2_generation"),
+    },
+    "plf_percent": {
+        "Unit-1": ("Station", "unit1_plf_percent"),
+        "Unit-2": ("Station", "unit2_plf_percent"),
+    },
+    "steam_generation": {
+        "Unit-1": ("Unit-1", "steam_consumption"),
+        "Unit-2": ("Unit-2", "steam_consumption"),
+    },
+}
+
+ENERGY_KPI_MAP = {
+    "aux_power": {
+        "Unit-1": "unit1_aux_consumption_mwh",
+        "Unit-2": "unit2_aux_consumption_mwh",
+    },
+    "aux_power_percent": {
+        "Unit-1": "unit1_aux_percent",
+        "Unit-2": "unit2_aux_percent",
+    },
+}
+
+# ======================================================
+# DATE HELPERS
+# ======================================================
+
+def fy_start(d: date):
     return date(d.year if d.month >= 4 else d.year - 1, 4, 1)
 
-
-def month_start(d: date) -> date:
+def month_start(d: date):
     return d.replace(day=1)
 
+# ======================================================
+# CORE FETCHERS
+# ======================================================
 
-# ================= KPI AGGREGATION =================
+async def fetch_latest_value(db, plant, kpi_name, start_date, end_date):
+    q = (
+        select(KPIRecordDB.kpi_value)
+        .where(
+            KPIRecordDB.plant_name == plant,
+            KPIRecordDB.kpi_name == kpi_name,
+            KPIRecordDB.report_date.between(start_date, end_date),
+        )
+        .order_by(desc(KPIRecordDB.report_date))
+        .limit(1)
+    )
+    return (await db.execute(q)).scalar()
 
-async def aggregate_kpi(db: AsyncSession, unit: str, kpi: str, start_date: date, end_date: date):
+async def aggregate_kpi(db, unit, kpi, start_date, end_date):
+
+    # 1️⃣ Specific KPIs → direct fetch from UNIT
+    if kpi in SPECIFIC_KPIS:
+        db_kpi = KPI_DB_NAME_MAP[kpi]
+        return await fetch_latest_value(db, unit, db_kpi, start_date, end_date)
+
+    # 2️⃣ Energy KPIs (stored at Station)
+    if kpi in ENERGY_KPI_MAP:
+        db_kpi = ENERGY_KPI_MAP[kpi].get(unit)
+        return await fetch_latest_value(db, "Station", db_kpi, start_date, end_date)
+
+    # 3️⃣ Mapped KPIs (generation / plf / steam)
+    if kpi in KPI_NAME_MAP:
+        plant, db_kpi = KPI_NAME_MAP[kpi][unit]
+        return await fetch_latest_value(db, plant, db_kpi, start_date, end_date)
+
+    # 4️⃣ Normal KPIs
+    db_kpi = KPI_DB_NAME_MAP.get(kpi, kpi)
+
     q = select(
-        func.sum(KPIRecordDB.kpi_value).label("sum"),
-        func.avg(KPIRecordDB.kpi_value).label("avg"),
+        func.sum(KPIRecordDB.kpi_value),
+        func.avg(KPIRecordDB.kpi_value),
     ).where(
         KPIRecordDB.plant_name == unit,
-        KPIRecordDB.kpi_name == kpi,
+        KPIRecordDB.kpi_name == db_kpi,
         KPIRecordDB.report_date.between(start_date, end_date),
     )
 
-    r = (await db.execute(q)).first()
-    if not r:
-        return None
+    s, a = (await db.execute(q)).first()
+    return a if kpi in AVG_KPIS else s
 
-    return r.avg if kpi in AVG_KPIS else r.sum
+# ======================================================
+# SHUTDOWN KPIs
+# ======================================================
 
-
-# ================= SHUTDOWN KPI COMPUTATION =================
-
-async def compute_shutdown_kpis(
-    db: AsyncSession,
-    unit: str,
-    start_date: date,
-    end_date: date,
-):
+async def compute_shutdown_kpis(db, unit, start_date, end_date):
     start_dt = datetime.combine(start_date, time.min)
     end_dt = datetime.combine(end_date, time.max)
 
-    q = select(ShutdownRecordDB).where(
-        ShutdownRecordDB.unit == unit,
-        ShutdownRecordDB.datetime_from <= end_dt,
-        func.coalesce(ShutdownRecordDB.datetime_to, end_dt) >= start_dt,
-    )
+    rows = (
+        await db.execute(
+            select(ShutdownRecordDB).where(
+                ShutdownRecordDB.unit == unit,
+                ShutdownRecordDB.datetime_from <= end_dt,
+                func.coalesce(ShutdownRecordDB.datetime_to, end_dt) >= start_dt,
+            )
+        )
+    ).scalars().all()
 
-    rows = (await db.execute(q)).scalars().all()
-
-    total_shutdown = 0.0
-    planned = 0.0
-    strategic = 0.0
+    planned = strategic = total = 0.0
 
     for r in rows:
         s = max(r.datetime_from, start_dt)
         e = min(r.datetime_to or end_dt, end_dt)
-        hrs = max(0.0, (e - s).total_seconds() / 3600.0)
-
-        total_shutdown += hrs
-
+        hrs = (e - s).total_seconds() / 3600.0
+        total += hrs
         if r.shutdown_type == "Planned Outage":
             planned += hrs
         elif r.shutdown_type == "Strategic Outage":
             strategic += hrs
 
-    running = max(0.0, 24.0 - total_shutdown)
+    running = max(0.0, 24.0 - total)
 
     return {
         "running_hour": running,
-        "plant_availability_percent": (running / 24.0) * 100.0,
+        "plant_availability_percent": (running / 24) * 100,
         "planned_outage_hour": planned,
-        "planned_outage_percent": (planned / 24.0) * 100.0,
+        "planned_outage_percent": (planned / 24) * 100,
         "strategic_outage_hour": strategic,
     }
 
-
-# ================= DPR JSON API =================
+# ======================================================
+# DPR PAGE-1 JSON API
+# ======================================================
 
 @router.get("/page1")
-async def dpr_page1(
-    date_: date = Query(..., alias="date"),
-    db: AsyncSession = Depends(get_db),
-):
+async def dpr_page1(date_: date = Query(..., alias="date"), db: AsyncSession = Depends(get_db)):
     ranges = {
         "day": (date_, date_),
         "month": (month_start(date_), date_),
@@ -164,101 +240,32 @@ async def dpr_page1(
     result = {}
     units = ["Unit-1", "Unit-2"]
 
-    # -------- UNIT DATA --------
     for unit in units:
         result[unit] = {}
-
         for kpi in ALL_KPIS:
             result[unit][kpi] = {}
-
-            for period, (s, e) in ranges.items():
+            for p, (s, e) in ranges.items():
                 if kpi in SHUTDOWN_KPIS:
-                    shutdown_vals = await compute_shutdown_kpis(db, unit, s, e)
-                    result[unit][kpi][period] = shutdown_vals.get(kpi)
+                    result[unit][kpi][p] = (await compute_shutdown_kpis(db, unit, s, e))[kpi]
                 else:
-                    result[unit][kpi][period] = await aggregate_kpi(db, unit, kpi, s, e)
+                    result[unit][kpi][p] = await aggregate_kpi(db, unit, kpi, s, e)
 
-    # -------- STATION AGGREGATION --------
+    # -------- STATION --------
     result["Station"] = {}
-
     for kpi in ALL_KPIS:
         result["Station"][kpi] = {}
-
-        for period in ["day", "month", "year"]:
-            values = [
-                result["Unit-1"][kpi][period],
-                result["Unit-2"][kpi][period],
+        for p in ["day", "month", "year"]:
+            vals = [
+                result["Unit-1"][kpi][p],
+                result["Unit-2"][kpi][p],
             ]
-            values = [v for v in values if v is not None]
+            vals = [v for v in vals if v is not None]
 
-            if not values:
-                result["Station"][kpi][period] = None
+            if not vals:
+                result["Station"][kpi][p] = None
             elif kpi in AVG_KPIS or kpi in SHUTDOWN_KPIS:
-                result["Station"][kpi][period] = sum(values) / len(values)
+                result["Station"][kpi][p] = sum(vals) / len(vals)
             else:
-                result["Station"][kpi][period] = sum(values)
+                result["Station"][kpi][p] = sum(vals)
 
     return result
-
-
-# ================= DPR PDF API =================
-
-@router.get("/page1/pdf")
-async def dpr_page1_pdf(
-    date_: date = Query(..., alias="date"),
-    db: AsyncSession = Depends(get_db),
-):
-    data = await dpr_page1(date_=date_, db=db)
-
-    buf = BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4)
-    styles = getSampleStyleSheet()
-    story = []
-
-    story.append(
-        Paragraph(
-            "<b>2×125 MW CPP – PLANT PERFORMANCE REPORT</b>",
-            styles["Title"],
-        )
-    )
-    story.append(
-        Paragraph(f"Date : {date_.strftime('%d-%m-%Y')}", styles["Normal"])
-    )
-
-    header = [
-        "Parameter",
-        "U1-D", "U1-M", "U1-Y",
-        "U2-D", "U2-M", "U2-Y",
-        "ST-D", "ST-M", "ST-Y",
-    ]
-
-    table_data = [header]
-
-    for kpi in ALL_KPIS:
-        row = [kpi.replace("_", " ").title()]
-        for unit in ["Unit-1", "Unit-2", "Station"]:
-            for p in ["day", "month", "year"]:
-                v = data[unit][kpi][p]
-                row.append(f"{v:.3f}" if isinstance(v, (int, float)) else "—")
-        table_data.append(row)
-
-    table = Table(table_data, repeatRows=1)
-    table.setStyle(TableStyle([
-        ("GRID", (0,0), (-1,-1), 0.5, colors.black),
-        ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
-        ("ALIGN", (1,1), (-1,-1), "RIGHT"),
-        ("FONT", (0,0), (-1,0), "Helvetica-Bold"),
-        ("FONTSIZE", (0,0), (-1,-1), 8),
-    ]))
-
-    story.append(table)
-    doc.build(story)
-
-    buf.seek(0)
-    return StreamingResponse(
-        buf,
-        media_type="application/pdf",
-        headers={
-            "Content-Disposition": f"attachment; filename=DPR_Page1_{date_}.pdf"
-        },
-    )

@@ -263,18 +263,24 @@ def compute_energy_meter_auto_kpis(
         "station_plf_percent": round(station_plf_percent, 3),
     }
 
-def compute_station_auto_kpis(diffs: Dict[str, float], generation_cache: Dict[str, float] = None) -> Dict[str, float]:
-    generation_cache = generation_cache or {}
+def compute_station_auto_kpis(
+    diffs: Dict[str, float],
+    generation_cache: Dict[str, float]
+    ) -> Dict[str, float]:
+
     raw_water = diffs.get("raw_water", 0.0)
 
-    avg_raw_per_hr = raw_water / 24.0 if True else 0.0
+    avg_raw_per_hr = raw_water / 24.0
+
     dm_total = diffs.get("dm7", 0.0) + diffs.get("dm11", 0.0)
 
     gen1 = float(generation_cache.get("unit1_generation", 0.0))
     gen2 = float(generation_cache.get("unit2_generation", 0.0))
     sum_gen = gen1 + gen2
 
-    sp_raw_l_per_kwh = ((raw_water * 1000.0) / sum_gen) if sum_gen > 0 else 0.0
+    sp_raw_l_per_kwh = (
+        (raw_water * 1000.0) / sum_gen if sum_gen > 0 else 0.0
+    )
 
     return {
         "total_raw_water_used_m3": round(raw_water, 3),
@@ -282,6 +288,7 @@ def compute_station_auto_kpis(diffs: Dict[str, float], generation_cache: Dict[st
         "sp_raw_water_l_per_kwh": round(sp_raw_l_per_kwh, 3),
         "total_dm_water_used_m3": round(dm_total, 3),
     }
+
 
 # -------------------- HELPER (OUTSIDE endpoint) --------------------
 async def upsert_kpi(
@@ -368,8 +375,30 @@ async def get_readings_for_unit_date(unit: str, date: str = Query(...), db: Asyn
     rows = q.scalars().all()
     return [orm_to_dict_reading(r) for r in rows]
 
+async def get_generation_from_db(
+    db: AsyncSession,
+    reading_date: date,
+):
+    q = await db.execute(
+        select(KPIRecordDB.kpi_name, KPIRecordDB.kpi_value)
+        .where(
+            KPIRecordDB.report_date == reading_date,
+            KPIRecordDB.kpi_type == "energy",
+            KPIRecordDB.plant_name == "Station",
+            KPIRecordDB.kpi_name.in_(["unit1_generation", "unit2_generation"]),
+        )
+    )
+    rows = q.all()
 
+    gen = {"unit1_generation": 0.0, "unit2_generation": 0.0}
+    for k, v in rows:
+        gen[k] = float(v or 0.0)
+
+    return gen
 @router.post("/totalizers/submit", dependencies=[Depends(get_current_user)])
+
+
+
 async def submit_readings(
     payload: dict = Body(...),
     db: AsyncSession = Depends(get_db),
@@ -517,10 +546,15 @@ async def submit_readings(
     unit2_gen = 0.0
 
     if "Energy-Meter" in entered_units:
-       energy_kpis = compute_energy_meter_auto_kpis(energy_diffs, {})
-       unit1_gen = energy_kpis.get("unit1_generation", 0.0)
-       unit2_gen = energy_kpis.get("unit2_generation", 0.0)
+     energy_kpis = compute_energy_meter_auto_kpis(energy_diffs, {})
+     unit1_gen = energy_kpis.get("unit1_generation", 0.0)
+     unit2_gen = energy_kpis.get("unit2_generation", 0.0)
 
+# 2️⃣ Otherwise → fallback to DB
+    else:
+     gen_cache = await get_generation_from_db(db, reading_date)
+     unit1_gen = gen_cache["unit1_generation"]
+     unit2_gen = gen_cache["unit2_generation"]
 
 # UNIT KPIs (isolated)
     unit1_kpis = compute_unit_auto_kpis(
@@ -534,12 +568,19 @@ async def submit_readings(
     )
 
 # STATION KPIs (isolated + generation cache)
-    station_kpis = compute_station_auto_kpis(
-    diffs_by_unit["Station"],
-    {
+    if "Energy-Meter" in entered_units:
+     gen_cache = {
         "unit1_generation": unit1_gen,
         "unit2_generation": unit2_gen,
-    },
+     }
+    else:
+     gen_cache = await get_generation_from_db(db, reading_date)
+
+# ===================== STATION KPIs =====================
+
+    station_kpis = compute_station_auto_kpis(
+     diffs_by_unit["Station"],
+     gen_cache,
     )
 
 
@@ -606,35 +647,54 @@ async def submit_readings(
         )
 
 # STATION KPIs
-     if "Station" in entered_units:
-      for k, v in station_kpis.items():
-        existing = await get_existing_kpi_value(
-            db, reading_date, "auto", "Station", k
-        )
-        if existing is not None and round(existing, 6) == round(v, 6):
-            continue
-
-        await upsert_kpi(
-            db,
-            reading_date,
-            "auto",
-            "Station",
-            k,
-            v,
-            "%",
-        )
-
-# -------------------- MANUAL KPIs (ALWAYS UPDATE) --------------------
-    for m in manual_kpis:
+     for k, v in station_kpis.items():
+      existing = await get_existing_kpi_value(
+        db,
+        reading_date,
+        "auto",
+        "Station",
+        k,
+    )
+      if existing is not None and round(existing, 6) == round(v, 6):
+         continue
       await upsert_kpi(
         db,
         reading_date,
-        "manual",
-        plant_name,
-        m["name"],
-        m["value"],
-        m.get("unit"),
+        "auto",
+        "Station",
+        k,
+        v,
+        "%" if "percent" in k else (
+            "Cu.M" if "water" in k else "—"
+        ),
     )
+# -------------------- MANUAL KPIs (ALWAYS UPDATE) --------------------
+    for m in manual_kpis:
+        name = m["name"]
+        value = float(m["value"])
+        unit = m.get("unit")
+
+        existing = await get_existing_kpi_value(
+         db,
+         reading_date,
+         "manual",
+         plant_name,
+         name,
+        )
+
+    # 🔒 Skip update if value unchanged
+        if existing is not None and round(existing, 6) == round(value, 6):
+         continue
+
+        await upsert_kpi(
+         db,
+         reading_date,
+         "manual",
+         plant_name,
+         name,
+         value,
+         unit,
+        )
 
     await db.commit()
 

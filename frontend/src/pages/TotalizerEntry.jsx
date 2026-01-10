@@ -464,49 +464,24 @@ export default function TotalizerEntryPage({ auth }) {
     return Number(rec.difference) || 0;
   };
 
-  const energyKPIs = useMemo(
-  () => serverKPIs["Energy-Meter"] || {},
-  [serverKPIs]
-);
-
   /* ---------------- Local KPI computations (unchanged) ---------------- */
   const localUnitKPI = useMemo(() => {
-  if (!(activeTab === "Unit-1" || activeTab === "Unit-2")) return null;
-
-  try {
-    const coal =
-      getDiff("feeder_a", activeTab) +
-      getDiff("feeder_b", activeTab) +
-      getDiff("feeder_c", activeTab) +
-      getDiff("feeder_d", activeTab) +
-      getDiff("feeder_e", activeTab);
-
-    const ldo = getDiff("ldo_flow", activeTab);
-    const dm = getDiff("dm7", activeTab) + getDiff("dm11", activeTab);
-    const steam = getDiff("main_steam", activeTab);
-
-    const gen =
-      activeTab === "Unit-1"
-        ? energyKPIs.unit1_generation
-        : energyKPIs.unit2_generation;
-
-    return {
-      coal,
-      ldo,
-      dm,
-      steam,
-
-      // ✅ generation-dependent KPIs (LIVE)
-      specific_coal: gen > 0 ? coal / gen : null,
-      specific_oil: gen > 0 ? ldo / gen : null,
-      specific_steam: gen > 0 ? steam / gen : null,
-      specific_dm_percent: steam > 0 ? (dm / steam) * 100 : null,
-    };
-  } catch {
-    return null;
-  }
-}, [readingsForm, activeTab, energyKPIs]);
-
+    if (!(activeTab === "Unit-1" || activeTab === "Unit-2")) return null;
+    try {
+      const feederA = getDiff("feeder_a", activeTab);
+      const feederB = getDiff("feeder_b", activeTab);
+      const feederC = getDiff("feeder_c", activeTab);
+      const feederD = getDiff("feeder_d", activeTab);
+      const feederE = getDiff("feeder_e", activeTab);
+      const coal = feederA + feederB + feederC + feederD + feederE;
+      const ldo = getDiff("ldo_flow", activeTab);
+      const dm = getDiff("dm7", activeTab) + getDiff("dm11", activeTab);
+      const steam = getDiff("main_steam", activeTab);
+      return { coal, ldo, dm, steam };
+    } catch {
+      return { coal: 0, ldo: 0, dm: 0, steam: 0 };
+    }
+  }, [readingsForm, activeTab]);
 
   const localStationKPI = useMemo(() => {
     if (activeTab !== "Station") return null;
@@ -877,28 +852,15 @@ if (manualList.length > 0) {
 }, [api, reportDate]);
 
 useEffect(() => {
-  if (
-    activeTab === "Energy-Meter" ||
-    activeTab === "Unit-1" ||
-    activeTab === "Unit-2"
-  ) {
+  if (activeTab === "Energy-Meter") {
     loadSavedEnergyKPIs();
   }
-}, [activeTab, reportDate, loadSavedEnergyKPIs]);
+}, [activeTab, reportDate]);
+
   /* ---------------- KPI panel helpers & rendering ---------------- */
 
   const renderKpiValue = (k) => {
     // prefer local simple calculations for immediacy
-
-    // 🔥 LIVE unit KPIs (generation-dependent)
-if (
-  (activeTab === "Unit-1" || activeTab === "Unit-2") &&
-  localUnitKPI &&
-  localUnitKPI[k] !== undefined
-) {
-  return localUnitKPI[k];
-}
-
     if ((activeTab === "Unit-1" || activeTab === "Unit-2") && localUnitKPI) {
       const map = {
         coal_consumption: localUnitKPI.coal,
@@ -1012,21 +974,11 @@ if (
       const s = serverKPIs[activeTab] || {};
       const local = localUnitKPI || { coal: 0, ldo: 0, dm: 0, steam: 0 };
       const sKPI = shutdownKPIs[activeTab] || {};
-      const energyKPIs = serverKPIs["Energy-Meter"] || {};
       return (
         <div className="space-y-3">
           
-          <KpiCard
-  k="daily_generation"
-  label="Daily Generation"
-  value={
-    activeTab === "Unit-1"
-      ? energyKPIs.unit1_generation ?? null
-      : energyKPIs.unit2_generation ?? null
-  }
-  unit="MWh"
-  Icon={ChartBarIcon}
-/>
+          <KpiCard k="daily_generation" label="Daily Generation" value={(activeTab === "Unit-1" ? (s?.unit1_generation ?? null) : (s?.unit2_generation ?? null)) ?? null} unit="MWh" Icon={ChartBarIcon} />
+          
 
           <div className="text-xs font-semibold text-gray-700 mt-3">Fuel & Utilities</div>
           <KpiCard k="coal_consumption" label="Coal Cons." value={renderKpiValue("coal_consumption") ?? local.coal} unit="ton" Icon={FireIcon} />
