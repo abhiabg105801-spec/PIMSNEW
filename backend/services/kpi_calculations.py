@@ -27,7 +27,7 @@ def compute_unit_auto_kpis(diffs: Dict[str, float], generation: float = 0.0) -> 
         "oil_consumption": round(oil, 3),
         "specific_oil": round(specific_oil, 6),
         "dm_water": round(dm_water, 3),
-        "steam_consumption": round(steam, 3),
+        "steam_generation": round(steam, 3),
         "specific_steam": round(specific_steam, 6),
         "specific_dm_percent": round(specific_dm_percent, 3),
     }
@@ -120,13 +120,16 @@ def compute_energy_meter_auto_kpis(
     )
 
     # -------------------------------------------------
-    # PLF
+    # PLF - FIXED: Based on DAILY capacity, not total
     # -------------------------------------------------
+    # Installed capacity per unit = 125 MW
+    # Daily capacity = 125 MW × 24 hours = 3000 MWh (not 3000 MW!)
     unit1_plf_percent = (unit1_gen / 3000.0) * 100.0 if unit1_gen > 0 else 0.0
     unit2_plf_percent = (unit2_gen / 3000.0) * 100.0 if unit2_gen > 0 else 0.0
 
+    # Station PLF based on combined daily capacity (250 MW × 24 = 6000 MWh)
     station_plf_percent = (
-        ((unit1_gen + unit2_gen) / 3000.0) * 100.0
+        ((unit1_gen + unit2_gen) / 6000.0) * 100.0
         if (unit1_gen + unit2_gen) > 0 else 0.0
     )
 
