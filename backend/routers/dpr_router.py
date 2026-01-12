@@ -1,10 +1,17 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
-from datetime import datetime, date, time
+from datetime import datetime, date, time, timedelta
+from typing import Dict
 
 from database import get_db
-from models import KPIRecordDB, ShutdownRecordDB
+from models import KPIRecordDB, ShutdownRecordDB, TotalizerReadingDB
+from routers.totalizers import TOTALIZER_MASTER
+from services.kpi_calculations import (
+    compute_unit_auto_kpis,
+    compute_energy_meter_auto_kpis,
+    compute_station_auto_kpis,
+)
 
 router = APIRouter(prefix="/api/dpr", tags=["DPR"])
 
@@ -69,64 +76,6 @@ ALL_KPIS = [
 ]
 
 # ======================================================
-# KPI → DB NAME MAPPING (🔥 CRITICAL FIX)
-# ======================================================
-
-KPI_DB_NAME_MAP = {
-    "generation": None,  # handled separately
-    "plf_percent": None,
-
-    "coal_consumption": "coal_consumption",
-    "specific_coal": "specific_coal",
-
-    "oil_consumption": "oil_consumption",
-    "specific_oil": "specific_oil",
-
-    "steam_generation": "steam_consumption",
-    "specific_steam": "specific_steam",
-
-    "dm_water": "dm_water",
-    "specific_dm_percent": "specific_dm_percent",
-
-    "aux_power": None,
-    "aux_power_percent": None,
-
-    "gcv": "gcv",
-    "heat_rate": "heat_rate",
-    "stack_emission": "stack_emission",
-}
-
-# ======================================================
-# ENERGY / STATION STORED KPIs
-# ======================================================
-
-KPI_NAME_MAP = {
-    "generation": {
-        "Unit-1": ("Station", "unit1_generation"),
-        "Unit-2": ("Station", "unit2_generation"),
-    },
-    "plf_percent": {
-        "Unit-1": ("Station", "unit1_plf_percent"),
-        "Unit-2": ("Station", "unit2_plf_percent"),
-    },
-    "steam_generation": {
-        "Unit-1": ("Unit-1", "steam_consumption"),
-        "Unit-2": ("Unit-2", "steam_consumption"),
-    },
-}
-
-ENERGY_KPI_MAP = {
-    "aux_power": {
-        "Unit-1": "unit1_aux_consumption_mwh",
-        "Unit-2": "unit2_aux_consumption_mwh",
-    },
-    "aux_power_percent": {
-        "Unit-1": "unit1_aux_percent",
-        "Unit-2": "unit2_aux_percent",
-    },
-}
-
-# ======================================================
 # DATE HELPERS
 # ======================================================
 
@@ -135,55 +84,6 @@ def fy_start(d: date):
 
 def month_start(d: date):
     return d.replace(day=1)
-
-# ======================================================
-# CORE FETCHERS
-# ======================================================
-
-async def fetch_latest_value(db, plant, kpi_name, start_date, end_date):
-    q = (
-        select(KPIRecordDB.kpi_value)
-        .where(
-            KPIRecordDB.plant_name == plant,
-            KPIRecordDB.kpi_name == kpi_name,
-            KPIRecordDB.report_date.between(start_date, end_date),
-        )
-        .order_by(desc(KPIRecordDB.report_date))
-        .limit(1)
-    )
-    return (await db.execute(q)).scalar()
-
-async def aggregate_kpi(db, unit, kpi, start_date, end_date):
-
-    # 1️⃣ Specific KPIs → direct fetch from UNIT
-    if kpi in SPECIFIC_KPIS:
-        db_kpi = KPI_DB_NAME_MAP[kpi]
-        return await fetch_latest_value(db, unit, db_kpi, start_date, end_date)
-
-    # 2️⃣ Energy KPIs (stored at Station)
-    if kpi in ENERGY_KPI_MAP:
-        db_kpi = ENERGY_KPI_MAP[kpi].get(unit)
-        return await fetch_latest_value(db, "Station", db_kpi, start_date, end_date)
-
-    # 3️⃣ Mapped KPIs (generation / plf / steam)
-    if kpi in KPI_NAME_MAP:
-        plant, db_kpi = KPI_NAME_MAP[kpi][unit]
-        return await fetch_latest_value(db, plant, db_kpi, start_date, end_date)
-
-    # 4️⃣ Normal KPIs
-    db_kpi = KPI_DB_NAME_MAP.get(kpi, kpi)
-
-    q = select(
-        func.sum(KPIRecordDB.kpi_value),
-        func.avg(KPIRecordDB.kpi_value),
-    ).where(
-        KPIRecordDB.plant_name == unit,
-        KPIRecordDB.kpi_name == db_kpi,
-        KPIRecordDB.report_date.between(start_date, end_date),
-    )
-
-    s, a = (await db.execute(q)).first()
-    return a if kpi in AVG_KPIS else s
 
 # ======================================================
 # SHUTDOWN KPIs
@@ -226,46 +126,223 @@ async def compute_shutdown_kpis(db, unit, start_date, end_date):
     }
 
 # ======================================================
-# DPR PAGE-1 JSON API
+# DPR KPI CALCULATION (🔥 SINGLE SOURCE OF TRUTH)
+# ======================================================
+
+@router.post("/kpi/calc")
+async def dpr_calculate_kpis(
+    date_: date = Query(..., alias="date"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Calculate ALL KPIs on DPR page
+    ❌ No DB write
+    """
+
+    diffs_by_unit: Dict[str, Dict[str, float]] = {
+        "Unit-1": {},
+        "Unit-2": {},
+        "Station": {},
+        "Energy-Meter": {},
+    }
+
+    # ---------- Today readings ----------
+    today = (
+        await db.execute(
+            select(TotalizerReadingDB)
+            .where(TotalizerReadingDB.date == date_)
+        )
+    ).scalars().all()
+
+    # ---------- Yesterday readings ----------
+    y = date_ - timedelta(days=1)
+    y_map = {
+        r.totalizer_id: float(r.reading_value or 0.0)
+        for r in (
+            await db.execute(
+                select(TotalizerReadingDB)
+                .where(TotalizerReadingDB.date == y)
+            )
+        ).scalars().all()
+    }
+
+    # ---------- Build diffs ----------
+    for r in today:
+        meta = TOTALIZER_MASTER.get(r.totalizer_id)
+        if not meta:
+            continue
+
+        name, unit = meta
+        diff = (
+            float(r.reading_value or 0.0)
+            - y_map.get(r.totalizer_id, 0.0)
+            + float(r.adjust_value or 0.0)
+        )
+        diffs_by_unit[unit][name] = diff
+
+    # Zero-fill
+    for tid, (name, unit) in TOTALIZER_MASTER.items():
+        diffs_by_unit[unit].setdefault(name, 0.0)
+
+    # ---------- ENERGY KPIs ----------
+    energy_kpis = compute_energy_meter_auto_kpis(
+        diffs_by_unit["Energy-Meter"],
+        {},
+    )
+
+    unit1_gen = energy_kpis.get("unit1_generation", 0.0)
+    unit2_gen = energy_kpis.get("unit2_generation", 0.0)
+
+    # ---------- UNIT KPIs ----------
+    unit1_kpis = compute_unit_auto_kpis(diffs_by_unit["Unit-1"], unit1_gen)
+    unit2_kpis = compute_unit_auto_kpis(diffs_by_unit["Unit-2"], unit2_gen)
+
+    # ---------- STATION KPIs ----------
+    station_kpis = compute_station_auto_kpis(
+        diffs_by_unit["Station"],
+        {
+            "unit1_generation": unit1_gen,
+            "unit2_generation": unit2_gen,
+        },
+    )
+
+    return {
+        "date": date_.isoformat(),
+        "computed_kpis": {
+            "energy": energy_kpis,
+            "Unit-1": unit1_kpis,
+            "Unit-2": unit2_kpis,
+            "Station": station_kpis,
+        },
+    }
+
+# ======================================================
+# DPR KPI SAVE (ONLY ON SAVE BUTTON)
+# ======================================================
+
+@router.post("/kpi/save")
+async def dpr_save_kpis(
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Save DPR KPIs explicitly
+    """
+    report_date = date.fromisoformat(payload["date"])
+    computed = payload["computed_kpis"]
+
+    for plant, kpis in computed.items():
+        kpi_type = "energy" if plant == "energy" else "auto"
+        plant_name = "Station" if plant == "energy" else plant
+
+        for name, value in kpis.items():
+            await db.execute(
+                select(KPIRecordDB).where(
+                    KPIRecordDB.report_date == report_date,
+                    KPIRecordDB.plant_name == plant_name,
+                    KPIRecordDB.kpi_name == name,
+                )
+            )
+
+            db.add(
+                KPIRecordDB(
+                    report_date=report_date,
+                    kpi_type=kpi_type,
+                    plant_name=plant_name,
+                    kpi_name=name,
+                    kpi_value=value,
+                    unit="%" if "percent" in name else "—",
+                    created_at=datetime.utcnow(),
+                )
+            )
+
+    await db.commit()
+    return {"message": "DPR KPIs saved successfully"}
+
+# ======================================================
+# DPR PAGE-1 (UNCHANGED – READS SAVED KPIs)
 # ======================================================
 
 @router.get("/page1")
-async def dpr_page1(date_: date = Query(..., alias="date"), db: AsyncSession = Depends(get_db)):
+async def dpr_page1(
+    date_: date = Query(..., alias="date"),
+    db: AsyncSession = Depends(get_db),
+):
     ranges = {
         "day": (date_, date_),
         "month": (month_start(date_), date_),
         "year": (fy_start(date_), date_),
     }
 
-    result = {}
-    units = ["Unit-1", "Unit-2"]
+    result = {u: {} for u in ["Unit-1", "Unit-2", "Station"]}
 
-    for unit in units:
-        result[unit] = {}
+    ENERGY_MAP = {
+        "generation": {
+            "Unit-1": "unit1_generation",
+            "Unit-2": "unit2_generation",
+            "Station": None,
+        },
+        "plf_percent": {
+            "Unit-1": "unit1_plf_percent",
+            "Unit-2": "unit2_plf_percent",
+            "Station": "station_plf_percent",
+        },
+        "aux_power": {
+            "Unit-1": "unit1_aux_consumption_mwh",
+            "Unit-2": "unit2_aux_consumption_mwh",
+            "Station": "total_station_aux_mwh",
+        },
+        "aux_power_percent": {
+            "Unit-1": "unit1_aux_percent",
+            "Unit-2": "unit2_aux_percent",
+            "Station": None,
+        },
+    }
+
+    for unit in ["Unit-1", "Unit-2", "Station"]:
         for kpi in ALL_KPIS:
             result[unit][kpi] = {}
+
             for p, (s, e) in ranges.items():
-                if kpi in SHUTDOWN_KPIS:
-                    result[unit][kpi][p] = (await compute_shutdown_kpis(db, unit, s, e))[kpi]
-                else:
-                    result[unit][kpi][p] = await aggregate_kpi(db, unit, kpi, s, e)
 
-    # -------- STATION --------
-    result["Station"] = {}
-    for kpi in ALL_KPIS:
-        result["Station"][kpi] = {}
-        for p in ["day", "month", "year"]:
-            vals = [
-                result["Unit-1"][kpi][p],
-                result["Unit-2"][kpi][p],
-            ]
-            vals = [v for v in vals if v is not None]
+                # Shutdown KPIs
+                if unit != "Station" and kpi in SHUTDOWN_KPIS:
+                    result[unit][kpi][p] = (
+                        await compute_shutdown_kpis(db, unit, s, e)
+                    )[kpi]
+                    continue
 
-            if not vals:
-                result["Station"][kpi][p] = None
-            elif kpi in AVG_KPIS or kpi in SHUTDOWN_KPIS:
-                result["Station"][kpi][p] = sum(vals) / len(vals)
-            else:
-                result["Station"][kpi][p] = sum(vals)
+                # ENERGY KPIs (DERIVED)
+                if kpi in ENERGY_MAP:
+                    key = ENERGY_MAP[kpi].get(unit)
+                    if not key:
+                        result[unit][kpi][p] = None
+                        continue
+
+                    q = (
+                        select(KPIRecordDB.kpi_value)
+                        .where(
+                            KPIRecordDB.plant_name == "Station",
+                            KPIRecordDB.kpi_name == key,
+                            KPIRecordDB.report_date.between(s, e),
+                        )
+                        .order_by(desc(KPIRecordDB.report_date))
+                        .limit(1)
+                    )
+                    result[unit][kpi][p] = (await db.execute(q)).scalar()
+                    continue
+
+                # NORMAL KPIs
+                q = (
+                    select(KPIRecordDB.kpi_value)
+                    .where(
+                        KPIRecordDB.plant_name == unit,
+                        KPIRecordDB.kpi_name == kpi,
+                        KPIRecordDB.report_date.between(s, e),
+                    )
+                    .order_by(desc(KPIRecordDB.report_date))
+                    .limit(1)
+                )
+                result[unit][kpi][p] = (await db.execute(q)).scalar()
 
     return result

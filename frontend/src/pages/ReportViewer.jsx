@@ -8,15 +8,78 @@ const normalizeAuthHeader = (auth) => {
   return auth.startsWith("Bearer ") ? auth : `Bearer ${auth}`;
 };
 
+const ENERGY_KPIS = new Set([
+  "generation",
+  "plf_percent",
+  "aux_power",
+  "aux_power_percent",
+]);
+
+const DPR_KPI_KEY_MAP = {
+  generation: {
+    "Unit-1": "unit1_generation",
+    "Unit-2": "unit2_generation",
+    Station: "unit1_generation", // not used
+  },
+  plf_percent: {
+    "Unit-1": "unit1_plf_percent",
+    "Unit-2": "unit2_plf_percent",
+    Station: "station_plf_percent",
+  },
+  aux_power: {
+    "Unit-1": "unit1_aux_consumption_mwh",
+    "Unit-2": "unit2_aux_consumption_mwh",
+    Station: "total_station_aux_mwh",
+  },
+  aux_power_percent: {
+    "Unit-1": "unit1_aux_percent",
+    "Unit-2": "unit2_aux_percent",
+    Station: null,
+  },
+  steam_generation: {
+    "Unit-1": "steam_consumption",
+    "Unit-2": "steam_consumption",
+  },
+};
+
+/* ================= KPI AGGREGATION RULES ================= */
+const SUM_KPIS = new Set([
+  "generation",
+  "coal_consumption",
+  "oil_consumption",
+  "aux_power",
+  "steam_generation",
+  "dm_water",
+]);
+
+const AVG_KPIS = new Set([
+  "plf_percent",
+  "aux_power_percent",
+  "plant_availability_percent",
+  "specific_coal",
+  "specific_oil",
+  "specific_steam",
+  "specific_dm_percent",
+  "gcv",
+  "heat_rate",
+  "running_hour",
+  "planned_outage_hour",
+  "strategic_outage_hour",
+]);
+
 export default function DPRPage1({ auth }) {
   const authHeader = useMemo(() => normalizeAuthHeader(auth), [auth]);
+
   const [reportDate, setReportDate] = useState(
     new Date().toLocaleDateString("en-CA")
   );
   const [data, setData] = useState({});
+  const [previewKpis, setPreviewKpis] = useState(null);
+  const [remarks, setRemarks] = useState("");
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  /* ================= FETCH DPR DATA ================= */
+  /* ================= FETCH SAVED DPR ================= */
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -34,13 +97,99 @@ export default function DPRPage1({ auth }) {
 
   useEffect(() => {
     fetchData();
+    setPreviewKpis(null);
+    setRemarks("");
   }, [reportDate]);
 
-  const v = (unit, kpi, period = "day", d = 2) => {
-    const val = data?.[unit]?.[kpi]?.[period];
-    if (val === undefined || val === null || isNaN(val)) return "—";
-    return Number(val).toFixed(d);
+  /* ================= CALCULATE KPIs (PREVIEW) ================= */
+  const calculateKpis = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.post(
+        `${API_URL}/dpr/kpi/calc`,
+        {},
+        {
+          params: { date: reportDate },
+          headers: { Authorization: authHeader },
+        }
+      );
+      setPreviewKpis(res.data.computed_kpis || {});
+    } catch (err) {
+      alert("Failed to calculate KPIs");
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  /* ================= SAVE DPR ================= */
+  const saveDPR = async () => {
+    if (!previewKpis) {
+      alert("Please calculate KPIs before saving");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await axios.post(
+        `${API_URL}/dpr/kpi/save`,
+        {
+          date: reportDate,
+          remarks,
+          computed_kpis: previewKpis,
+        },
+        {
+          headers: { Authorization: authHeader },
+        }
+      );
+      alert("DPR saved successfully");
+      setPreviewKpis(null);
+      setRemarks("");
+      fetchData();
+    } catch (err) {
+      alert("Failed to save DPR");
+      console.error(err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /* ================= VALUE RESOLVER ================= */
+  
+
+
+  const v = (unit, kpi, period = "day", d = 2) => {
+  const mappedKpi = DPR_KPI_KEY_MAP[kpi]?.[unit] || kpi;
+
+  // ================= PREVIEW (DAY) =================
+  if (previewKpis && period === "day") {
+
+    // 🔥 ENERGY KPIs COME FROM previewKpis.energy
+    if (ENERGY_KPIS.has(kpi)) {
+      const val = previewKpis.energy?.[mappedKpi];
+      if (val !== undefined && !isNaN(val)) {
+        return Number(val).toFixed(d);
+      }
+    }
+
+    // 🔥 NORMAL KPIs (Unit / Station)
+    const val = previewKpis[unit]?.[mappedKpi];
+    if (val !== undefined && !isNaN(val)) {
+      return Number(val).toFixed(d);
+    }
+  }
+
+  // ================= SAVED DPR =================
+  // ENERGY KPIs SAVED UNDER Station
+  const sourceUnit = ENERGY_KPIS.has(kpi) ? "Station" : unit;
+  const val = data?.[sourceUnit]?.[mappedKpi]?.[period];
+
+  if (val === undefined || val === null || isNaN(val)) return "—";
+  return Number(val).toFixed(d);
+};
+
+
+
 
   /* ================= KPI ROW ================= */
   const Row = ({ label, kpi, unit = "" }) => (
@@ -59,32 +208,6 @@ export default function DPRPage1({ auth }) {
     </tr>
   );
 
-  /* ================= PDF DOWNLOAD (BACKEND) ================= */
-  const downloadPDF = async () => {
-    try {
-      const res = await axios.get(`${API_URL}/dpr/page1/pdf`, {
-        params: { date: reportDate },
-        headers: { Authorization: authHeader },
-        responseType: "blob",
-      });
-
-      const blob = new Blob([res.data], { type: "application/pdf" });
-      const url = window.URL.createObjectURL(blob);
-
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `DPR_Page1_${reportDate}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      alert("Failed to download DPR PDF");
-      console.error(err);
-    }
-  };
-
   return (
     <div className="dpr-root">
       {/* ================= HEADER ================= */}
@@ -101,7 +224,10 @@ export default function DPRPage1({ auth }) {
             value={reportDate}
             onChange={(e) => setReportDate(e.target.value)}
           />
-          <button onClick={downloadPDF}>Download PDF</button>
+          <button onClick={calculateKpis}>Calculate KPIs</button>
+          <button onClick={saveDPR} disabled={saving}>
+            {saving ? "Saving…" : "Save DPR"}
+          </button>
         </div>
       </div>
 
@@ -112,15 +238,20 @@ export default function DPRPage1({ auth }) {
         <table className="dpr-table">
           <thead>
             <tr>
-              <th rowSpan="2" className="left-head">Key Plant Parameters</th>
+              <th rowSpan="2" className="left-head">
+                Key Plant Parameters
+              </th>
               <th colSpan="3">UNIT-1</th>
               <th colSpan="3">UNIT-2</th>
               <th colSpan="3">STATION</th>
             </tr>
             <tr>
-              {["Day", "Month", "Year"].map((h) => <th key={`u1-${h}`}>{h}</th>)}
-              {["Day", "Month", "Year"].map((h) => <th key={`u2-${h}`}>{h}</th>)}
-              {["Day", "Month", "Year"].map((h) => <th key={`st-${h}`}>{h}</th>)}
+              {Array(3)
+                .fill(["Day", "Month", "Year"])
+                .flat()
+                .map((h, i) => (
+                  <th key={i}>{h}</th>
+                ))}
             </tr>
           </thead>
           <tbody>
@@ -146,301 +277,48 @@ export default function DPRPage1({ auth }) {
         </table>
       )}
 
-      {/* ================= BOTTOM TABLES ================= */}
-<div className="bottom-grid">
-  {/* ---------- FUEL / LDO STATUS ---------- */}
-  <table className="sub-table">
-    <thead>
-      <tr><th colSpan="3">LDO / FUEL STATUS</th></tr>
-      <tr>
-        <th>Parameter</th>
-        <th>Tank-1</th>
-        <th>Tank-2</th>
-      </tr>
-    </thead>
-    <tbody>
-      {[
-        "Opening Stock",
-        "Receipt (Today)",
-        "Receipt (Month)",
-        "Receipt (Year)",
-        "Total Consumption",
-        "Closing Stock",
-      ].map((r) => (
-        <tr key={r}>
-          <td className="kpi-label">{r}</td>
-          <td>—</td>
-          <td>—</td>
-        </tr>
-      ))}
-    </tbody>
-  </table>
+      {/* ================= REMARKS ================= */}
+      <table className="remarks">
+        <tbody>
+          <tr>
+            <td className="kpi-label" style={{ width: "15%" }}>
+              Remarks:
+            </td>
+            <td>
+              <textarea
+                value={remarks}
+                onChange={(e) => setRemarks(e.target.value)}
+                placeholder="Enter DPR remarks..."
+                style={{
+                  width: "100%",
+                  height: "60px",
+                  border: "none",
+                  outline: "none",
+                  resize: "none",
+                  fontSize: "11px",
+                }}
+              />
+            </td>
+          </tr>
+        </tbody>
+      </table>
 
-  {/* ---------- STATION WATER & EXPORT ---------- */}
-  {/* ---------- STATION WATER & EXPORT ---------- */}
-<table className="dpr-table station-only">
-  <thead>
-    <tr>
-      <th className="left-head">Station Water & Export</th>
-      <th>Day</th>
-      <th>Month</th>
-      <th>Year</th>
-      <th colSpan="6"></th>
-    </tr>
-  </thead>
-  <tbody>
-    {[
-      ["Stn. Net Export (Ex-Bus)", "station_net_export", "MU"],
-      ["Avg. Raw Water Used", "avg_raw_water_m3_per_hr", "Cu.M / Hr"],
-      ["Total Raw Water Used", "total_raw_water_used_m3", "Cu.M"],
-      ["Sp. Raw Water Used", "sp_raw_water_l_per_kwh", "Ltr / kWh"],
-      ["RO Plant Running Hour", "ro_running_hr", "Hr"],
-      ["RO Plant Production", "ro_production", "Cu.M"],
-      ["Clarifier Rsver Lvl", "clarifier_level", "%"],
-    ].map(([label, kpi, unit]) => (
-      <tr key={kpi}>
-        <td className="kpi-label">
-          {label} <span className="kpi-unit">({unit})</span>
-        </td>
-        <td>{v("Station", kpi, "day")}</td>
-        <td>{v("Station", kpi, "month")}</td>
-        <td>{v("Station", kpi, "year")}</td>
-        <td colSpan="6"></td>
-      </tr>
-    ))}
-  </tbody>
-</table>
-
-</div>
-
-{/* ================= COAL BLENDING + SINCE INCEPTION ================= */}
-<div className="bottom-grid">
-  {/* ---------- COAL BLENDING RATIO ---------- */}
-  <table className="sub-table">
-    <thead>
-      <tr><th colSpan="3">Coal Blending Ratio</th></tr>
-      <tr>
-        <th>Indonesian %</th>
-        <th>South African %</th>
-        <th>Domestic %</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td>—</td>
-        <td>—</td>
-        <td>—</td>
-      </tr>
-    </tbody>
-  </table>
-
-  {/* ---------- SINCE INCEPTION ---------- */}
-  <table className="sub-table">
-    <thead>
-      <tr><th colSpan="4">Since Inception</th></tr>
-      <tr>
-        <th>Unit</th>
-        <th>Gen MU</th>
-        <th>Running Hr</th>
-        <th>Since</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr><td>Unit-1</td><td>—</td><td>—</td><td>COD</td></tr>
-      <tr><td>Unit-2</td><td>—</td><td>—</td><td>COD</td></tr>
-    </tbody>
-  </table>
-</div>
-
-{/* ================= REMARKS ================= */}
-<table className="remarks">
-  <tbody>
-    <tr>
-      <td className="kpi-label" style={{ width: "15%" }}>Remarks:</td>
-      <td style={{ height: "60px" }}></td>
-    </tr>
-  </tbody>
-</table>
-
-
-      {/* ================= STYLES ================= */}
-      {/* ================= STYLES ================= */}
-<style>{`
-  body {
-    font-family: "Segoe UI", Arial, sans-serif;
-    background: #ffffff;
-  }
-
-  .dpr-root {
-    padding: 10px;
-    background: #ffffff;
-  }
-
-  /* ================= HEADER ================= */
-  .dpr-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-bottom: 4px solid #c2410c; /* dark orange */
-    margin-bottom: 10px;
-    padding-bottom: 6px;
-  }
-
-  .title {
-    font-weight: 700;
-    color: #111827;
-  }
-
-  .sub {
-    font-size: 11px;
-    color: #6b7280;
-  }
-
-  .controls input {
-    padding: 4px;
-  }
-
-  .controls button {
-    background: #c2410c;
-    color: #ffffff;
-    border: none;
-    padding: 6px 14px;
-    margin-left: 6px;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-
-  .controls button:hover {
-    background: #9a3412;
-  }
-
-  /* ================= MAIN DPR TABLE ================= */
-  .dpr-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 11px;
-    margin-top: 6px;
-  }
-
-  .dpr-table th {
-    background: #c2410c; /* dark orange */
-    color: #ffffff;
-    border: 1px solid #9a3412;
-    padding: 5px;
-    text-align: center;
-    font-weight: 600;
-  }
-
-  .dpr-table td {
-    border: 1px solid #e5e7eb;
-    padding: 5px;
-    text-align: center; /* values centered */
-    color: #111827;
-  }
-
-  /* alternate row highlight */
-  .dpr-table tbody tr:nth-child(even) {
-    background: #fff7ed; /* light orange */
-  }
-
-  .dpr-table tbody tr:nth-child(odd) {
-    background: #ffffff;
-  }
-
-  /* KPI label column */
-  .kpi-label {
-    text-align: left !important;
-    font-weight: 600;
-    background: #ffedd5; /* soft orange */
-    color: #7c2d12;
-  }
-
-  .kpi-unit {
-    font-size: 9px;
-    color: #92400e;
-  }
-
-  /* ================= BOTTOM GRID ================= */
-  .bottom-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    margin-top: 12px;
-  }
-
-  /* ================= SUB TABLES ================= */
-  .sub-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 11px;
-  }
-
-  .sub-table th {
-    background: #c2410c; /* same dark orange */
-    color: #ffffff;
-    padding: 5px;
-    border: 1px solid #9a3412;
-    text-align: center;
-    font-weight: 600;
-  }
-
-  .sub-table td {
-    border: 1px solid #e5e7eb;
-    padding: 5px;
-    text-align: center;
-    background: #ffffff;
-  }
-
-  .sub-table tbody tr:nth-child(even) {
-    background: #fff7ed;
-  }
-
-  .sub-table .kpi-label {
-    background: #ffedd5;
-    color: #7c2d12;
-    text-align: left;
-    font-weight: 600;
-  }
-
-  /* ================= REMARKS ================= */
-  .remarks {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 10px;
-    font-size: 11px;
-  }
-
-  .remarks td {
-    border: 1px solid #e5e7eb;
-    padding: 6px;
-  }
-
-  /* ================= LOADING ================= */
-  .loading {
-    text-align: center;
-    padding: 20px;
-    color: #6b7280;
-  }
-
-  /* ================= PRINT ================= */
-  @media print {
-    .no-print {
-      display: none;
-    }
-
-    .dpr-table th,
-    .sub-table th {
-      background: #e5e7eb;
-      color: #000000;
-    }
-
-    .kpi-label {
-      background: #f3f4f6;
-      color: #000000;
-    }
-  }
-`}</style>
-
+      <style>{`
+        body { font-family: "Segoe UI", Arial, sans-serif; background: #fff; }
+        .dpr-root { padding: 10px; }
+        .dpr-header { display: flex; justify-content: space-between; border-bottom: 4px solid #c2410c; margin-bottom: 10px; }
+        .title { font-weight: 700; }
+        .sub { font-size: 11px; color: #6b7280; }
+        .controls button { background: #c2410c; color: #fff; border: none; padding: 6px 12px; margin-left: 6px; cursor: pointer; }
+        .controls button:disabled { opacity: 0.6; cursor: not-allowed; }
+        .dpr-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+        .dpr-table th { background: #c2410c; color: #fff; padding: 5px; }
+        .dpr-table td { border: 1px solid #e5e7eb; padding: 5px; text-align: center; }
+        .kpi-label { background: #ffedd5; font-weight: 600; text-align: left; }
+        .kpi-unit { font-size: 9px; color: #92400e; }
+        .remarks td { border: 1px solid #e5e7eb; padding: 6px; }
+        .loading { text-align: center; padding: 20px; color: #6b7280; }
+      `}</style>
     </div>
   );
 }

@@ -382,29 +382,7 @@ export default function TotalizerEntryPage({ auth }) {
   }, [readingsForm, totalizersByUnit, canAdjust]);
 
   /* ---------------- KPI Calculation (on demand) ---------------- */
-  const calculateKPIsForUnit = useCallback(async (unit = null) => {
-    const plant = unit || activeTab;
-    setLoading(true);
-    setMessage("");
-    try {
-      await loadEnergyCacheForDate(reportDate);
-      const readings = buildReadingsArrayForUnit(plant);
-      const payload = { date: reportDate, plant_name: plant, readings };
-      const r = await api.post("/kpi/calc", payload);
-      const out = r.data?.auto_kpis || null;
-      if (plant === "Unit-1" || plant === "Unit-2" || plant === "Station") {
-        setServerKPIs((prev) => ({ ...prev, [plant]: out }));
-      }
-      setMessage("✅ KPI calculation completed.");
-      return out;
-    } catch (e) {
-      console.error("calculateKPIsForUnit error:", e);
-      setMessage("❌ KPI calculation failed.");
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  }, [api, activeTab, reportDate, buildReadingsArrayForUnit, loadEnergyCacheForDate]);
+  
 
   /* ---------------- Shutdown KPI loader ---------------- */
   const loadShutdownKPIsForUnitDate = useCallback(async (unitKey, dateStr) => {
@@ -714,7 +692,7 @@ if (manualList.length > 0) {
       }
 
       // refresh server KPIs for the active tab (final)
-      await calculateKPIsForUnit(activeTab);
+      
     } catch (err) {
       console.error(err);
       setMessage(`❌ ${err?.response?.data?.detail || "Save error"}`);
@@ -1584,21 +1562,7 @@ useEffect(() => {
           KPIs
         </h3>
 
-        {(activeTab === "Unit-1" ||
-          activeTab === "Unit-2" ||
-          activeTab === "Station") && (
-          <button
-            onClick={() => calculateKPIsForUnit(activeTab)}
-            className="
-              px-2 py-1 text-xs font-bold
-              rounded border
-              bg-orange-50 text-orange-700
-              hover:bg-orange-100
-            "
-          >
-            Calc
-          </button>
-        )}
+        
       </div>
 
       {renderLeftKPIList()}
