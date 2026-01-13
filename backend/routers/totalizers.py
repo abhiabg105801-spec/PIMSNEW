@@ -10,7 +10,7 @@ from typing import List, Optional, Dict, Any
 from database import get_db
 from models import UserDB
 from auth import get_current_user
-from models import TotalizerMasterDB, TotalizerReadingDB, KPIRecordDB, ShutdownRecordDB
+from models import  TotalizerReadingDB, KPIRecordDB, ShutdownRecordDB
 from services.kpi_persistence import upsert_kpi
 
 router = APIRouter(prefix="/api")  # main.py should include this router
@@ -171,6 +171,40 @@ async def get_readings_for_unit_date(unit: str, date: str = Query(...), db: Asyn
     rows = q.scalars().all()
     return [orm_to_dict_reading(r) for r in rows]
 
+
+@router.get("/kpi/generation", dependencies=[Depends(get_current_user)])
+async def get_generation_for_date(date: str = Query(...), db: AsyncSession = Depends(get_db)):
+    """
+    Get Unit-1 and Unit-2 generation for a specific date
+    """
+    rpt_date = parse_iso_date(date)
+    
+    # Get generation from energy totalizers
+    gen_ids = [22, 23]  # unit1_gen, unit2_gen
+    
+    q = await db.execute(
+        select(TotalizerReadingDB)
+        .where(
+            TotalizerReadingDB.totalizer_id.in_(gen_ids),
+            TotalizerReadingDB.date == rpt_date
+        )
+    )
+    rows = q.scalars().all()
+    
+    result = {
+        "unit1_generation": 0.0,
+        "unit2_generation": 0.0
+    }
+    
+    for r in rows:
+        if r.totalizer_id == 22:  # unit1_gen
+            result["unit1_generation"] = float(r.difference_value or 0)
+        elif r.totalizer_id == 23:  # unit2_gen
+            result["unit2_generation"] = float(r.difference_value or 0)
+    
+    return result
+
+
 async def get_generation_from_db(
     db: AsyncSession,
     reading_date: date,
@@ -191,36 +225,25 @@ async def get_generation_from_db(
         gen[k] = float(v or 0.0)
 
     return gen
+
+
 @router.post("/totalizers/submit", dependencies=[Depends(get_current_user)])
-
-
-
 async def submit_readings(
     payload: dict = Body(...),
     db: AsyncSession = Depends(get_db),
     current_user: UserDB = Depends(get_current_user),
 ):
-    """
-    Submit readings payload (masterless):
-    {
-      date: "YYYY-MM-DD",
-      plant_name: "Unit-1",
-      readings: [{ totalizer_id, reading_value, adjust_value }],
-      manual_kpis: [{ name, value, unit }]
-    }
-    """
-
-    # -------------------- VALIDATION --------------------
+    """Submit readings with username and timestamp"""
     try:
         reading_date = parse_iso_date(payload["date"])
     except Exception:
         raise HTTPException(status_code=422, detail="Invalid date")
 
     readings = payload.get("readings", [])
-    manual_kpis = payload.get("manual_kpis", [])
     role_id = current_user.role_id
-
+    username = current_user.username or current_user.full_name
     plant_name = payload.get("plant_name")
+
     if not plant_name:
         if readings:
             meta = TOTALIZER_MASTER.get(readings[0]["totalizer_id"])
@@ -229,7 +252,7 @@ async def submit_readings(
     if not plant_name:
         raise HTTPException(status_code=422, detail="plant_name required")
 
-    # -------------------- SAVE READINGS --------------------
+    # Save readings with username and timestamp
     for item in readings:
         tid = item["totalizer_id"]
         today_val = float(item.get("reading_value") or 0.0)
@@ -265,6 +288,7 @@ async def submit_readings(
             existing.adjust_value = adjust
             existing.difference_value = diff
             existing.updated_at = datetime.now(timezone.utc)
+            existing.username = username
         else:
             db.add(
                 TotalizerReadingDB(
@@ -273,17 +297,15 @@ async def submit_readings(
                     reading_value=today_val,
                     adjust_value=adjust,
                     difference_value=diff,
+                    username=username,
+                    created_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(timezone.utc),
                 )
             )
 
     await db.commit()
 
-   
-
-    return {
-    "message": "Totalizer readings saved successfully"
-    }
-
+    return {"message": "Totalizer readings saved successfully"}
 # ---------------------------
 # KPI endpoints
 # ---------------------------
@@ -304,22 +326,13 @@ async def get_saved_manual_kpis(date: str = Query(...), unit: str = Query(...), 
 async def save_manual_kpis(
     payload: dict = Body(...),
     db: AsyncSession = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user),
 ):
-    """
-    payload:
-    {
-      "date": "YYYY-MM-DD",
-      "plant_name": "Unit-1" | "Unit-2" | "Station",
-      "kpis": [
-        { "name": "stack_emission", "value": 45, "unit": "mg/Nm3" },
-        { "name": "clarifier_level", "value": 78, "unit": "%" }
-      ]
-    }
-    """
-
+    """Save manual KPIs with username and timestamp"""
     reading_date = parse_iso_date(payload["date"])
     plant = payload["plant_name"]
     kpis = payload.get("kpis", [])
+    username = current_user.username or current_user.full_name
 
     for k in kpis:
         await upsert_kpi(
@@ -330,6 +343,7 @@ async def save_manual_kpis(
             name=k["name"],
             value=k["value"],
             unit=k.get("unit"),
+            username=username,
         )
 
     await db.commit()

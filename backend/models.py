@@ -18,100 +18,6 @@ from database import Base
 # ... [UnitReportDB, StationReportDB, MonthlyAggregateDB, YearlyAggregateDB, 
 #      StationMonthlyAggregateDB, StationYearlyAggregateDB classes remain unchanged] ...
 
-class UnitReportDB(Base):
-    __tablename__ = "unit_reports"
-    id = Column(Integer, primary_key=True, index=True)
-    unit = Column(String, index=True, nullable=False)
-    report_date = Column(DateTime, index=True, nullable=False)
-    # ... (rest of columns remain exactly the same) ...
-    totalizer_mu = Column(Float, nullable=True)     
-    totalizer_coal = Column(Float, nullable=True)   
-    totalizer_aux = Column(Float, nullable=True)    
-    generation_mu = Column(Float, nullable=True)           
-    plf_percent = Column(Float, nullable=True)
-    running_hour = Column(Float, nullable=True)
-    plant_availability_percent = Column(Float, nullable=True)
-    planned_outage_hour = Column(Float, nullable=True)
-    planned_outage_percent = Column(Float, nullable=True)
-    forced_outage_hour = Column(Float, nullable=True)
-    forced_outage_percent = Column(Float, nullable=True)
-    strategic_outage_hour = Column(Float, nullable=True)
-    coal_consumption_t = Column(Float, nullable=True)          
-    sp_coal_consumption_kg_kwh = Column(Float, nullable=True)
-    avg_gcv_coal_kcal_kg = Column(Float, nullable=True)
-    heat_rate = Column(Float, nullable=True)
-    ldo_hsd_consumption_kl = Column(Float, nullable=True)
-    sp_oil_consumption_ml_kwh = Column(Float, nullable=True)
-    aux_power_consumption_mu = Column(Float, nullable=True)    
-    aux_power_percent = Column(Float, nullable=True)
-    dm_water_consumption_cu_m = Column(Float, nullable=True)
-    sp_dm_water_consumption_percent = Column(Float, nullable=True)
-    steam_gen_t = Column(Float, nullable=True)
-    sp_steam_consumption_kg_kwh = Column(Float, nullable=True)
-    stack_emission_spm_mg_nm3 = Column(Float, nullable=True)
-    __table_args__ = (UniqueConstraint('unit', 'report_date', name='uq_unit_report_date'),)
-
-class StationReportDB(Base):
-    __tablename__ = "station_reports"
-    id = Column(Integer, primary_key=True, index=True)
-    report_date = Column(DateTime, index=True, nullable=False, unique=True)
-    avg_raw_water_used_cu_m_hr = Column(Float, nullable=True)
-    total_raw_water_used_cu_m = Column(Float, nullable=True)
-    sp_raw_water_used_ltr_kwh = Column(Float, nullable=True)
-    ro_plant_running_hrs = Column(Float, nullable=True)
-    ro_plant_il = Column(Float, nullable=True)
-    ro_plant_ol = Column(Float, nullable=True)
-
-class MonthlyAggregateDB(Base):
-    __tablename__ = "monthly_aggregates"
-    id = Column(Integer, primary_key=True, index=True)
-    unit = Column(String, nullable=False)
-    year = Column(Integer, nullable=False)
-    month = Column(Integer, nullable=False)
-    # ... (fields omitted for brevity, they remain unchanged) ...
-    generation_mu = Column(Float, nullable=True)
-    plf_percent = Column(Float, nullable=True)
-    # ... 
-    __table_args__ = (UniqueConstraint('unit', 'year', 'month', name='uq_monthly_agg'),
-                      Index('ix_monthly_agg_unit_year_month', 'unit', 'year', 'month'))
-
-class YearlyAggregateDB(Base):
-    __tablename__ = "yearly_aggregates"
-    id = Column(Integer, primary_key=True, index=True)
-    unit = Column(String, nullable=False)
-    year = Column(Integer, nullable=False)
-    # ... (fields omitted for brevity, they remain unchanged) ...
-    generation_mu = Column(Float, nullable=True)
-    # ...
-    __table_args__ = (UniqueConstraint('unit', 'year', name='uq_yearly_agg'),
-                      Index('ix_yearly_agg_unit_year', 'unit', 'year'))
-
-class StationMonthlyAggregateDB(Base):
-    __tablename__ = "station_monthly_aggregates"
-    id = Column(Integer, primary_key=True, index=True)
-    year = Column(Integer, nullable=False)
-    month = Column(Integer, nullable=False)
-    # ...
-    avg_raw_water_used_cu_m_hr = Column(Float, nullable=True)
-    total_raw_water_used_cu_m = Column(Float, nullable=True)
-    sp_raw_water_used_ltr_kwh = Column(Float, nullable=True)
-    ro_plant_running_hrs = Column(Float, nullable=True)
-    ro_plant_il = Column(Float, nullable=True)
-    ro_plant_ol = Column(Float, nullable=True)
-    __table_args__ = (UniqueConstraint('year', 'month', name='uq_station_monthly_agg'),)
-
-class StationYearlyAggregateDB(Base):
-    __tablename__ = "station_yearly_aggregates"
-    id = Column(Integer, primary_key=True, index=True)
-    year = Column(Integer, nullable=False)
-    # ...
-    avg_raw_water_used_cu_m_hr = Column(Float, nullable=True)
-    total_raw_water_used_cu_m = Column(Float, nullable=True)
-    sp_raw_water_used_ltr_kwh = Column(Float, nullable=True)
-    ro_plant_running_hrs = Column(Float, nullable=True)
-    ro_plant_il = Column(Float, nullable=True)
-    ro_plant_ol = Column(Float, nullable=True)
-    __table_args__ = (UniqueConstraint('year', name='uq_station_yearly_agg'),)
 
 
 # -------------------------------------------------------------
@@ -209,89 +115,7 @@ class ShutdownRecord(ShutdownRecordBase):
         orm_mode = True
         from_attributes = True
 
-class UnitReport(BaseModel):
-    unit: str
-    report_date: datetime 
-    edit_password: Optional[str] = None
-    totalizer_mu: Optional[float] = None
-    totalizer_coal: Optional[float] = None   
-    totalizer_aux :Optional[float] = None    
-    generation_mu: Optional[float] = None
-    plf_percent: Optional[float] = None
-    running_hour: Optional[float] = None
-    plant_availability_percent: Optional[float] = None
-    planned_outage_hour: Optional[float] = None
-    planned_outage_percent: Optional[float] = None
-    forced_outage_hour: Optional[float] = None
-    forced_outage_percent: Optional[float] = None
-    strategic_outage_hour: Optional[float] = None
-    coal_consumption_t: Optional[float] = None
-    sp_coal_consumption_kg_kwh: Optional[float] = None
-    avg_gcv_coal_kcal_kg: Optional[float] = None
-    heat_rate: Optional[float] = None
-    ldo_hsd_consumption_kl: Optional[float] = None
-    sp_oil_consumption_ml_kwh: Optional[float] = None
-    aux_power_consumption_mu: Optional[float] = None
-    aux_power_percent: Optional[float] = None
-    dm_water_consumption_cu_m: Optional[float] = None
-    sp_dm_water_consumption_percent: Optional[float] = None
-    steam_gen_t: Optional[float] = None
-    sp_steam_consumption_kg_kwh: Optional[float] = None
-    stack_emission_spm_mg_nm3: Optional[float] = None
-    class Config:
-        from_attributes = True
-        str_strip_whitespace = True
 
-class StationReport(BaseModel):
-    report_date: datetime 
-    avg_raw_water_used_cu_m_hr: Optional[float] = None
-    total_raw_water_used_cu_m: Optional[float] = None
-    sp_raw_water_used_ltr_kwh: Optional[float] = None
-    ro_plant_running_hrs: Optional[float] = None
-    ro_plant_il: Optional[float] = None
-    ro_plant_ol: Optional[float] = None
-    class Config:
-        from_attributes = True
-        str_strip_whitespace = True
-
-class AggregateResponse(BaseModel):
-    unit: str
-    generation_mu: Optional[float] = None
-    plf_percent: Optional[float] = None
-    running_hour: Optional[float] = None
-    plant_availability_percent: Optional[float] = None
-    planned_outage_hour: Optional[float] = None
-    planned_outage_percent: Optional[float] = None
-    forced_outage_hour: Optional[float] = None
-    forced_outage_percent: Optional[float] = None
-    strategic_outage_hour: Optional[float] = None
-    coal_consumption_t: Optional[float] = None
-    sp_coal_consumption_kg_kwh: Optional[float] = None
-    avg_gcv_coal_kcal_kg: Optional[float] = None
-    heat_rate: Optional[float] = None
-    ldo_hsd_consumption_kl: Optional[float] = None
-    sp_oil_consumption_ml_kwh: Optional[float] = None
-    aux_power_consumption_mu: Optional[float] = None
-    aux_power_percent: Optional[float] = None
-    dm_water_consumption_cu_m: Optional[float] = None
-    sp_dm_water_consumption_percent: Optional[float] = None
-    steam_gen_t: Optional[float] = None
-    sp_steam_consumption_kg_kwh: Optional[float] = None
-    stack_emission_spm_mg_nm3: Optional[float] = None
-    class Config:
-        from_attributes = True
-
-class StationAggregateResponse(BaseModel):
-    year: int
-    month: Optional[int] = None
-    avg_raw_water_used_cu_m_hr: Optional[float] = None
-    total_raw_water_used_cu_m: Optional[float] = None
-    sp_raw_water_used_ltr_kwh: Optional[float] = None
-    ro_plant_running_hrs: Optional[float] = None
-    ro_plant_il: Optional[float] = None
-    ro_plant_ol: Optional[float] = None
-    class Config:
-        from_attributes = True
 
 # -------------------------------------------------------------
 #  CONTINUING UPDATED MODELS
@@ -372,64 +196,30 @@ class PermissionOut(BaseModel):
     class Config:
         from_attributes = True
 
-class FuelType(str, enum.Enum):
-    LDO = "LDO"
-    HSD = "HSD"
 
-class TxType(str, enum.Enum):
-    INITIAL = "initial"
-    RECEIPT = "receipt"
-    USAGE = "usage"
-
-class FuelTransactionDB(Base):
-    __tablename__ = "fuel_transactions"
-
-    id = Column(Integer, primary_key=True, index=True)
-    tx_date = Column(Date, nullable=False, index=True)
-    fuel_type = Column(String, nullable=False)            
-    tx_type = Column(String, nullable=False)              
-    quantity = Column(Float, nullable=False)              
-    remarks = Column(String, nullable=True)
-    
-    # ✅ CHANGED: Uses server PC time
-    created_at = Column(DateTime, default=datetime.now)
-
-class FuelTransactionCreate(BaseModel):
-    tx_date: date
-    fuel_type: FuelType
-    tx_type: TxType
-    quantity: float
-    remarks: Optional[str] = None
-
-class FuelTransactionOut(FuelTransactionCreate):
-    id: int
-    created_at: datetime
-
-    class Config:
-        from_attributes = True
-
-class TotalizerMasterDB(Base):
-    __tablename__ = "totalizers_master"
-
-    id = Column(Integer, primary_key=True, index=True)
-    unit = Column(String)
-    name = Column(String)
-    display_name = Column(String)
-    sequence = Column(Integer)
 
 class TotalizerReadingDB(Base):
     __tablename__ = "totalizer_readings"
 
     id = Column(Integer, primary_key=True, index=True)
-    totalizer_id = Column(Integer)
-    date = Column(Date)
+    totalizer_id = Column(Integer, nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True)
     reading_value = Column(Float, default=0)
     adjust_value = Column(Float, default=0)
     difference_value = Column(Float, default=0)
     
-    # ✅ CHANGED: Uses server PC time
-    # (Note: since this is a Date column, datetime.now will be cast to date by SQLAlchemy)
-    created_at = Column(Date, default=datetime.now)
+    # ✅ NEW: Track who created/updated and when
+    username = Column(String, nullable=True)  # Username of who created/updated
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "totalizer_id", "date",
+            name="uq_totalizer_date"
+        ),
+    )
+
 
 class KPIRecordDB(Base):
     __tablename__ = "kpi_records"
@@ -442,7 +232,8 @@ class KPIRecordDB(Base):
     kpi_value = Column(Float, nullable=False)
     unit = Column(String, nullable=True)
 
-    # ✅ CHANGED: Uses server PC time for creation and update
+    # ✅ NEW: Track who created/updated and when
+    username = Column(String, nullable=True)  # Username of who created/updated
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 

@@ -6,39 +6,49 @@ from sqlalchemy import select
 from models import KPIRecordDB
 
 
+# services/kpi_persistence.py
+
+from datetime import datetime, timezone
+
 async def upsert_kpi(
     db: AsyncSession,
     reading_date,
     kpi_type: str,
     plant: str,
     name: str,
-    value,
-    unit: str,
+    value: float,
+    unit: str = None,
+    username: str = None,
 ):
-    if value is None:
-        return
-
-    stmt = sqlite_upsert(KPIRecordDB).values(
-        report_date=reading_date,
-        kpi_type=kpi_type,
-        plant_name=plant,
-        kpi_name=name,
-        kpi_value=float(value),
-        unit=unit,
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc),
-    ).on_conflict_do_update(
-        index_elements=[
-            "report_date",
-            "kpi_type",
-            "plant_name",
-            "kpi_name",
-        ],
-        set_={
-            "kpi_value": float(value),
-            "unit": unit,
-            "updated_at": datetime.now(timezone.utc),
-        },
+    """Upsert KPI with username and timestamp"""
+    q = await db.execute(
+        select(KPIRecordDB).where(
+            KPIRecordDB.report_date == reading_date,
+            KPIRecordDB.kpi_type == kpi_type,
+            KPIRecordDB.plant_name == plant,
+            KPIRecordDB.kpi_name == name,
+        )
     )
+    existing = q.scalar_one_or_none()
 
-    await db.execute(stmt)
+    if existing:
+        existing.kpi_value = value
+        if unit:
+            existing.unit = unit
+        existing.updated_at = datetime.now(timezone.utc)
+        if username:
+            existing.username = username
+    else:
+        db.add(
+            KPIRecordDB(
+                report_date=reading_date,
+                kpi_type=kpi_type,
+                plant_name=plant,
+                kpi_name=name,
+                kpi_value=value,
+                unit=unit,
+                username=username,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+        )
