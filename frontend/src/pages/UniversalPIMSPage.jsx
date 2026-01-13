@@ -1,5 +1,5 @@
 // ======================================================================
-// UNIVERSAL PIMS PAGE — ROBUST FIXED LAYOUT (FIXED SIDEBAR + MARGIN)
+// UNIVERSAL PIMS PAGE — IMPROVED STYLING & FIXED Z-INDEX LAYERS
 // ======================================================================
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -20,10 +20,13 @@ import {
   Download,
   ChevronRight,
   Menu,
+  X,
+  Filter,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 /* ================= STYLISH TABLE ROW INPUT ================= */
-// Transforms standard inputs into a "Label | Input" table row style
 const PimsTableInput = ({
   label,
   type = "text",
@@ -34,12 +37,12 @@ const PimsTableInput = ({
 }) => (
   <div
     className={`flex group items-stretch ${
-      !isLast ? "border-b border-zinc-200" : ""
+      !isLast ? "border-b border-gray-200" : ""
     }`}
   >
     {/* Left Label Side */}
-    <div className="w-[140px] shrink-0 bg-zinc-50 border-r border-zinc-200 px-3 py-2 flex items-center">
-      <span className="text-[11px] font-bold text-zinc-600 uppercase tracking-wide leading-tight">
+    <div className="w-[160px] shrink-0 bg-gradient-to-r from-gray-50 to-gray-100 border-r border-gray-200 px-4 py-3 flex items-center">
+      <span className="text-xs font-semibold text-gray-700 leading-tight">
         {label}
       </span>
     </div>
@@ -50,8 +53,8 @@ const PimsTableInput = ({
         <select
           value={value ?? ""}
           onChange={onChange}
-          className="w-full h-full px-3 py-2 text-sm text-zinc-800 bg-transparent outline-none
-                      focus:bg-orange-50 focus:text-orange-900 transition-colors"
+          className="w-full h-full px-4 py-3 text-sm text-gray-800 bg-transparent outline-none
+                      focus:bg-orange-50 focus:ring-2 focus:ring-inset focus:ring-orange-400 transition-all"
         >
           <option value="">-- Select --</option>
           {options.map((op) => (
@@ -60,14 +63,24 @@ const PimsTableInput = ({
             </option>
           ))}
         </select>
+      ) : type === "textarea" ? (
+        <textarea
+          value={value ?? ""}
+          onChange={onChange}
+          rows={3}
+          className="w-full h-full px-4 py-3 text-sm text-gray-800 bg-transparent outline-none resize-none
+                      focus:bg-orange-50 focus:ring-2 focus:ring-inset focus:ring-orange-400 transition-all
+                      placeholder-gray-400"
+          placeholder="Enter remarks..."
+        />
       ) : (
         <input
           type={type}
           value={value ?? ""}
           onChange={onChange}
-          className="w-full h-full px-3 py-2 text-sm text-zinc-800 bg-transparent outline-none
-                      focus:bg-orange-50 focus:text-orange-900 transition-colors
-                      placeholder-zinc-300"
+          className="w-full h-full px-4 py-3 text-sm text-gray-800 bg-transparent outline-none
+                      focus:bg-orange-50 focus:ring-2 focus:ring-inset focus:ring-orange-400 transition-all
+                      placeholder-gray-400"
           placeholder="..."
         />
       )}
@@ -77,12 +90,12 @@ const PimsTableInput = ({
 
 /* ================= SECTION HEADER ================= */
 const SectionHeader = ({ title, icon: Icon, right }) => (
-  <div className="flex items-center justify-between px-4 py-2.5 bg-gradient-to-r from-zinc-50 to-white border-b border-zinc-200">
-    <div className="flex items-center gap-2.5">
-      <div className="p-1.5 bg-white border border-zinc-200 shadow-sm text-orange-600 rounded-md">
-        <Icon size={14} strokeWidth={2.5} />
+  <div className="flex items-center justify-between px-5 py-3 bg-gradient-to-r from-gray-800 to-gray-700 border-b-2 border-orange-500">
+    <div className="flex items-center gap-3">
+      <div className="p-2 bg-orange-500 text-white rounded-lg shadow-md">
+        <Icon size={16} strokeWidth={2.5} />
       </div>
-      <h3 className="text-xs font-bold uppercase text-zinc-700 tracking-wider">
+      <h3 className="text-sm font-bold text-white uppercase tracking-wide">
         {title}
       </h3>
     </div>
@@ -107,16 +120,12 @@ const pivotRawData = (rows, config) => {
       };
     }
 
-    // ---------- MATRIX PARAM ----------
     if (config.matrix && r.parameter.includes("__")) {
       const [param, loc] = r.parameter.split("__");
-      const colKey = `${param} (${loc})`; // 👈 column name
+      const colKey = `${param} (${loc})`;
       cols.add(colKey);
       map[r.sample_no][colKey] = r.value;
-    }
-
-    // ---------- NORMAL PARAM ----------
-    else {
+    } else {
       cols.add(r.parameter);
       map[r.sample_no][r.parameter] = r.value;
     }
@@ -127,7 +136,6 @@ const pivotRawData = (rows, config) => {
     data: Object.values(map),
   };
 };
-
 
 const calcStats = (data, cols) => {
   const stats = {};
@@ -155,12 +163,14 @@ export default function UniversalPIMSPage({ auth }) {
   const [sampleNo, setSampleNo] = useState(null);
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const [fromDate, setFromDate] = useState(today);
   const [toDate, setToDate] = useState(today);
   const [visibleCols, setVisibleCols] = useState({});
   const [showCols, setShowCols] = useState(false);
   const [matrixData, setMatrixData] = useState({});
+
   /* ================= API ================= */
   const api = useMemo(
     () =>
@@ -204,17 +214,17 @@ export default function UniversalPIMSPage({ auth }) {
     );
 
     if (config.matrix) {
-  const md = {};
-  config.matrix.params.forEach((p) => {
-    md[p.key] = {};
-    config.matrix.locations.forEach((l) => {
-      md[p.key][l] = "";
-    });
-  });
-  setMatrixData(md);
-} else {
-  setMatrixData({});
-}
+      const md = {};
+      config.matrix.params.forEach((p) => {
+        md[p.key] = {};
+        config.matrix.locations.forEach((l) => {
+          md[p.key][l] = "";
+        });
+      });
+      setMatrixData(md);
+    } else {
+      setMatrixData({});
+    }
 
     setFormData(fd);
     fetchRange();
@@ -259,7 +269,6 @@ export default function UniversalPIMSPage({ auth }) {
     setFormData(fd);
     setEditMode(false);
     setSampleNo(null);
-    // Note: Scroll to top is handled by browser behavior or manual window.scrollTo
   };
 
   const saveEntry = async () => {
@@ -305,23 +314,21 @@ export default function UniversalPIMSPage({ auth }) {
         })
       );
 
-      
-
       if (config.matrix) {
-  config.matrix.params.forEach((p) => {
-    config.matrix.locations.forEach((loc) => {
-      const v = matrixData[p.key]?.[loc];
-      if (v !== "") {
-        payload.entries.push({
-          parameter: `${p.key}__${loc}`,
-          value: Number(v),
+        config.matrix.params.forEach((p) => {
+          config.matrix.locations.forEach((loc) => {
+            const v = matrixData[p.key]?.[loc];
+            if (v !== "") {
+              payload.entries.push({
+                parameter: `${p.key}__${loc}`,
+                value: Number(v),
+              });
+            }
+          });
         });
       }
-    });
-  });
-}
 
-if (payload.entries.length === 0) {
+      if (payload.entries.length === 0) {
         alert("Enter at least one parameter value");
         setSaving(false);
         return;
@@ -344,73 +351,60 @@ if (payload.entries.length === 0) {
   };
 
   const loadSample = async (sn) => {
-  const res = await api.get("/entry", { params: { sample_no: sn } });
-  const rows = res.data.rows;
-  if (!rows?.length) return;
+    const res = await api.get("/entry", { params: { sample_no: sn } });
+    const rows = res.data.rows;
+    if (!rows?.length) return;
 
-  const first = rows[0];
-  const fd = {};
+    const first = rows[0];
+    const fd = {};
 
-  // ---------------- TOP PANEL ----------------
-  config.topPanel?.forEach((f) => {
-    fd[f.key] =
-      f.type === "date"
-        ? first.date
-        : f.type === "time"
-        ? first.time?.slice(0, 5)
-        : first[f.key] ?? "";
-  });
-
-  // ---------------- LOCATION PANEL ----------------
-  config.locationPanel?.forEach((f) => {
-    fd[f.key] = first[f.key] ?? "";
-  });
-
-  // ---------------- PARAMETER PANELS (RESET) ----------------
-  config.parameterPanels?.forEach((p) =>
-    p.fields.forEach((f) => {
-      fd[f.key] = "";
-    })
-  );
-
-  // ---------------- MATRIX INIT (CRITICAL) ----------------
-  let md = {};
-  if (config.matrix) {
-    config.matrix.params.forEach((p) => {
-      md[p.key] = {};
-      config.matrix.locations.forEach((loc) => {
-        md[p.key][loc] = "";
-      });
+    config.topPanel?.forEach((f) => {
+      fd[f.key] =
+        f.type === "date"
+          ? first.date
+          : f.type === "time"
+          ? first.time?.slice(0, 5)
+          : first[f.key] ?? "";
     });
-  }
 
-  // ---------------- LOAD VALUES ----------------
-  rows.forEach((r) => {
-    // 🔹 MATRIX PARAMETER (ph__Condensate)
-    if (config.matrix && r.parameter.includes("__")) {
-      const [paramKey, loc] = r.parameter.split("__");
+    config.locationPanel?.forEach((f) => {
+      fd[f.key] = first[f.key] ?? "";
+    });
 
-      if (md[paramKey] && md[paramKey][loc] !== undefined) {
-        md[paramKey][loc] = r.value ?? "";
+    config.parameterPanels?.forEach((p) =>
+      p.fields.forEach((f) => {
+        fd[f.key] = "";
+      })
+    );
+
+    let md = {};
+    if (config.matrix) {
+      config.matrix.params.forEach((p) => {
+        md[p.key] = {};
+        config.matrix.locations.forEach((loc) => {
+          md[p.key][loc] = "";
+        });
+      });
+    }
+
+    rows.forEach((r) => {
+      if (config.matrix && r.parameter.includes("__")) {
+        const [paramKey, loc] = r.parameter.split("__");
+        if (md[paramKey] && md[paramKey][loc] !== undefined) {
+          md[paramKey][loc] = r.value ?? "";
+        }
+      } else {
+        fd[r.parameter] = r.value ?? "";
       }
+    });
+
+    setFormData(fd);
+    if (config.matrix) {
+      setMatrixData(md);
     }
-    // 🔹 NORMAL PARAMETER
-    else {
-      fd[r.parameter] = r.value ?? "";
-    }
-  });
-
-  // ---------------- APPLY STATE ----------------
-  setFormData(fd);
-
-  if (config.matrix) {
-    setMatrixData(md);
-  }
-
-  setSampleNo(sn);
-  setEditMode(true);
-};
-
+    setSampleNo(sn);
+    setEditMode(true);
+  };
 
   const deleteSample = async (e, sn) => {
     e.stopPropagation();
@@ -420,10 +414,9 @@ if (payload.entries.length === 0) {
   };
 
   const { columns, data } = useMemo(
-  () => pivotRawData(rawRows, config),
-  [rawRows, config]
-);
-
+    () => pivotRawData(rawRows, config),
+    [rawRows, config]
+  );
 
   useEffect(() => {
     const init = {};
@@ -434,115 +427,136 @@ if (payload.entries.length === 0) {
   const shownCols = columns.filter((c) => visibleCols[c]);
   const stats = calcStats(data, shownCols);
 
-  const exportCSV = () => {};
-  const exportExcel = () => {};
-
   /* ================= RENDER ================= */
   return (
-    <div className="min-h-screen bg-white font-sans text-zinc-800">
+    <div className="min-h-screen bg-gray-50 font-sans text-gray-800">
       
-      {/* 1. LEFT SIDEBAR: FIXED POSITION 
-        - 'fixed top-0 left-0 h-screen': This forces the sidebar to stay 
-          anchored to the viewport even when the body scrolls.
-      */}
-      <div className="fixed top-19 left-0 w-60 h-screen bg-white border-r border-zinc-200 flex flex-col shadow-[2px_0_5px_rgba(0,0,0,0.02)] z-50">
-        <div className="p-4 border-b border-zinc-100 bg-zinc-50 flex items-center gap-2 flex-shrink-0">
-          <Menu className="text-orange-600" size={18} />
-          <h2 className="text-sm font-black text-zinc-700 uppercase tracking-widest">
-            PIMS Modules
-          </h2>
+      {/* SIDEBAR - Fixed with proper z-index (below nav dropdowns) */}
+      <div
+        className={`fixed top-10 left-0 h-screen bg-white border-r border-gray-200 flex flex-col shadow-xl transition-all duration-300 ${
+          sidebarOpen ? "w-64" : "w-0"
+        } z-30 overflow-hidden`}
+        style={{ marginTop: '64px' }} // Adjust based on your navbar height
+      >
+        <div className="p-4 border-b border-gray-200 bg-gradient-to-r from-orange-50 to-white flex items-center justify-between flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <Menu className="text-orange-600" size={20} />
+            <h2 className="text-sm font-black text-gray-800 uppercase tracking-wider">
+              Modules
+            </h2>
+          </div>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="p-1 hover:bg-gray-100 rounded-md transition-colors lg:hidden"
+          >
+            <X size={18} className="text-gray-600" />
+          </button>
         </div>
 
-        {/* Sidebar Internal Scroll */}
-        <div className="flex-1 overflow-y-auto p-3 space-y-1 scrollbar-thin scrollbar-thumb-zinc-200">
+        <div className="flex-1 overflow-y-auto p-3 space-y-1.5">
           {MODULE_KEYS.map((m) => (
             <button
               key={m}
-              onClick={() => setModule(m)}
-              className={`w-full text-left px-3 py-2.5 text-xs font-medium rounded-md transition-all flex items-center justify-between group ${
+              onClick={() => {
+                setModule(m);
+                // Auto-close sidebar on mobile after selection
+                if (window.innerWidth < 1024) setSidebarOpen(false);
+              }}
+              className={`w-full text-left px-4 py-3 text-sm font-medium rounded-lg transition-all flex items-center justify-between group ${
                 module === m
-                  ? "bg-gradient-to-r from-orange-50 to-white text-orange-700 border border-orange-200 shadow-sm"
-                  : "text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 border border-transparent"
+                  ? "bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-lg scale-105"
+                  : "text-gray-700 hover:bg-gray-100 hover:text-gray-900 border border-transparent hover:border-gray-200"
               }`}
             >
-              <span>{PIMS_CONFIG[m].label}</span>
-              {module === m && <ChevronRight size={14} />}
+              <span className="truncate">{PIMS_CONFIG[m].label}</span>
+              {module === m && <ChevronRight size={16} className="flex-shrink-0" />}
             </button>
           ))}
         </div>
 
-        <div className="p-4 border-t border-zinc-200 text-[10px] text-center text-zinc-400 flex-shrink-0">
-          PIMS System v2.0
-        </div>
+        
       </div>
 
-      {/* 2. MAIN CONTENT WRAPPER 
-        - 'ml-60': Pushes content to the right to clear the fixed sidebar.
-        - 'flex flex-col min-h-screen': Ensures proper vertical stacking.
-      */}
-      <div className="ml-60 flex flex-col min-h-screen">
+      {/* MAIN CONTENT - with left margin and proper stacking */}
+      <div
+        className={`transition-all duration-300 ${
+          sidebarOpen ? "lg:ml-64" : "ml-0"
+        } flex flex-col min-h-screen`}
+        style={{ marginTop: '64px' }} // Adjust based on your navbar height
+      >
         
-        {/* TOP BAR: STICKY 
-          - 'sticky top-0': Ensures the header stays visible when scrolling down the page.
-          - 'z-40': Keeps it above content but below sidebar (z-50).
-        */}
-        <div className="sticky top-0 bg-white border-b border-zinc-200 px-6 py-4 shadow-sm flex items-center justify-between z-40">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-orange-600 rounded-lg text-white shadow-md">
-              <Activity size={18} />
-            </div>
-            <div>
-              <h1 className="text-base font-bold text-zinc-800 leading-none">
-                Universal Entry
-              </h1>
-              <span className="text-[10px] font-semibold text-orange-600 uppercase tracking-wider">
-                {PIMS_CONFIG[module].label}
-              </span>
+        {/* TOP BAR - Sticky with proper z-index (below nav) */}
+        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 shadow-sm flex items-center justify-between z-20">
+          <div className="flex items-center gap-4">
+            {!sidebarOpen && (
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <Menu size={20} className="text-gray-600" />
+              </button>
+            )}
+            
+            <div className="flex items-center gap-1">
+              <div className="p-2.5 bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl text-white shadow-lg">
+                <Activity size={20} />
+              </div>
+              <div>
+                <h1 className="text-lg font-bold text-gray-900 leading-none">
+                  DM Plant Data Entry
+                </h1>
+                <span className="text-xs font-semibold text-orange-600 uppercase tracking-wider">
+                  {PIMS_CONFIG[module].label}
+                </span>
+              </div>
             </div>
           </div>
 
           <div className="flex gap-2">
             <button
               onClick={copyPrevious}
-              className="flex items-center gap-1 px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-semibold rounded border border-zinc-300 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-gray-50 text-gray-700 text-sm font-semibold rounded-lg border border-gray-300 transition-all shadow-sm hover:shadow"
             >
-              <Copy size={14} /> Copy Prev
+              <Copy size={16} /> Copy Previous
             </button>
             <button
               onClick={initForm}
-              className="flex items-center gap-1 px-3 py-1.5 bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-semibold rounded border border-zinc-300 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-gray-50 text-gray-700 text-sm font-semibold rounded-lg border border-gray-300 transition-all shadow-sm hover:shadow"
             >
-              <RefreshCw size={14} /> Reset
+              <RefreshCw size={16} /> Reset Form
             </button>
             <button
               onClick={saveEntry}
               disabled={saving}
-              className={`flex items-center gap-1 px-4 py-1.5 text-white text-xs font-bold rounded shadow-md transition-transform active:scale-95 ${
+              className={`flex items-center gap-2 px-6 py-2 text-white text-sm font-bold rounded-lg shadow-lg transition-all ${
                 editMode
-                  ? "bg-blue-600 hover:bg-blue-700"
-                  : "bg-orange-600 hover:bg-orange-700"
-              }`}
+                  ? "bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700"
+                  : "bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700"
+              } disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-xl active:scale-95`}
             >
-              <Save size={14} />
-              {editMode ? "Update Entry" : "Save Entry"}
+              <Save size={16} />
+              {saving ? "Saving..." : editMode ? "Update Entry" : "Save Entry"}
             </button>
           </div>
         </div>
 
         {/* CONTENT AREA */}
         <div className="p-6 space-y-6">
-          {/* 3. LOG CONTEXT & LOCATION */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Left: Log Context */}
-            <div className="bg-white border border-zinc-200 rounded-lg shadow-sm overflow-hidden">
+          
+          {/* LOG CONTEXT & LOCATION */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            
+            {/* Log Context */}
+            <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
               <SectionHeader title="Log Context" icon={Clock} />
-              <div className="flex flex-col">
+              <div className="divide-y divide-gray-200">
                 {config.topPanel?.map((f, i, arr) => (
                   <PimsTableInput
                     key={f.key}
                     label={f.label}
                     value={formData[f.key]}
                     type={f.type || "text"}
+                    options={f.options}
                     isLast={i === arr.length - 1}
                     onChange={(e) =>
                       setFormData({ ...formData, [f.key]: e.target.value })
@@ -552,10 +566,10 @@ if (payload.entries.length === 0) {
               </div>
             </div>
 
-            {/* Right: Location Details */}
-            <div className="bg-white border border-zinc-200 rounded-lg shadow-sm overflow-hidden">
+            {/* Location Details */}
+            <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
               <SectionHeader title="Location Details" icon={MapPin} />
-              <div className="flex flex-col">
+              <div className="divide-y divide-gray-200">
                 {config.locationPanel.map((f, idx) => (
                   <PimsTableInput
                     key={f.key}
@@ -577,17 +591,18 @@ if (payload.entries.length === 0) {
           {config.parameterPanels?.map((p, i) => (
             <div
               key={i}
-              className="bg-white border border-zinc-200 rounded-lg shadow-sm overflow-hidden"
+              className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden"
             >
               <SectionHeader title={p.title} icon={Database} />
-              <div className="grid grid-cols-1 lg:grid-cols-2 lg:gap-x-8 lg:bg-zinc-50 border-t border-zinc-200">
-                <div className="flex flex-col bg-white border-r-0 lg:border-r border-zinc-200">
+              <div className="grid grid-cols-1 lg:grid-cols-2">
+                <div className="divide-y divide-gray-200 border-r border-gray-200">
                   {p.fields
                     .slice(0, Math.ceil(p.fields.length / 2))
                     .map((f, idx, subArr) => (
                       <PimsTableInput
                         key={f.key}
                         label={f.label}
+                        type={f.type}
                         value={formData[f.key]}
                         isLast={idx === subArr.length - 1}
                         onChange={(e) =>
@@ -596,13 +611,14 @@ if (payload.entries.length === 0) {
                       />
                     ))}
                 </div>
-                <div className="flex flex-col bg-white border-t lg:border-t-0 border-zinc-200">
+                <div className="divide-y divide-gray-200">
                   {p.fields
                     .slice(Math.ceil(p.fields.length / 2))
                     .map((f, idx, subArr) => (
                       <PimsTableInput
                         key={f.key}
                         label={f.label}
+                        type={f.type}
                         value={formData[f.key]}
                         isLast={idx === subArr.length - 1}
                         onChange={(e) =>
@@ -615,118 +631,121 @@ if (payload.entries.length === 0) {
             </div>
           ))}
 
-          {/* ================= CHEMICAL MATRIX ================= */}
-{config.matrix && (
-  <div className="bg-white border border-zinc-200 rounded-lg shadow-sm overflow-hidden">
-    <SectionHeader title="Chemical Matrix Parameters" icon={Database} />
-
-    <div className="overflow-x-auto">
-      <table className="min-w-max w-full text-xs border-collapse">
-        <thead className="bg-zinc-100">
-          <tr>
-            <th className="p-2 border">Parameter</th>
-            {config.matrix.locations.map((loc) => (
-              <th key={loc} className="p-2 border text-center">
-                {loc}
-              </th>
-            ))}
-          </tr>
-        </thead>
-
-        <tbody>
-          {config.matrix.params.map((p) => (
-            <tr key={p.key}>
-              <td className="p-2 border font-bold bg-zinc-50">
-                {p.label}
-              </td>
-
-              {config.matrix.locations.map((loc) => (
-                <td key={loc} className="p-2 border">
-                  <input
-                    type="number"
-                    value={matrixData[p.key]?.[loc] ?? ""}
-                    onChange={(e) =>
-                      setMatrixData({
-                        ...matrixData,
-                        [p.key]: {
-                          ...matrixData[p.key],
-                          [loc]: e.target.value,
-                        },
-                      })
-                    }
-                    className="w-full px-2 py-1 text-xs border rounded focus:bg-orange-50"
-                  />
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  </div>
-)}
+          {/* CHEMICAL MATRIX */}
+          {config.matrix && (
+            <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+              <SectionHeader title="Chemical Matrix Parameters" icon={Database} />
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm border-collapse">
+                  <thead className="bg-gradient-to-r from-gray-100 to-gray-50">
+                    <tr>
+                      <th className="p-3 border border-gray-200 text-left font-bold text-gray-700">
+                        Parameter
+                      </th>
+                      {config.matrix.locations.map((loc) => (
+                        <th key={loc} className="p-3 border border-gray-200 text-center font-bold text-gray-700">
+                          {loc}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white">
+                    {config.matrix.params.map((p, idx) => (
+                      <tr key={p.key} className={idx % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                        <td className="p-3 border border-gray-200 font-semibold text-gray-700">
+                          {p.label}
+                        </td>
+                        {config.matrix.locations.map((loc) => (
+                          <td key={loc} className="p-3 border border-gray-200">
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={matrixData[p.key]?.[loc] ?? ""}
+                              onChange={(e) =>
+                                setMatrixData({
+                                  ...matrixData,
+                                  [p.key]: {
+                                    ...matrixData[p.key],
+                                    [loc]: e.target.value,
+                                  },
+                                })
+                              }
+                              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:bg-orange-50 focus:ring-2 focus:ring-orange-400 focus:border-transparent transition-all"
+                              placeholder="0.00"
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* RAW ENTRIES TABLE */}
-          <div className="bg-white border border-zinc-200 rounded-lg shadow-sm overflow-hidden">
+          <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
             <SectionHeader
               title="Raw Data Log"
               icon={FileText}
               right={
-
-
-                
                 <div className="flex gap-2">
                   <button
                     onClick={() => setShowCols(!showCols)}
-                    className="p-1.5 hover:bg-zinc-100 rounded text-zinc-500"
+                    className={`p-2 rounded-lg transition-all ${
+                      showCols
+                        ? "bg-orange-500 text-white"
+                        : "bg-white/20 text-white hover:bg-white/30"
+                    }`}
                   >
-                    <Settings size={14} />
+                    {showCols ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                   <button
-                    onClick={exportCSV}
-                    className="p-1.5 hover:bg-zinc-100 rounded text-zinc-500"
+                    onClick={() => {}}
+                    className="p-2 bg-white/20 hover:bg-white/30 rounded-lg text-white transition-all"
                   >
-                    <Download size={14} />
+                    <Download size={16} />
                   </button>
                 </div>
               }
             />
 
             {/* Filter Bar */}
-            <div className="p-3 bg-zinc-50 border-b border-zinc-200 flex items-center gap-4">
+            <div className="p-4 bg-gradient-to-r from-gray-50 to-white border-b border-gray-200 flex flex-wrap items-center gap-4">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-zinc-500 uppercase">
-                  Range:
+                <Filter size={16} className="text-gray-500" />
+                <span className="text-xs font-bold text-gray-600 uppercase">
+                  Date Range:
                 </span>
-                <input
-                  type="date"
-                  value={fromDate}
-                  onChange={(e) => setFromDate(e.target.value)}
-                  className="text-xs border rounded px-2 py-1"
-                />
-                <span className="text-zinc-400">-</span>
-                <input
-                  type="date"
-                  value={toDate}
-                  onChange={(e) => setToDate(e.target.value)}
-                  className="text-xs border rounded px-2 py-1"
-                />
               </div>
+              <input
+                type="date"
+                value={fromDate}
+                onChange={(e) => setFromDate(e.target.value)}
+                className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-orange-400 focus:border-transparent"
+              />
+              <span className="text-gray-400">to</span>
+              <input
+                type="date"
+                value={toDate}
+                onChange={(e) => setToDate(e.target.value)}
+                className="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-orange-400 focus:border-transparent"
+              />
               <button
                 onClick={fetchRange}
-                className="px-3 py-1 bg-zinc-800 text-white text-xs font-bold rounded hover:bg-zinc-900"
+                className="px-4 py-2 bg-gradient-to-r from-orange-500 to-orange-600 text-white text-sm font-bold rounded-lg hover:from-orange-600 hover:to-orange-700 shadow-md hover:shadow-lg transition-all"
               >
                 Load Data
               </button>
             </div>
 
-            {/* Column Toggle (Optional) */}
+            {/* Column Toggle */}
             {showCols && (
-              <div className="p-3 bg-white grid grid-cols-4 gap-2 border-b border-zinc-200 shadow-inner">
+              <div className="p-4 bg-orange-50 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 border-b border-orange-200">
                 {columns.map((c) => (
                   <label
                     key={c}
-                    className="text-[10px] uppercase font-bold text-zinc-600 flex gap-2 cursor-pointer"
+                    className="text-xs font-medium text-gray-700 flex items-center gap-2 cursor-pointer hover:text-orange-600 transition-colors"
                   >
                     <input
                       type="checkbox"
@@ -734,40 +753,39 @@ if (payload.entries.length === 0) {
                       onChange={() =>
                         setVisibleCols({ ...visibleCols, [c]: !visibleCols[c] })
                       }
-                      className="accent-orange-600"
+                      className="rounded border-gray-300 text-orange-600 focus:ring-orange-500"
                     />
-                    {c}
+                    <span className="truncate">{c}</span>
                   </label>
                 ))}
               </div>
             )}
 
-            <div className="overflow-x-auto overflow-y-auto max-h-[400px]">
+            {/* Data Table */}
+            <div className="overflow-x-auto overflow-y-auto max-h-[500px]">
               <table className="min-w-max w-full text-xs border-collapse">
-                <thead className="bg-zinc-100 sticky top-0 z-30 shadow-sm">
+                <thead className="bg-gradient-to-r from-gray-100 to-gray-50 sticky top-0 z-10 shadow-sm">
                   <tr>
-                    <th className="p-2 border-b border-r border-zinc-300 sticky left-0 z-40 bg-zinc-100 w-10"></th>
-                    <th className="p-2 border-b border-r border-zinc-300 sticky left-[40px] z-40 bg-zinc-100 text-zinc-600 font-bold uppercase w-30 text-left">
+                    <th className="p-3 border-b-2 border-r border-gray-300 sticky left-0 z-20 bg-gray-100 w-12"></th>
+                    <th className="p-3 border-b-2 border-r border-gray-300 sticky left-[48px] z-20 bg-gray-100 text-gray-700 font-bold uppercase text-left min-w-[100px]">
                       Sample
                     </th>
-                    <th className="p-2 border-b border-r border-zinc-300 sticky left-[136px] z-40 bg-zinc-100 text-zinc-600 font-bold uppercase w-24 text-left">
+                    <th className="p-3 border-b-2 border-r border-gray-300 sticky left-[148px] z-20 bg-gray-100 text-gray-700 font-bold uppercase text-left min-w-[100px]">
                       Date
                     </th>
-                    <th className="p-2 border-b border-r border-zinc-300 sticky left-[232px] z-40 bg-zinc-100 text-zinc-600 font-bold uppercase w-16 text-left">
+                    <th className="p-3 border-b-2 border-r border-gray-300 sticky left-[248px] z-20 bg-gray-100 text-gray-700 font-bold uppercase text-left min-w-[80px]">
                       Time
                     </th>
-
-                    <th className="p-2 border-b border-r border-zinc-200 text-zinc-500 font-semibold text-left">
+                    <th className="p-3 border-b-2 border-r border-gray-200 text-gray-600 font-semibold text-left">
                       Plant
                     </th>
-                    <th className="p-2 border-b border-r border-zinc-200 text-zinc-500 font-semibold text-left">
+                    <th className="p-3 border-b-2 border-r border-gray-200 text-gray-600 font-semibold text-left">
                       Area
                     </th>
-
                     {shownCols.map((c) => (
                       <th
                         key={c}
-                        className="p-2 border-b border-r border-zinc-200 bg-orange-50/50 text-orange-800 font-bold text-center min-w-[80px]"
+                        className="p-3 border-b-2 border-r border-gray-200 bg-gradient-to-br from-orange-50 to-orange-100 text-orange-800 font-bold text-center min-w-[100px]"
                       >
                         {c}
                       </th>
@@ -776,44 +794,41 @@ if (payload.entries.length === 0) {
                 </thead>
 
                 <tbody className="bg-white">
-                  {data.map((r) => (
+                  {data.map((r, idx) => (
                     <tr
                       key={r.sample_no}
                       onClick={() => loadSample(r.sample_no)}
-                      className="cursor-pointer hover:bg-orange-50 transition-colors group"
+                      className={`cursor-pointer hover:bg-orange-50 transition-all group border-b border-gray-100 ${
+                        idx % 2 === 0 ? "bg-white" : "bg-gray-50"
+                      }`}
                     >
-                      <td className="p-2 border-b border-r border-zinc-200 sticky left-0 bg-white group-hover:bg-orange-50 z-20 text-center">
+                      <td className="p-3 border-r border-gray-200 sticky left-0 bg-inherit group-hover:bg-orange-50 z-10 text-center">
                         <button
                           onClick={(e) => deleteSample(e, r.sample_no)}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-red-100 rounded"
                         >
-                          <Trash2
-                            size={12}
-                            className="text-red-500 hover:text-red-700"
-                          />
+                          <Trash2 size={14} className="text-red-500 hover:text-red-700" />
                         </button>
                       </td>
-                      <td className="p-2 border-b border-r border-zinc-200 sticky left-[40px] bg-white group-hover:bg-orange-50 z-20 font-bold text-zinc-700">
+                      <td className="p-3 border-r border-gray-200 sticky left-[48px] bg-inherit group-hover:bg-orange-50 z-10 font-bold text-gray-800">
                         {r.sample_no}
                       </td>
-                      <td className="p-2 border-b border-r border-zinc-200 sticky left-[136px] bg-white group-hover:bg-orange-50 z-20 text-zinc-500">
+                      <td className="p-3 border-r border-gray-200 sticky left-[148px] bg-inherit group-hover:bg-orange-50 z-10 text-gray-600">
                         {r.date}
                       </td>
-                      <td className="p-2 border-b border-r border-zinc-200 sticky left-[232px] bg-white group-hover:bg-orange-50 z-20 text-zinc-500">
+                      <td className="p-3 border-r border-gray-200 sticky left-[248px] bg-inherit group-hover:bg-orange-50 z-10 text-gray-600">
                         {r.time}
                       </td>
-
-                      <td className="p-2 border-b border-r border-zinc-100 text-zinc-600 truncate max-w-[100px]">
+                      <td className="p-3 border-r border-gray-100 text-gray-700 truncate max-w-[120px]">
                         {r.plant}
                       </td>
-                      <td className="p-2 border-b border-r border-zinc-100 text-zinc-600 truncate max-w-[100px]">
+                      <td className="p-3 border-r border-gray-100 text-gray-700 truncate max-w-[120px]">
                         {r.main_area}
                       </td>
-
                       {shownCols.map((c) => (
                         <td
                           key={c}
-                          className="p-2 border-b border-r border-zinc-100 text-center font-mono text-zinc-800"
+                          className="p-3 border-r border-gray-100 text-center font-mono text-gray-800"
                         >
                           {r[c] ?? "-"}
                         </td>
@@ -822,18 +837,18 @@ if (payload.entries.length === 0) {
                   ))}
                 </tbody>
 
-                <tfoot className="bg-zinc-50 font-bold sticky bottom-0 z-20 shadow-[0_-2px_5px_rgba(0,0,0,0.05)]">
+                <tfoot className="bg-gradient-to-r from-orange-100 to-orange-50 font-bold sticky bottom-0 z-10 shadow-[0_-2px_8px_rgba(0,0,0,0.06)]">
                   <tr>
                     <td
                       colSpan={6}
-                      className="p-2 border-r border-zinc-300 text-right text-zinc-400 uppercase text-[10px]"
+                      className="p-3 border-r border-orange-300 text-right text-orange-800 uppercase text-xs font-black"
                     >
                       Average
                     </td>
                     {shownCols.map((c) => (
                       <td
                         key={c}
-                        className="p-2 border-r border-zinc-200 text-center text-orange-700"
+                        className="p-3 border-r border-orange-200 text-center text-orange-700 font-bold"
                       >
                         {stats[c].avg}
                       </td>
@@ -845,6 +860,14 @@ if (payload.entries.length === 0) {
           </div>
         </div>
       </div>
+
+      {/* Mobile Overlay */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-20 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
     </div>
   );
 }

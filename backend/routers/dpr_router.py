@@ -1,133 +1,74 @@
-from fastapi import APIRouter, Depends, Query, Body
+# backend/routers/dpr_backend_with_gcv.py
+"""
+Updated DPR Backend - Integrates GCV from dm_plant_entries and Heat Rate calculation
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from datetime import datetime, date, time, timedelta
-from typing import Dict, List
+from datetime import date, datetime, timedelta
+from typing import Dict, Any, Optional
+import logging
 
 from database import get_db
-from models import KPIRecordDB, ShutdownRecordDB, TotalizerReadingDB
+from auth import get_current_user
+from models import UserDB, TotalizerReadingDB, ShutdownRecordDB, KPIRecordDB
 from routers.totalizers import TOTALIZER_MASTER
 from services.kpi_calculations import (
     compute_unit_auto_kpis,
     compute_energy_meter_auto_kpis,
     compute_station_auto_kpis,
 )
+from services.dpr_gcv_helper import enrich_kpis_with_period_gcv
 
-router = APIRouter(prefix="/api/dpr", tags=["DPR"])
+from sqlalchemy import select, func, delete
+from pydantic import BaseModel
 
-# ======================================================
-# KPI GROUPING
-# ======================================================
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/api/dpr")
 
-SUM_KPIS = {
-    "generation",
-    "coal_consumption",
-    "oil_consumption",
-    "aux_power",
-    "steam_generation",
-    "dm_water",
-}
 
-AVG_KPIS = {
-    "plf_percent",
-    "plant_availability_percent",
-    "aux_power_percent",
-    "heat_rate",
-    "gcv",
-    "stack_emission",
-}
-
-SPECIFIC_KPIS = {
-    "specific_coal",
-    "specific_oil",
-    "specific_steam",
-    "specific_dm_percent",
-}
-
-SHUTDOWN_KPIS = {
-    "running_hour",
-    "plant_availability_percent",
-    "planned_outage_hour",
-    "planned_outage_percent",
-    "strategic_outage_hour",
-}
-
-ALL_KPIS = [
-    "generation",
-    "plf_percent",
-    "running_hour",
-    "plant_availability_percent",
-    "planned_outage_hour",
-    "planned_outage_percent",
-    "strategic_outage_hour",
-    "coal_consumption",
-    "specific_coal",
-    "gcv",
-    "heat_rate",
-    "oil_consumption",
-    "specific_oil",
-    "aux_power",
-    "aux_power_percent",
-    "stack_emission",
-    "steam_generation",
-    "specific_steam",
-    "dm_water",
-    "specific_dm_percent",
-]
-
-# ======================================================
-# DATE HELPERS
-# ======================================================
+# ============================================================================
+#  HELPER FUNCTIONS
+# ============================================================================
 
 def fy_start(d: date):
+    """Get financial year start (April 1st)"""
     return date(d.year if d.month >= 4 else d.year - 1, 4, 1)
 
+
 def month_start(d: date):
+    """Get month start"""
     return d.replace(day=1)
 
-# ======================================================
-# SHUTDOWN KPIs
-# ======================================================
 
-async def compute_shutdown_kpis(db, unit, start_date, end_date):
+async def compute_shutdown_kpis(db: AsyncSession, unit: str, start_date: date, end_date: date):
     """
-    Calculate shutdown-related KPIs for a given unit and date range.
-    
-    Logic:
-    - Total hours in period = (end_date - start_date + 1) × 24
-    - Query shutdown records that overlap with the period
-    - Sum up shutdown hours by type
-    - Running hours = Total hours - All shutdown hours
-    - Plant availability % = (Running hours / Total hours) × 100
+    Calculate shutdown-related KPIs (running hour, availability, planned/strategic outage)
     """
-    start_dt = datetime.combine(start_date, time.min)
-    end_dt = datetime.combine(end_date, time.max)
+    from datetime import time as dt_time
     
-    # Calculate total hours in the period
+    start_dt = datetime.combine(start_date, dt_time.min)
+    end_dt = datetime.combine(end_date, dt_time.max)
+    
     total_days = (end_date - start_date).days + 1
     total_hours = total_days * 24.0
 
-    rows = (
-        await db.execute(
-            select(ShutdownRecordDB).where(
-                ShutdownRecordDB.unit == unit,
-                ShutdownRecordDB.datetime_from <= end_dt,
-                func.coalesce(ShutdownRecordDB.datetime_to, end_dt) >= start_dt,
-            )
-        )
-    ).scalars().all()
+    stmt = select(ShutdownRecordDB).where(
+        ShutdownRecordDB.unit == unit,
+        ShutdownRecordDB.datetime_from <= end_dt,
+        func.coalesce(ShutdownRecordDB.datetime_to, end_dt) >= start_dt,
+    )
+    
+    rows = (await db.execute(stmt)).scalars().all()
 
     planned = 0.0
     strategic = 0.0
     total_shutdown = 0.0
 
     for r in rows:
-        # Calculate overlap between shutdown period and query period
         shutdown_start = max(r.datetime_from, start_dt)
         shutdown_end = min(r.datetime_to or end_dt, end_dt)
         
-        # Calculate hours of overlap
         hrs = (shutdown_end - shutdown_start).total_seconds() / 3600.0
         
         if hrs > 0:
@@ -138,21 +79,24 @@ async def compute_shutdown_kpis(db, unit, start_date, end_date):
             elif r.shutdown_type == "Strategic Outage":
                 strategic += hrs
 
-    # Running hours = Total hours - Shutdown hours
     running = max(0.0, total_hours - total_shutdown)
 
     return {
         "running_hour": round(running, 2),
-        "plant_availability_percent": round((running / total_hours) * 100, 2),
+        "plant_availability_percent": round((running / total_hours) * 100, 2) if total_hours > 0 else 0.0,
         "planned_outage_hour": round(planned, 2),
-        "planned_outage_percent": round((planned / total_hours) * 100, 2),
+        "planned_outage_percent": round((planned / total_hours) * 100, 2) if total_hours > 0 else 0.0,
         "strategic_outage_hour": round(strategic, 2),
     }
-# ======================================================
-# 🔥 SINGLE DAY KPI ENGINE (CORE TRUTH)
-# ======================================================
+
 
 async def calculate_single_day(db: AsyncSession, d: date) -> Dict[str, Dict[str, float]]:
+    """
+    Calculate all KPIs for a single day based on totalizer readings.
+    Returns: {"Unit-1": {...}, "Unit-2": {...}, "Station": {...}}
+    """
+    
+    # Initialize difference storage
     diffs_by_unit = {
         "Unit-1": {},
         "Unit-2": {},
@@ -160,23 +104,19 @@ async def calculate_single_day(db: AsyncSession, d: date) -> Dict[str, Dict[str,
         "Energy-Meter": {},
     }
 
-    today = (
-        await db.execute(
-            select(TotalizerReadingDB).where(TotalizerReadingDB.date == d)
-        )
-    ).scalars().all()
+    # Fetch today's readings
+    today_stmt = select(TotalizerReadingDB).where(TotalizerReadingDB.date == d)
+    today_rows = (await db.execute(today_stmt)).scalars().all()
 
+    # Fetch yesterday's readings
     yesterday = d - timedelta(days=1)
-    y_map = {
-        r.totalizer_id: float(r.reading_value or 0)
-        for r in (
-            await db.execute(
-                select(TotalizerReadingDB).where(TotalizerReadingDB.date == yesterday)
-            )
-        ).scalars().all()
-    }
+    yesterday_stmt = select(TotalizerReadingDB).where(TotalizerReadingDB.date == yesterday)
+    yesterday_rows = (await db.execute(yesterday_stmt)).scalars().all()
+    
+    y_map = {r.totalizer_id: float(r.reading_value or 0) for r in yesterday_rows}
 
-    for r in today:
+    # Calculate differences
+    for r in today_rows:
         meta = TOTALIZER_MASTER.get(r.totalizer_id)
         if not meta:
             continue
@@ -189,16 +129,15 @@ async def calculate_single_day(db: AsyncSession, d: date) -> Dict[str, Dict[str,
         )
         diffs_by_unit[unit][name] = diff
 
-    # zero fill
+    # Ensure all keys exist
     for _, (name, unit) in TOTALIZER_MASTER.items():
         diffs_by_unit[unit].setdefault(name, 0.0)
 
-    # Compute energy meter KPIs
+    # Compute KPIs
     energy = compute_energy_meter_auto_kpis(diffs_by_unit["Energy-Meter"], {})
     u1_gen = energy.get("unit1_generation", 0.0)
     u2_gen = energy.get("unit2_generation", 0.0)
 
-    # Compute unit KPIs
     unit1 = compute_unit_auto_kpis(diffs_by_unit["Unit-1"], u1_gen)
     unit2 = compute_unit_auto_kpis(diffs_by_unit["Unit-2"], u2_gen)
     station_water = compute_station_auto_kpis(
@@ -206,34 +145,27 @@ async def calculate_single_day(db: AsyncSession, d: date) -> Dict[str, Dict[str,
         {"unit1_generation": u1_gen, "unit2_generation": u2_gen},
     )
 
-    # ========================================
-    # ADD GENERATION AND ENERGY KPIs
-    # ========================================
-    unit1["generation"] = u1_gen / 1000.0  # MWh to MU
+    # Unit-1 KPIs
+    unit1["generation"] = u1_gen / 1000.0  # Convert to MU
     unit1["plf_percent"] = energy.get("unit1_plf_percent", 0.0)
     unit1["aux_power"] = energy.get("unit1_aux_consumption_mwh", 0.0) / 1000.0
     unit1["aux_power_percent"] = energy.get("unit1_aux_percent", 0.0)
 
+    # Unit-2 KPIs
     unit2["generation"] = u2_gen / 1000.0
     unit2["plf_percent"] = energy.get("unit2_plf_percent", 0.0)
     unit2["aux_power"] = energy.get("unit2_aux_consumption_mwh", 0.0) / 1000.0
     unit2["aux_power_percent"] = energy.get("unit2_aux_percent", 0.0)
 
-    # ========================================
-    # COMPUTE SHUTDOWN KPIs
-    # ========================================
+    # Shutdown KPIs
     unit1_shutdown = await compute_shutdown_kpis(db, "Unit-1", d, d)
     unit2_shutdown = await compute_shutdown_kpis(db, "Unit-2", d, d)
     
     unit1.update(unit1_shutdown)
     unit2.update(unit2_shutdown)
 
-    # ========================================
-    # BUILD STATION KPIs
-    # ========================================
+    # Station KPIs
     station = {}
-    
-    # SUM KPIs (total across both units)
     station["generation"] = unit1["generation"] + unit2["generation"]
     station["coal_consumption"] = unit1["coal_consumption"] + unit2["coal_consumption"]
     station["oil_consumption"] = unit1["oil_consumption"] + unit2["oil_consumption"]
@@ -241,11 +173,9 @@ async def calculate_single_day(db: AsyncSession, d: date) -> Dict[str, Dict[str,
     station["steam_generation"] = unit1["steam_generation"] + unit2["steam_generation"]
     station["dm_water"] = unit1["dm_water"] + unit2["dm_water"]
     
-    # AVERAGE KPIs (weighted by generation where applicable)
     total_gen = station["generation"]
     
     if total_gen > 0:
-        # Weighted averages based on generation
         station["specific_coal"] = (
             (unit1["specific_coal"] * unit1["generation"] + 
              unit2["specific_coal"] * unit2["generation"]) / total_gen
@@ -268,7 +198,6 @@ async def calculate_single_day(db: AsyncSession, d: date) -> Dict[str, Dict[str,
         station["specific_steam"] = 0.0
         station["aux_power_percent"] = 0.0
     
-    # Specific DM % - weighted by steam generation
     total_steam = station["steam_generation"]
     if total_steam > 0:
         station["specific_dm_percent"] = (
@@ -278,17 +207,12 @@ async def calculate_single_day(db: AsyncSession, d: date) -> Dict[str, Dict[str,
     else:
         station["specific_dm_percent"] = 0.0
     
-    # PLF for station (based on combined capacity)
-    # Installed capacity = 125 MW per unit = 250 MW total
-    # Daily capacity = 250 MW * 24 hours = 6000 MWh = 6 MU
     station["plf_percent"] = (station["generation"] / 6.0) * 100.0 if station["generation"] > 0 else 0.0
     
-    # Shutdown KPIs - SUM hours, AVERAGE percentages
     station["running_hour"] = unit1["running_hour"] + unit2["running_hour"]
     station["planned_outage_hour"] = unit1["planned_outage_hour"] + unit2["planned_outage_hour"]
     station["strategic_outage_hour"] = unit1["strategic_outage_hour"] + unit2["strategic_outage_hour"]
     
-    # Availability is average of both units
     station["plant_availability_percent"] = (
         (unit1["plant_availability_percent"] + unit2["plant_availability_percent"]) / 2.0
     )
@@ -296,18 +220,17 @@ async def calculate_single_day(db: AsyncSession, d: date) -> Dict[str, Dict[str,
         (unit1["planned_outage_percent"] + unit2["planned_outage_percent"]) / 2.0
     )
     
-    # GCV and Heat Rate - these need to be added from manual entries or other sources
-    # Set to None for now as they're not auto-calculated
+    # Initialize GCV and heat_rate as None (will be populated from dm_plant_entries)
     station["gcv"] = None
     station["heat_rate"] = None
-    station["stack_emission"] = None
-    
     unit1["gcv"] = None
     unit1["heat_rate"] = None
-    unit1["stack_emission"] = None
-    
     unit2["gcv"] = None
     unit2["heat_rate"] = None
+    
+    # Stack emission placeholder
+    station["stack_emission"] = None
+    unit1["stack_emission"] = None
     unit2["stack_emission"] = None
 
     return {
@@ -315,24 +238,72 @@ async def calculate_single_day(db: AsyncSession, d: date) -> Dict[str, Dict[str,
         "Unit-2": unit2,
         "Station": station,
     }
-# ======================================================
-# 🔥 KPI PREVIEW (DAY / MONTH / YEAR)
-# ======================================================
+
+
+# ============================================================================
+#  API ENDPOINTS
+# ============================================================================
 
 @router.get("/kpi/preview")
 async def dpr_kpi_preview(
-    date_: date = Query(..., alias="date"),
+    date: str = Query(..., description="Report date YYYY-MM-DD"),
     db: AsyncSession = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user),
 ):
-    ranges = {
-        "day": (date_, date_),
-        "month": (month_start(date_), date_),
-        "year": (fy_start(date_), date_),
+    try:
+        report_date = datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format")
+
+
+    logger.info(f"📊 DPR Preview Request: {report_date}")
+
+    # rest of your logic stays exactly the same
+
+    
+    # Define aggregation types
+    SUM_KPIS = {
+        "generation", "coal_consumption", "oil_consumption", "aux_power",
+        "steam_generation", "dm_water", "running_hour", "planned_outage_hour",
+        "strategic_outage_hour"
     }
-
-    result = {u: {k: {} for k in ALL_KPIS} for u in ["Unit-1", "Unit-2", "Station"]}
-
+    
+    AVG_KPIS = {
+        "plf_percent", "plant_availability_percent", "aux_power_percent",
+        "heat_rate", "gcv", "stack_emission", "planned_outage_percent"
+    }
+    
+    SPECIFIC_KPIS = {
+        "specific_coal", "specific_oil", "specific_steam", "specific_dm_percent"
+    }
+    
+    ALL_KPIS = [
+        "generation", "plf_percent", "running_hour", "plant_availability_percent",
+        "planned_outage_hour", "planned_outage_percent", "strategic_outage_hour",
+        "coal_consumption", "specific_coal", "gcv", "heat_rate",
+        "oil_consumption", "specific_oil", "aux_power", "aux_power_percent",
+        "stack_emission", "steam_generation", "specific_steam",
+        "dm_water", "specific_dm_percent"
+    ]
+    
+    # Define date ranges
+    ranges = {
+        "day": (report_date, report_date),
+        "month": (month_start(report_date), report_date),
+        "year": (fy_start(report_date), report_date),
+    }
+    
+    logger.info(f"Date ranges: {ranges}")
+    
+    # Initialize result structure
+    result = {
+        unit: {kpi: {} for kpi in ALL_KPIS}
+        for unit in ["Unit-1", "Unit-2", "Station"]
+    }
+    
+    # Calculate KPIs for each period
     for period, (start, end) in ranges.items():
+        logger.info(f"Calculating {period}: {start} to {end}")
         daily_values = []
 
         cur = start
@@ -340,6 +311,7 @@ async def dpr_kpi_preview(
             daily_values.append(await calculate_single_day(db, cur))
             cur += timedelta(days=1)
 
+        # Aggregate daily values
         for unit in ["Unit-1", "Unit-2", "Station"]:
             for kpi in ALL_KPIS:
                 vals = [d[unit].get(kpi) for d in daily_values if d[unit].get(kpi) is not None]
@@ -350,54 +322,69 @@ async def dpr_kpi_preview(
                     result[unit][kpi][period] = sum(vals) / len(vals)
                 else:
                     result[unit][kpi][period] = sum(vals)
-
+    
+    # ⭐ FETCH GCV FROM dm_plant_entries AND CALCULATE HEAT RATE
+    logger.info("🔬 Fetching GCV from dm_plant_entries and calculating heat rate...")
+    result = await enrich_kpis_with_period_gcv(db, report_date, result, ranges)
+    
+    logger.info("✅ DPR Preview Complete")
     return result
 
-# ======================================================
-# 💾 SAVE DPR (DAY ONLY)
-# ======================================================
+
+class DPRSaveRequest(BaseModel):
+    date: str
+    remarks: Optional[str] = None
+    computed_kpis: Dict[str, Dict[str, float]]
+
 
 @router.post("/kpi/save")
-async def dpr_save_kpis(
-    payload: dict = Body(...),
+async def save_dpr_kpis(
+    req: DPRSaveRequest,
     db: AsyncSession = Depends(get_db),
+    current_user: UserDB = Depends(get_current_user),
 ):
-    report_date = date.fromisoformat(payload["date"])
-    computed = payload["computed_kpis"]
-
-    # ========================================
-    # UPSERT: Update if exists, Insert if not
-    # ========================================
-    for unit in ["Unit-1", "Unit-2", "Station"]:
-        for kpi, value in computed.get(unit, {}).items():
-            # Skip None values
-            if value is None:
-                continue
-            
-            # Prepare data
-            data = {
-                "report_date": report_date,
-                "plant_name": unit,
-                "kpi_name": kpi,
-                "kpi_type": "auto",
-                "kpi_value": float(value),
-                "created_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow(),
-            }
-            
-            # SQLite-specific upsert
-            stmt = sqlite_insert(KPIRecordDB).values(**data)
-            
-            # On conflict, update the value and timestamp
-            stmt = stmt.on_conflict_do_update(
-                index_elements=["report_date", "kpi_type", "plant_name", "kpi_name"],
-                set_={
-                    "kpi_value": float(value),
-                    "updated_at": datetime.utcnow(),
-                }
-            )
-            
-            await db.execute(stmt)
-
+    """
+    Save DPR KPIs to database as 'manual' entries.
+    """
+    
+    try:
+        report_date = date.fromisoformat(req.date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format")
+    
+    logger.info(f"💾 Saving DPR for {report_date}")
+    
+    # Delete existing manual KPIs for this date
+    delete_stmt = delete(KPIRecordDB).where(
+        KPIRecordDB.report_date == report_date,
+        KPIRecordDB.kpi_type == "manual"
+    )
+    await db.execute(delete_stmt)
+    
+    # Insert new KPI records
+    saved_count = 0
+    for unit_name, kpis in req.computed_kpis.items():
+        for kpi_name, kpi_value in kpis.items():
+            if kpi_value is not None:
+                record = KPIRecordDB(
+                    report_date=report_date,
+                    kpi_type="manual",
+                    plant_name=unit_name,
+                    kpi_name=kpi_name,
+                    kpi_value=float(kpi_value),
+                    unit=None,
+                    created_at=datetime.now(),
+                    updated_at=datetime.now(),
+                )
+                db.add(record)
+                saved_count += 1
+    
     await db.commit()
-    return {"message": "DPR KPIs saved successfully"}
+    
+    logger.info(f"✅ Saved {saved_count} KPI records")
+    
+    return {
+        "message": "DPR saved successfully",
+        "date": req.date,
+        "records_saved": saved_count
+    }
