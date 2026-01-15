@@ -163,13 +163,13 @@ export default function DPRPage1({ auth }) {
       <div className="max-w-7xl mx-auto bg-white rounded-lg shadow-lg overflow-hidden">
         
         {/* Header */}
-        <div className="bg-gradient-to-r from-orange-600 to-orange-500 text-white px-6 py-4">
+        <div className="bg-gradient-to-l from-orange-100 to-white text-white px-6 py-4">
           <div className="flex justify-between items-center">
             <div>
-              <h1 className="text-base font-bold tracking-wide">
+              <h1 className="text-base font-bold text-orange-500 tracking-wide">
                 2×125 MW CPP, JSL STAINLESS LTD, KNIC, JAJPUR, ODISHA
               </h1>
-              <p className="text-xs opacity-90 mt-1 tracking-wider">DAILY PLANT PERFORMANCE REPORT</p>
+              <p className="text-xs opacity-90 mt-1  text-orange-500 tracking-wider">DAILY PLANT PERFORMANCE REPORT</p>
             </div>
             
             <div className="flex gap-3 items-center">
@@ -228,23 +228,23 @@ export default function DPRPage1({ auth }) {
                   <th colSpan="3" className="bg-gray-600 text-white py-3 px-3 font-semibold border-r border-gray-500">
                     UNIT-2
                   </th>
-                  <th colSpan="3" className="bg-orange-600 text-white py-3 px-3 font-semibold">
+                  <th colSpan="3" className="bg-gray-600 text-white py-3 px-3 font-semibold">
                     STATION
                   </th>
                 </tr>
                 <tr>
                   {["Day", "Month", "Year"].map((h) => (
-                    <th key={`u1-${h}`} className="bg-gray-500 text-white py-2 px-3 font-medium text-[10px] border-r border-gray-400">
+                    <th key={`u1-${h}`} className="bg-gray-500 text-white py-2 px-3 font-medium text-[10px] border-r border-gray-200">
                       {h}
                     </th>
                   ))}
                   {["Day", "Month", "Year"].map((h) => (
-                    <th key={`u2-${h}`} className="bg-gray-500 text-white py-2 px-3 font-medium text-[10px] border-r border-gray-400">
+                    <th key={`u2-${h}`} className="bg-gray-500 text-white py-2 px-3 font-medium text-[10px] border-r border-gray-200">
                       {h}
                     </th>
                   ))}
                   {["Day", "Month", "Year"].map((h) => (
-                    <th key={`st-${h}`} className="bg-orange-500 text-white py-2 px-3 font-medium text-[10px] border-r border-orange-400 last:border-r-0">
+                    <th key={`st-${h}`} className="bg-gray-600 text-white py-2 px-3 font-medium text-[10px] border-r border-gray-400 last:border-r-0">
                       {h}
                     </th>
                   ))}

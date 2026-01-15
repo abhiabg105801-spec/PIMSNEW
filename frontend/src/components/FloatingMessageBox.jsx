@@ -308,9 +308,9 @@ export default function FloatingMessageBox({ auth }) {
       {/* Styles for animations (Tailwind + small custom keyframes) */}
       <style>{`
         @keyframes slideUpPanel {
-          from { transform: translateY(18px); opacity: 0; }
-          to { transform: translateY(0); opacity: 1; }
-        }
+  from { transform: translateY(24px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
         .slide-up-panel { animation: slideUpPanel 240ms cubic-bezier(.2,.9,.3,1) both; }
         @keyframes msgIn {
           from { transform: translateY(6px); opacity: 0; }
@@ -327,11 +327,12 @@ export default function FloatingMessageBox({ auth }) {
     sendPresence("online");
   }}
   className={`
-    fixed top-1/2 z-50 text-white px-2 py-4 
-    rounded-l-xl shadow-lg 
+    fixed bottom-4 right-0 z-50
+    text-white px-2 py-4
+    rounded-l-xl shadow-lg
     flex flex-col items-center justify-center gap-1
-     hover:bg-orange-700 transition-all duration-700
-    ${open ? "right-80" : "right-0"}   ${open ? "bg-yellow-600" : "bg-orange-600"} /* slide out */
+    hover:bg-orange-700 transition-all duration-700
+    ${open ? "right-80 bg-yellow-600" : "bg-orange-600"}
   `}
   style={{ writingMode: "vertical-rl", textOrientation: "mixed" }}
 >
@@ -344,11 +345,12 @@ export default function FloatingMessageBox({ auth }) {
 </button>
 
 
+
       {/* Panel */}
 {/* Panel (always mounted, fully animated) */}
 <div
   className={`
-    fixed top-1/2 right-0 -translate-y-1/2 z-50
+    fixed bottom-4 right-0 z-50
     w-80 h-[520px]
     bg-white
     shadow-2xl rounded-xl border border-gray-200/60

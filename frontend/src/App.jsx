@@ -83,10 +83,10 @@ function Layout({ authHeader, onLogout }) {
       <header
   className="
     fixed top-0 left-0 right-0 z-50
-    bg-gradient-to-b
-    from-white
-    via-orange-100
-    to-orange-300
+    bg-gradient-to-r
+    from-slate-200
+    via-white
+    to-slate-200
     border-b border-zinc-300
     shadow-[0_2px_8px_rgba(0,0,0,0.12)]
   "
@@ -104,8 +104,8 @@ function Layout({ authHeader, onLogout }) {
           <div className="absolute left-1/2 -translate-x-1/2 hidden xl:block">
             <span className="flex items-center gap-3">
   <span className="
-    text-[28px] font-extrabold
-    bg-gradient-to-b from-orange-700 to-orange-400
+    text-[32px] font-extrabold
+    bg-gradient-to-b from-orange-600 to-orange-400
     bg-clip-text text-transparent
     tracking-wide
   ">
@@ -117,7 +117,7 @@ function Layout({ authHeader, onLogout }) {
   
 
   <span className="
-    text-[28px] font-extrabold text-zinc-500 tracking-[0.2em]
+    text-[32px] font-extrabold text-zinc-500 tracking-[0.2em]
   ">
     PIMS
   </span>
@@ -167,7 +167,7 @@ function Layout({ authHeader, onLogout }) {
            : "text-zinc-700 hover:bg-zinc-100"}`
       }
     >
-      Totalizer Entry
+      Daily Data Entry
     </NavLink>
 
     <NavLink
@@ -180,6 +180,28 @@ function Layout({ authHeader, onLogout }) {
       }
     >
       Fuel Unloading
+    </NavLink>
+    <NavLink
+      to="/shutdowns"
+      className={({ isActive }) =>
+        `block px-4 py-2 text-xs font-semibold uppercase
+         ${isActive
+           ? "bg-orange-50 text-orange-700"
+           : "text-zinc-700 hover:bg-zinc-100"}`
+      }
+    >
+      Shutdown log
+    </NavLink>
+    <NavLink
+      to="/reports"
+      className={({ isActive }) =>
+        `block px-4 py-2 text-xs font-semibold uppercase
+         ${isActive
+           ? "bg-orange-50 text-orange-700"
+           : "text-zinc-700 hover:bg-zinc-100"}`
+      }
+    >
+      Report/trend
     </NavLink>
   </div>
 </div>
@@ -225,8 +247,7 @@ function Layout({ authHeader, onLogout }) {
               </div>
             )}
 
-            <NavItem to="/reports" label="Reports" />
-            <NavItem to="/shutdowns" label="Shutdown Log" />
+            
             <NavItem to="/charts" label="KPI Charts" />
             <NavItem to="/DesignDataPage" label="Design Data" />
             <NavItem to="/LogicDiagramPage" label="Logic Diagrams" />

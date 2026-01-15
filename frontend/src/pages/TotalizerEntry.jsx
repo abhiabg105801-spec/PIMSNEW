@@ -468,10 +468,12 @@ const steam = getDiff("main_steam", activeTab);
   // Calculate specific consumption
   const specific_coal = generation > 0 ? (coal / generation) : 0;
   const specific_oil = generation > 0 ? (ldo / generation) : 0;
+  const specific_dm = steam > 0 ? dm / steam : 0; // L/kWh
+  const specific_steam = generation > 0 ? steam / generation : 0;   // kg/kWh
   
-  return { coal, ldo, dm, steam, specific_coal, specific_oil };
+  return { coal, ldo, dm, steam, specific_coal, specific_oil,specific_dm,specific_steam };
 } catch {
-  return { coal: 0, ldo: 0, dm: 0, steam: 0, specific_coal: 0, specific_oil: 0 };
+  return { coal: 0, ldo: 0, dm: 0, steam: 0, specific_coal: 0, specific_oil: 0,specific_dm: 0,specific_steam: 0 };
 }
 }, [readingsForm, activeTab, dailyGeneration]);
 const localStationKPI = useMemo(() => {
@@ -802,6 +804,8 @@ dm_water: localUnitKPI.dm,
 steam_consumption: localUnitKPI.steam,
 specific_coal: localUnitKPI.specific_coal,
 specific_oil: localUnitKPI.specific_oil,
+specific_dm_percent: localUnitKPI.specific_dm,
+specific_steam: localUnitKPI.specific_steam,
 };
 if (map[k] !== undefined) return map[k];
 }
@@ -889,7 +893,7 @@ if (activeTab === "Station") {
   const local = localStationKPI || { total_raw_water: 0, avg_raw_per_hr: 0, total_dm: 0, specific_raw_water: 0 };
   return (
     <div className="space-y-2.5">
-      <KpiCard k="station_plf_percent" label="Station PLF" value={s?.station_plf_percent ?? (((Number(s?.unit1_generation || 0) + Number(s?.unit2_generation || 0)) > 0) ? (((Number(s.unit1_generation || 0) + Number(s.unit2_generation || 0)) / 3000) * 100) : null)} unit="%" Icon={ChartBarIcon} />
+      
       <KpiCard k="total_raw_water_used_m3" label="Total Raw Water" value={renderKpiValue("total_raw_water_used_m3") ?? local.total_raw_water} unit="m³" Icon={CloudIcon} />
       <KpiCard k="avg_raw_water_m3_per_hr" label="Avg Raw Water/hr" value={renderKpiValue("avg_raw_water_m3_per_hr") ?? local.avg_raw_per_hr} unit="m³/hr" Icon={CloudIcon} />
       <KpiCard k="specific_raw_water" label="Specific Raw Water" value={renderKpiValue("specific_raw_water") ?? local.specific_raw_water} unit="L/kWh" Icon={CloudIcon} />
@@ -924,14 +928,14 @@ return null;
 /* ================= TABLE RENDER ================= */
 const currentTotalizers = totalizersByUnit[activeTab] || [];
 const renderTotalizerTable = () => (
-<div className="max-h-[65vh] overflow-auto relative bg-white border border-slate-300 rounded-lg shadow-sm font-['Inter',sans-serif]">
+<div className="max-h-[195vh] overflow-auto relative bg-white border border-slate-300 rounded-lg shadow-sm font-['Inter',sans-serif]">
 <table className="min-w-full table-fixed border-collapse">
 <thead className="sticky top-0 z-20">
 <tr className="bg-gradient-to-r from-slate-100 to-slate-200 text-slate-800 text-[11px] uppercase tracking-wider font-bold">
-<th className="px-4 py-3 text-left w-[240px] border-r border-slate-300">Totalizer</th>
-<th className="px-3 py-3 text-right w-[110px] border-r border-slate-300">Yesterday</th>
-<th className="px-3 py-3 text-right w-[110px] border-r border-slate-300">Today</th>
-<th className="px-3 py-3 text-right w-[100px]">Difference</th>
+<th className="px-4 py-3 text-left w-[200px] border-r border-slate-300">Totalizer</th>
+<th className="px-3 py-3 text-left w-[110px] border-r border-slate-300">Yesterday</th>
+<th className="px-3 py-3 text-left w-[150px] border-r border-slate-300">Today</th>
+<th className="px-3 py-3 text-left w-[80px]">Difference</th>
 </tr>
 <tr className="h-[2px] bg-gradient-to-r from-amber-500 to-orange-500" />
 </thead>
@@ -947,7 +951,7 @@ const renderTotalizerTable = () => (
         return (
           <tr key={t.id} className="group border-b border-slate-200 hover:bg-amber-50/40 transition-colors">
             <td 
-              className="px-4 py-2.5 font-semibold text-slate-900 truncate border-r border-slate-200 relative cursor-pointer"
+              className="px-3 py-1 font-semibold text-slate-900 truncate border-r border-slate-200 relative cursor-pointer"
               onDoubleClick={() => canAdjust && handleAdjustClick({ 
                 id: t.id, 
                 adjust: rec.adjust || 0,
@@ -960,45 +964,49 @@ const renderTotalizerTable = () => (
               {t.display_name}
             </td>
 
-            <td className="px-3 py-2 text-right font-mono text-[12px] text-slate-600 border-r border-slate-200 bg-slate-50/50">
+            <td className="px-3 py-2 text-left font-mono text-[12px] text-slate-600 border-r border-slate-200 bg-slate-50/50">
               {rec.yesterday}
             </td>
 
-            <td className="px-2 py-1.5 text-right border-r border-slate-200">
-              <input
-                type="number"
-                step="1"
-                value={rec.today === "" ? "" : rec.today}
-                onChange={(e) => updateField(t.id, "today", e.target.value)}
-                readOnly={!isEditable}
-                placeholder="—"
-                className={`
-                  w-full h-8 px-2 text-right font-mono text-[13px] font-semibold outline-none transition-all rounded
-                  ${
-                    isEditable
-                      ? `bg-white text-slate-900 border border-slate-300 shadow-sm focus:border-amber-500 focus:ring-2 focus:ring-amber-200`
-                      : `bg-slate-200 text-slate-500 cursor-not-allowed border border-slate-300`
-                  }
-                `}
-              />
-            </td>
+           <td className="px-2 py-1.5 text-left border-r border-slate-200">
+  <input
+    type="number"
+    step="1"
+    value={rec.today === "" ? "" : rec.today}
+    onChange={(e) => updateField(t.id, "today", e.target.value)}
+    readOnly={!isEditable}
+    placeholder="—"
+    className={`
+      w-full h-7 px-2 text-left font-mono text-[12px] font-semibold outline-none transition-all rounded
+      ${
+        isEditable
+          ? `bg-white text-slate-900 border border-slate-300 shadow-sm focus:border-amber-500 focus:ring-2 focus:ring-amber-200`
+          : `bg-slate-200 text-slate-500 cursor-not-allowed border border-slate-300`
+      }
+    `}
+  />
+</td>
 
-            <td className="px-3 py-2.5 text-right">
-              <div className="flex items-center justify-end gap-1.5">
-                <span className={`font-mono text-[13px] font-bold ${Number(rec.difference) < 0 ? "text-red-700" : "text-slate-900"}`}>
-                  {rec.difference}
-                </span>
+            <td className="px-3 py-2.5 text-left">
+  <div className="flex items-center justify-start gap-1.5">
+    <span
+      className={`font-mono text-[13px] font-bold ${
+        Number(rec.difference) < 0 ? "text-red-700" : "text-slate-900"
+      }`}
+    >
+      {rec.difference}
+    </span>
 
-                {hasAdjustment && (
-                  <span
-                    title={`Adjustment: ${adjustVal}`}
-                    className="w-4 h-4 flex items-center justify-center bg-amber-200 text-amber-900 text-[9px] font-black border border-amber-400 rounded"
-                  >
-                    ✓
-                  </span>
-                )}
-              </div>
-            </td>
+    {hasAdjustment && (
+      <span
+        title={`Adjustment: ${adjustVal}`}
+        className="w-4 h-4 flex items-center justify-center bg-amber-200 text-amber-900 text-[9px] font-black border border-amber-400 rounded"
+      >
+        *
+      </span>
+    )}
+  </div>
+</td>
           </tr>
         );
       })}
@@ -1258,11 +1266,11 @@ setReportDate(d.toLocaleDateString("en-CA"));
 return (
 <div className="min-h-screen flex bg-gradient-to-br from-slate-50 via-white to-amber-50 font-['Inter',sans-serif]">
 {/* SIDEBAR */}
-<aside className="w-64 h-screen flex flex-col bg-gradient-to-b from-slate-800 to-slate-900 border-r border-slate-700 shadow-2xl">
-<div className="px-5 py-6 border-b border-slate-700">
-<h3 className="text-sm font-bold text-amber-400 tracking-wider uppercase">Plant Sections</h3>
+<aside className="w-60 h-screen flex flex-col bg-gradient-to-t from-slate-200 via-slate-100 to-slate-200 border-r border-zinc-200 shadow-2xl">
+<div className="px-5 py-6 border-b border-slate-300">
+<h3 className="text-md font-bold text-orange-600 tracking-wider uppercase">Sections</h3>
 </div>
-    <div className="p-5 flex flex-col gap-3">
+    <div className="p-5 flex flex-col gap-8">
       {["Unit-1", "Unit-2", "Station", "Energy-Meter"].map(tab => {
         const isActive = activeTab === tab;
         return (
@@ -1272,8 +1280,8 @@ return (
             className={`
               relative px-4 py-3 rounded-lg text-xs font-bold uppercase tracking-wide transition-all
               ${isActive
-                ? `bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg shadow-amber-500/50`
-                : `bg-slate-700 text-slate-300 hover:bg-slate-600 hover:text-white border border-slate-600`
+                ? `bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-lg shadow-amber-500/50`
+                : `bg-gray-500 text-white hover:bg-slate-600 hover:text-white border border-slate-600`
               }
             `}
           >
@@ -1302,7 +1310,7 @@ return (
       <div className="flex items-center gap-3">
         <button
           onClick={() => handleDateChange(-1)}
-          className="px-3 py-2 rounded-lg border-2 border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100 font-semibold transition-colors"
+          className="px-2 py-1 rounded-lg border-2 border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100 font-semibold transition-colors"
         >
           ◀
         </button>
@@ -1311,12 +1319,12 @@ return (
           type="date"
           value={reportDate}
           onChange={(e) => setReportDate(e.target.value)}
-          className="px-4 py-2 text-sm font-bold border-2 border-slate-300 rounded-lg focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none"
+          className="px-2 py-1 text-md font-bold border-2 border-orange-300 rounded-lg focus:border-amber-500 focus:ring-2 focus:ring-amber-200 outline-none"
         />
 
         <button
           onClick={() => handleDateChange(1)}
-          className="px-3 py-2 rounded-lg border-2 border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100 font-semibold transition-colors"
+          className="px-2 py-1 rounded-lg border-2 border-amber-500 bg-amber-50 text-amber-700 hover:bg-amber-100 font-semibold transition-colors"
         >
           ▶
         </button>
@@ -1325,14 +1333,14 @@ return (
       <div className="flex gap-3">
         <button
           onClick={handleResetForm}
-          className="px-5 py-2 text-xs font-bold border-2 border-red-500 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 transition-colors"
+          className="px-5 py-1 text-xs font-bold border-1 border-orange-500 rounded-lg bg-orange-50 text-red-700 hover:bg-red-100 transition-colors"
         >
           Reset
         </button>
 
         <button
           onClick={handleSubmitClick}
-          className="px-6 py-2 text-xs font-bold rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-lg hover:shadow-xl hover:from-amber-700 hover:to-orange-700 transition-all"
+          className="px-9 py-2 text-md font-bold rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 text-white shadow-lg hover:shadow-xl hover:from-amber-700 hover:to-orange-700 transition-all"
         >
           {submitting ? "Saving..." : "Submit"}
         </button>
@@ -1340,22 +1348,22 @@ return (
     </div>
 
     {/* CONTENT AREA */}
-    <div className="flex-1 overflow-auto p-6 space-y-6">
-      <h2 className="text-base font-bold text-slate-900">{activeTab} Readings</h2>
+    <div className="flex-1 overflow-auto p-2 space-y-1">
+      
 
       {renderTotalizerTable()}
 
       {/* MANUAL KPIs */}
       <div>
-        <h3 className="text-sm font-bold text-slate-800 mb-3">Manual KPIs</h3>
+        <h3 className="text-sm font-bold text-slate-800 mb-3"></h3>
 
         <div className="border border-slate-300 rounded-lg bg-white shadow-sm overflow-hidden">
           <table className="min-w-full text-xs">
             <thead className="bg-gradient-to-r from-slate-100 to-slate-200 border-b border-slate-300">
               <tr>
                 <th className="px-4 py-3 text-left font-bold text-slate-800 uppercase tracking-wider">Parameter</th>
-                <th className="px-4 py-3 text-right font-bold text-slate-800 uppercase tracking-wider">Value</th>
-                <th className="px-4 py-3 text-right font-bold text-slate-800 uppercase tracking-wider">Unit</th>
+                <th className="px-4 py-3 text-left font-bold text-slate-800 uppercase tracking-wider">Value</th>
+                <th className="px-4 py-3 text-left font-bold text-slate-800 uppercase tracking-wider">Unit</th>
               </tr>
             </thead>
             <tbody>
@@ -1363,18 +1371,18 @@ return (
                 const isEditable = canEditManualKPI();
                 return (
                   <tr key={k} className="border-b border-slate-200 hover:bg-amber-50/40 transition-colors group">
-                    <td className="px-4 py-3 font-semibold text-slate-700 relative">
+                    <td className="px-2 py-1 font-semibold text-slate-700 relative">
                       <span className="absolute left-0 top-0 h-full w-1 bg-transparent group-hover:bg-amber-500 transition-colors" />
                       {k.replace(/_/g, " ").toUpperCase()}
                     </td>
-                    <td className="px-4 py-2">
+                    <td className="px-2 py-1">
                       <input
                         type="number"
                         value={v ?? ""}
                         onChange={(e) => updateManualField(activeTab, k, e.target.value)}
                         readOnly={!isEditable}
                         className={`
-                          w-full px-3 py-2 text-right border rounded-lg font-mono font-semibold transition-all
+                          w-full px-2 py-1 text-left border rounded-lg font-mono font-semibold transition-all
                           ${isEditable
                             ? "bg-white border-slate-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200"
                             : "bg-slate-200 text-slate-500 cursor-not-allowed border-slate-300"
@@ -1382,7 +1390,7 @@ return (
                         `}
                       />
                     </td>
-                    <td className="px-4 py-3 text-right text-slate-600 font-medium">
+                    <td className="px-4 py-3 text-left text-slate-600 font-medium">
                       {manualUnits[activeTab]?.[k] || ""}
                     </td>
                   </tr>
@@ -1396,10 +1404,13 @@ return (
   </main>
 
   {/* KPI SIDEBAR */}
-  <aside className="w-80 h-screen bg-gradient-to-b from-slate-50 to-white border-l border-slate-200 shadow-xl p-5 overflow-auto">
+  <aside className="w-70 h-screen bg-gradient-to-b from-slate-100 to-white border-l border-slate-200 shadow-xl p-5 overflow-auto">
     <div className="flex items-center justify-between mb-4">
       <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Performance KPIs</h3>
+      
     </div>
+    
+    
 
     {renderLeftKPIList()}
   </aside>

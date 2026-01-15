@@ -146,15 +146,15 @@ async def calculate_single_day(db: AsyncSession, d: date) -> Dict[str, Dict[str,
     )
 
     # Unit-1 KPIs
-    unit1["generation"] = u1_gen / 1000.0  # Convert to MU
+    unit1["generation"] = u1_gen   # Convert to MU
     unit1["plf_percent"] = energy.get("unit1_plf_percent", 0.0)
-    unit1["aux_power"] = energy.get("unit1_aux_consumption_mwh", 0.0) / 1000.0
+    unit1["aux_power"] = energy.get("unit1_aux_consumption_mwh", 0.0) 
     unit1["aux_power_percent"] = energy.get("unit1_aux_percent", 0.0)
 
     # Unit-2 KPIs
-    unit2["generation"] = u2_gen / 1000.0
+    unit2["generation"] = u2_gen
     unit2["plf_percent"] = energy.get("unit2_plf_percent", 0.0)
-    unit2["aux_power"] = energy.get("unit2_aux_consumption_mwh", 0.0) / 1000.0
+    unit2["aux_power"] = energy.get("unit2_aux_consumption_mwh", 0.0) 
     unit2["aux_power_percent"] = energy.get("unit2_aux_percent", 0.0)
 
     # Shutdown KPIs
