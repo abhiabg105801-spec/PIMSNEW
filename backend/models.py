@@ -4,7 +4,7 @@ from typing import Optional,List
 import enum
 
 from sqlalchemy import (
-    Column, Integer, String, Float, Date, DateTime, Time,
+    Column, Integer, String, Float, Date, DateTime, Time,Numeric,
     UniqueConstraint, Index, ForeignKey, Boolean, Text
 )
 from sqlalchemy.orm import relationship
@@ -243,3 +243,42 @@ class KPIRecordDB(Base):
             name="uq_kpi_unique"
         ),
     )
+
+
+class UnitInceptionMetricsDB(Base):
+    """
+    Stores inception offsets for each generating unit.
+    Used to adjust generation and running hours prior to system go-live.
+    """
+
+    __tablename__ = "unit_inception_metrics"
+
+    unit = Column(String(20), primary_key=True)  # Unit-1, Unit-2
+
+    inception_mw_offset = Column(
+        Float, default=0.0, nullable=False
+    )  # MWh offset before system
+
+    inception_hours_offset = Column(
+        Float, default=0.0, nullable=False
+    )  # Running hours offset
+
+    inception_date = Column(
+        DateTime, nullable=True
+    )  # Commissioning / inception date
+
+    created_at = Column(
+        DateTime, default=datetime.utcnow, nullable=False
+    )
+
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, nullable=False
+    )
+
+    def __repr__(self):
+        return (
+            f"<UnitInceptionMetrics("
+            f"unit={self.unit}, "
+            f"mw_offset={self.inception_mw_offset}, "
+            f"hours_offset={self.inception_hours_offset})>"
+        )
