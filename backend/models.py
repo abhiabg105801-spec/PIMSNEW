@@ -282,3 +282,94 @@ class UnitInceptionMetricsDB(Base):
             f"mw_offset={self.inception_mw_offset}, "
             f"hours_offset={self.inception_hours_offset})>"
         )
+# models.py
+
+class TotalizerConfigDB(Base):
+    """
+    Stores totalizer configuration including initial values and reset history
+    """
+    __tablename__ = "totalizer_config"
+
+    id = Column(Integer, primary_key=True, index=True)
+    totalizer_id = Column(Integer, nullable=False, index=True)
+    
+    # Initial/reset configuration
+    config_type = Column(String, nullable=False)  # "initial" or "reset"
+    effective_date = Column(Date, nullable=False, index=True)
+    
+    # The "previous day" value to use for difference calculation
+    baseline_value = Column(Float, default=0.0, nullable=False)
+    
+    # Metadata
+    reason = Column(Text, nullable=True)  # "System go-live", "Meter replaced", etc.
+    notes = Column(Text, nullable=True)
+    old_meter_final_reading = Column(Float, nullable=True)  # For audit trail
+    
+    # Audit trail
+    configured_by = Column(String, nullable=False)
+    configured_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    __table_args__ = (
+        Index("idx_totalizer_date", "totalizer_id", "effective_date"),
+    )
+
+
+class TotalizerMetadataDB(Base):
+    """
+    Metadata about each totalizer (display info, units, etc.)
+    """
+    __tablename__ = "totalizer_metadata"
+
+    totalizer_id = Column(Integer, primary_key=True)
+    name = Column(String, nullable=False)  # "feeder_a", "unit1_gen", etc.
+    display_name = Column(String, nullable=False)
+    unit_name = Column(String, nullable=False)  # "Unit-1", "Energy-Meter", etc.
+    measurement_unit = Column(String, nullable=True)  # "Tons", "MWh", "m³"
+    
+    # Current status
+    is_active = Column(Boolean, default=True)
+    last_reset_date = Column(Date, nullable=True)
+    
+    # Audit
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+# models.py
+
+class KPIOffsetDB(Base):
+    """
+    Stores historical KPI offsets for month/year aggregation
+    Used when system goes live mid-month/mid-year
+    """
+    __tablename__ = "kpi_offsets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Period identification
+    period_type = Column(String, nullable=False, index=True)  # "month" or "year"
+    period_start_date = Column(Date, nullable=False, index=True)  # Start of period
+    period_end_date = Column(Date, nullable=False)  # End of period (usually system go-live date - 1)
+    
+    # KPI identification
+    plant_name = Column(String, nullable=False, index=True)  # "Unit-1", "Unit-2", "Station"
+    kpi_name = Column(String, nullable=False, index=True)
+    
+    # The offset value (accumulated value before system go-live)
+    offset_value = Column(Float, nullable=False)
+    
+    # Metadata
+    reason = Column(Text, nullable=True)  # "System go-live mid-month"
+    source = Column(Text, nullable=True)  # "Manual records", "Previous system", etc.
+    notes = Column(Text, nullable=True)
+    
+    # Audit trail
+    configured_by = Column(String, nullable=False)
+    configured_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    
+    __table_args__ = (
+        UniqueConstraint(
+            "period_type", "period_start_date", "plant_name", "kpi_name",
+            name="uq_kpi_offset"
+        ),
+        Index("idx_kpi_offset_lookup", "period_type", "plant_name", "kpi_name"),
+    )

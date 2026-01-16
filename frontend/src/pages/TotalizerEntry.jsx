@@ -185,7 +185,6 @@ export default function TotalizerEntryPage({ auth }) {
       clarifier_level: "",
       ro_running_hour: "",
       ro_production_cum: "",
-      stn_net_export_exbus: "",
       coal_indonesian_percent: "",
       coal_southafrica_percent: "",
       coal_domestic_percent: "",
@@ -203,7 +202,6 @@ export default function TotalizerEntryPage({ auth }) {
       clarifier_level: "%",
       ro_running_hour: "hr",
       ro_production_cum: "m3",
-      stn_net_export_exbus: "MWh",
       coal_indonesian_percent: "%",
       coal_southafrica_percent: "%",
       coal_domestic_percent: "%",
@@ -591,81 +589,62 @@ setPreviewAutoKPIs(null);
 setShowConfirmPopup(true);
 };
 const confirmSubmit = async () => {
-setShowConfirmPopup(false);
-setSubmitting(true);
-setMessage("");
-try {
-  const items = totalizersByUnit[activeTab] || [];
+  setShowConfirmPopup(false);
+  setSubmitting(true);
+  setMessage("");
+  
+  try {
+    const items = totalizersByUnit[activeTab] || [];
 
-  const payload = {
-    date: reportDate,
-    username: userName,
-    plant_name: activeTab,
-    readings: items
-      .map((t) => {
-        const rec = readingsForm[t.id];
-        if (!rec || rec.today === "" || rec.today === null) return null;
-        return {
-          totalizer_id: t.id,
-          reading_value: Number(rec.today),
-          adjust_value: canAdjust ? Number(rec.adjust || 0) : 0,
-        };
-      })
-      .filter(Boolean),
-  };
-
-  await api.post("/totalizers/submit", {
-    date: reportDate,
-    plant_name: activeTab,
-    readings: payload.readings
-  });
-
-  const manualList = Object.entries(manualKPI[activeTab] || {})
-    .map(([name, value]) => ({
-      name,
-      value,
-      unit: manualUnits[activeTab]?.[name]
-    }))
-    .filter(m => m.value !== "" && m.value !== null && m.value !== undefined);
-
-  if (manualList.length > 0) {
-    await api.post("/kpi/manual", {
+    // Submit totalizer readings
+    // ✅ Backend will AUTO-CALCULATE and SAVE all KPIs!
+    await api.post("/totalizers/submit", {
       date: reportDate,
       plant_name: activeTab,
-      kpis: manualList
+      readings: items
+        .map((t) => {
+          const rec = readingsForm[t.id];
+          if (!rec || rec.today === "" || rec.today === null) return null;
+          return {
+            totalizer_id: t.id,
+            reading_value: Number(rec.today),
+            adjust_value: canAdjust ? Number(rec.adjust || 0) : 0,
+          };
+        })
+        .filter(Boolean),
     });
+
+    // Save manual KPIs separately
+    const manualList = Object.entries(manualKPI[activeTab] || {})
+      .map(([name, value]) => ({
+        name,
+        value,
+        unit: manualUnits[activeTab]?.[name]
+      }))
+      .filter(m => m.value !== "" && m.value !== null && m.value !== undefined);
+
+    if (manualList.length > 0) {
+      await api.post("/kpi/manual", {
+        date: reportDate,
+        plant_name: activeTab,
+        kpis: manualList
+      });
+    }
+
+    setMessage("✅ Readings saved and KPIs auto-calculated successfully!");
+    
+    // Reload data
+    await loadTodayReadings(reportDate, activeTab, totalizersByUnit[activeTab]);
+    await loadYesterdayReadings(reportDate, activeTab, totalizersByUnit[activeTab]);
+    await loadManualKPIForActiveTab();
+    await loadGenerationData(reportDate);
+    
+  } catch (err) {
+    console.error(err);
+    setMessage(`❌ ${err?.response?.data?.detail || "Save error"}`);
+  } finally {
+    setSubmitting(false);
   }
-
-  setReadingsForm((prev) => {
-    const updated = { ...prev };
-    items.forEach((t) => {
-      const rec = updated[t.id];
-      if (rec) rec._orig = { today: rec.today, adjust: rec.adjust };
-    });
-    return updated;
-  });
-
-  setOriginalManualKPI(prev => ({
-    ...prev,
-    [activeTab]: { ...manualKPI[activeTab] }
-  }));
-
-  setLastUpdatedInfo({ at: new Date().toISOString(), by: userName });
-  setMessage("✅ Readings saved successfully");
-
-  await loadYesterdayReadings(reportDate, activeTab, totalizersByUnit[activeTab]);
-  await loadManualKPIForActiveTab();
-  await loadGenerationData(reportDate);
-  
-  if (activeTab === "Unit-1" || activeTab === "Unit-2") {
-    await loadShutdownKPIsForUnitDate(activeTab, reportDate);
-  }
-} catch (err) {
-  console.error(err);
-  setMessage(`❌ ${err?.response?.data?.detail || "Save error"}`);
-} finally {
-  setSubmitting(false);
-}
 };
 const handleResetForm = () => {
 const items = totalizersByUnit[activeTab] || [];

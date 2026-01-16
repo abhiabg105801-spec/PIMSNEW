@@ -92,7 +92,7 @@ async def fetch_kpi_data_from_preview(db: AsyncSession, report_date: date) -> Di
     from models import KPIRecordDB, TotalizerReadingDB, ShutdownRecordDB
     from routers.totalizers import TOTALIZER_MASTER
     from datetime import timedelta
-    from services.kpi_calculations import (
+    from backend.services.kpi_calculator import (
         compute_unit_auto_kpis,
         compute_energy_meter_auto_kpis,
         compute_station_auto_kpis,

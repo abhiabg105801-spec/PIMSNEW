@@ -54,38 +54,24 @@ export default function DPRPageComplete({ auth }) {
   });
 
   const loadPreview = async () => {
-    setLoading(true);
-    try {
-      const url = `${API_URL}/dpr/kpi/preview?date=${encodeURIComponent(reportDate)}`;
-      const res = await fetch(url, {
-        headers: { Authorization: authHeader },
-      });
-      const data = await res.json();
-      
-      setKpis(data.kpis || {});
-      setShutdownDetails(data.shutdown_details || []);
-      
-      // Extract station manual data from KPIs if available
-      const stationData = data.kpis?.Station || {};
-      setStationManualData({
-        stn_net_export_exbus: stationData.stn_net_export_exbus?.day || "",
-        avg_raw_water_used: stationData.avg_raw_water_used?.day || "",
-        sp_raw_water_used: stationData.sp_raw_water_used?.day || "",
-        ro_running_hour: stationData.ro_running_hour?.day || "",
-        ro_production_cum: stationData.ro_production_cum?.day || "",
-        coal_indonesian_percent: stationData.coal_indonesian_percent?.day || "",
-        coal_southafrica_percent: stationData.coal_southafrica_percent?.day || "",
-        coal_domestic_percent: stationData.coal_domestic_percent?.day || "",
-        clarifier_level: stationData.clarifier_level?.day || "",
-      });
-    } catch (err) {
-      console.error("Preview load failed", err);
-      setKpis({});
-      setShutdownDetails([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+  setLoading(true);
+  try {
+    const url = `${API_URL}/dpr/kpi/preview?date=${encodeURIComponent(reportDate)}`;
+    const res = await fetch(url, {
+      headers: { Authorization: authHeader },
+    });
+    const data = await res.json();
+    
+    // ✅ All KPIs loaded from database!
+    setKpis(data.kpis || {});
+    setShutdownDetails(data.shutdown_details || []);
+    
+  } catch (err) {
+    console.error("Preview load failed", err);
+  } finally {
+    setLoading(false);
+  }
+};
 
   useEffect(() => {
     if (autoCalculate) {

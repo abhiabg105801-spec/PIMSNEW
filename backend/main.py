@@ -89,6 +89,8 @@ app.include_router(logic_router)
 
 from routers import totalizers
 app.include_router(totalizers.router)
+from routers import totalizer_admin
+app.include_router(totalizer_admin.router)
 
 from routers import shutdowns
 app.include_router(shutdowns.router)
